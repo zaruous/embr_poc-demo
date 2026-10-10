@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-master-setup-overview-ui  (eMBR 기준정보 PoC — 개요 · 판단 기준 설명 화면)
+  목적         : 허브(index.html)는 런처만, GCM 화면은 조회만 — 전체 판단 · 구조 설명은 이 화면 하나에 모음
+  내용         : ① 모듈 구성 (adm / ebr / ras)  ② GCM vs 도메인 마스터  ③ 설비(RAS/CMMS/CFMS) 재사용 기준
+                 ④ 데이터 흐름  ⑤ 기준정보 현황 · 장비 클래스 런타임 상태 (shared-store 실시간)  ⑥ PoC 단순화
+  저장         : 읽기만 함 (../assets/shared-store.js  localStorage 'ebmr.masterSetup.v2')
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>기준정보 개요 · 판단 기준 — eMBR 기준정보 PoC</title>
+<link rel="stylesheet" href="../assets/mesui.css">
+<link rel="stylesheet" href="../assets/master-setup.css">
+<style>
+  .ov-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 470px; gap: 20px; align-content: start; padding-right: 4px; }
+  .ov-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .ov-sec { display: flex; flex-direction: column; border: 1px solid var(--c-border-04); background: #fff; }
+  .ov-sec > .j-head { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; background: var(--c-bg-light); font-weight: bold; font-size: 14px; }
+  .ov-sec > .j-head .no { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--c-navy); color: #fff; font-size: 11px; }
+  .ov-sec > .j-head .sub-info { margin-left: auto; font-weight: normal; }
+  .ov-sec table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .ov-sec th { padding: 6px 10px; background: #fafbfd; border-top: 1px solid var(--c-border-05); text-align: left; font-weight: bold; white-space: nowrap; color: var(--c-text-sub); }
+  .ov-sec td { padding: 7px 10px; border-top: 1px solid var(--c-border-05); vertical-align: top; line-height: 1.5; }
+  .ov-sec td.k { width: 104px; font-weight: bold; white-space: nowrap; }
+  .ov-sec .ok-t { color: #1d7a55; font-weight: bold; }
+  .ov-sec .no-t { color: #c0392b; font-weight: bold; }
+  .ov-sec .pad { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+  .ov-sec code, .ov-sec .mono { font: 11.5px Consolas, 'Courier New', monospace; letter-spacing: 0; color: var(--c-navy); }
+  .ov-sec a { color: var(--c-primary); }
+  .mod-pill { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 2px; background: var(--c-navy); color: #fff; font: bold 10.5px Consolas, monospace; letter-spacing: 0; }
+  .mod-pill.adm { background: #6952db; } .mod-pill.ras { background: #707070; }
+  .ro-tag { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; background: #6952db; color: #fff; font-size: 11px; font-weight: bold; white-space: nowrap; }
+  .rw-tag { display: inline-flex; align-items: center; height: 18px; padding: 0 7px; border-radius: 9px; background: var(--c-navy); color: #fff; font-size: 11px; font-weight: bold; white-space: nowrap; }
+  .vs th:nth-child(2) { color: #4433a8; } .vs th:nth-child(3) { color: var(--c-navy); }
+  .flow .node.adm { border-color: #6952db; color: #4433a8; }
+  .flow .node.ebr { border-color: var(--c-navy); color: var(--c-navy); }
+  .flow .node.ras { border-color: #9a9a9a; color: #555; background: var(--bc-gray-light); }
+  .tree { margin: 0; padding: 10px 12px; background: var(--bc-gray-light); font: 12px/1.55 Consolas, 'Courier New', monospace; letter-spacing: 0; white-space: pre; overflow: auto; }
+  .tree b { color: var(--c-primary); } .tree i { color: var(--c-text-disabled); font-style: normal; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px; }
+  .kpi-grid .kpi { min-width: 0; }
+
+  /* 카탈로그/iframe 맞춤: mesui .shell-scale — 1920×1080 미만 뷰포트면 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+  /* ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 (공통 블록 — 기준정보 화면 + 배치 발행 동일) ====
+     위치: .title-bar 안 .breadcrumb 바로 앞, margin-left:auto (DESIGN §11-3 grpTitle: title │ 1fr │ 브레드크럼)
+     역할 배지 매핑: ui-items UI-04 (PM 승인 P5) — 기존 .badge 변형 + --bc-* 토큰만, 라벨 항상 표시 */
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }   /* UI-04: 24 (--title-h 29 안) — 키인 폼 컨트롤 높이 토큰 */
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  /* 선택 없음: 편집·서명 버튼 비활성 표시 (opacity = §13-1 disabled) + 툴팁 "사용자를 선택하세요" (클릭은 스크립트가 차단) */
+  body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
+</style>
+</head>
+<body data-root="../">
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="main-title">기준정보 개요 · 판단 기준</span>
+    <span class="user-switch" id="userSwitch"></span>
+    <span class="breadcrumb">
+      <span>eMBR</span><span class="sep">&rsaquo;</span><span>설정 · 관리</span><span class="sep">&rsaquo;</span><a href="../index.html">기준정보</a><span class="sep">&rsaquo;</span><span class="current">개요</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+  <div class="shell-body">
+    <div class="ms-layout">
+      <div class="ms-main">
+        <div class="ov-body" id="ovBody">
+          <!-- ===================== 1열: ① 모듈 구성 · ② GCM vs 도메인 마스터 -->
+          <div class="ov-col">
+            <section class="ov-sec" id="secModules">
+              <div class="j-head"><span class="no">1</span>모듈 구성 (폴더 = 모듈)<span class="sub-info">master-setup/</span></div>
+              <table>
+                <tr><th>폴더</th><th>모듈 · 역할</th><th>화면</th><th>PoC 모드</th></tr>
+                <tr><td class="k"><span class="mod-pill adm">ADM</span> <code>adm/</code></td><td>공통 코드 <b>GCM</b>. 제품 ADM 기능 (AdmSetupCodeTable / CodeData). EBR 마스터의 콤보 · 뱃지 소스.</td>
+                  <td><a href="../adm/s-adm-gcm-code-ui.html">GCM 공통 코드</a></td><td><span class="ro-tag">조회 전용</span></td></tr>
+                <tr><td class="k"><span class="mod-pill">EBR</span> <code>ebr/</code></td><td>eMBR <b>도메인 마스터</b>. 버전 · 수명주기 · 해시를 가진 GMP 기준정보.</td>
+                  <td><a href="../ebr/s-ebr-phase-library-ui.html">S-03 Phase</a> · <a href="../ebr/s-ebr-config-object-ui.html">S-07/S-08 설정 객체</a> · <a href="../ebr/s-ebr-signature-setup-ui.html">S-39 서명</a> · <a href="../ebr/s-ebr-terminal-registry-ui.html">S-40 단말</a> · <a href="../ebr/s-ebr-equipment-class-ui.html">MBR-02 장비 클래스</a></td><td><span class="rw-tag">편집</span></td></tr>
+                <tr><td class="k"><span class="mod-pill ras">RAS</span> <code>ras/</code></td><td>연계 참조. RAS 설비 · CMMS 교정 · CFMS 적격성 = <b>설비 개체 소스</b>만. 클래스 정의 없음.</td>
+                  <td>—</td><td><span class="ro-tag">읽기</span></td></tr>
+                <tr><td class="k"><code>guide/</code></td><td>이 개요 화면 (판단 · 구조 설명 전용)</td><td>s-master-setup-overview-ui</td><td>—</td></tr>
+                <tr><td class="k"><code>index.html</code></td><td>허브 = 화면 런처 (카드 · 링크만)</td><td><a href="../index.html">허브</a></td><td>—</td></tr>
+              </table>
+            </section>
+
+            <section class="ov-sec vs" id="secGcmVsDomain">
+              <div class="j-head"><span class="no">2</span>GCM vs 도메인 마스터<span class="sub-info">무엇을 GCM 에 두고 무엇을 EBR 에 두나</span></div>
+              <table>
+                <tr><th>구분</th><th>GCM (ADM · adm/)</th><th>도메인 마스터 (EBR · ebr/)</th></tr>
+                <tr><td class="k">성격</td><td>단순 코드 목록: key · 설명 · Seq · 사용안함 · data1..n</td><td>구조화된 GMP 객체: 본문 · 참조 · 규칙</td></tr>
+                <tr><td class="k">관리 위치</td><td>제품 <b>AdmSetupCodeTable / CodeData</b> 화면. <b>이 PoC 는 조회만</b></td><td>eMBR 기준정보 화면 (ebr/)</td></tr>
+                <tr><td class="k">수명주기</td><td>없음 (사용안함 플래그로 폐기 대신)</td><td>초안 → 검토 → 승인 → 효력 → 대체/폐기, 전자서명</td></tr>
+                <tr><td class="k">버전 · 해시</td><td>없음</td><td>ID · 버전 · 콘텐츠 해시. 다른 객체가 (ID · ver · hash)로 참조</td></tr>
+                <tr><td class="k">모듈 구분</td><td>제품 CodeTable 에 <b>module 필드 없음</b> → <code>EBR_</code> 접두로 구분</td><td>폴더 · 화면 ID (S-03 · S-07 · S-39 · S-40 · MBR-02)</td></tr>
+                <tr><td class="k">eMBR 범위</td><td><span class="ok-t">EBR_* 11종 신규 시드</span> (제품에 아직 없음): DOSAGE_FORM · MBR_STATUS · ORDER_STATUS · AUTHORING_SCOPE · INTERLOCK_GRADE · CONFIG_KIND · SIGN_MEANING · AUTH_STRENGTH · TERMINAL_TYPE · EVIDENCE_TYPE · PHASE_KIND</td>
+                  <td>Phase · 설정 객체(인터록 등) · 서명 의미 규칙 · 단말 · <b>장비 클래스</b></td></tr>
+                <tr><td class="k">경계</td><td><span class="no-t">✕</span> Phase · 설정 객체 · 장비 클래스를 GCM 코드로 만들지 않음</td><td>콤보 · 뱃지 값은 GCM 코드를 참조 (사용 중 코드 삭제 금지 → 사용안함)</td></tr>
+              </table>
+            </section>
+
+          </div>
+
+          <!-- ===================== 2열: ③ 설비 재사용 기준 · ④ 데이터 흐름 · 폴더 트리 -->
+          <div class="ov-col">
+            <section class="ov-sec" id="secEquip">
+              <div class="j-head"><span class="no">3</span>설비 재사용 기준 (RAS · CMMS · CFMS ↔ 장비 클래스)</div>
+              <table>
+                <tr><th>항목</th><th>판단</th><th>PoC 반영</th></tr>
+                <tr><td class="k">RAS/CMMS 설비</td><td><span class="ok-t">재사용</span> 적격 설비 <b>멤버 ID</b>로만</td><td>장비 클래스 상세 → [RAS 설비 선택] 피커로만 추가</td></tr>
+                <tr><td class="k">RAS Type/Group<br>CFMS Group</td><td><span class="no-t">부적합</span> 장비 클래스로 쓰지 않음</td><td>피커의 "참조 · 클래스 아님" 컬럼 · 필터로만 표시</td></tr>
+                <tr><td class="k">장비 클래스</td><td><span class="ok-t">신규</span> eMBR 도메인 마스터</td><td>요구 능력 + 버전별 적격 목록 + 수명주기 + 콘텐츠 해시</td></tr>
+                <tr><td class="k">Phase 참조</td><td>(클래스 ID · 버전 · 해시)</td><td>승인 · 효력 버전만 선택. 일치 · 신규 v · 해시 불일치 뱃지</td></tr>
+                <tr><td class="k">설비명 · 작업장</td><td>RAS 마스터 값을 표시</td><td>런타임 RAS 값 (해시 대상 아님)</td></tr>
+                <tr><td class="k">교정 · 적격</td><td>런타임 파생</td><td>"CMMS 교정"(계측기) · "CFMS 적격"(공정 설비) 뱃지, 유효 · 임박 · 만료</td></tr>
+                <tr><td class="k">스냅샷</td><td>추가 시 기록, <b>승인 시 고정</b></td><td>승인 전이 때 다시 기록 🔒, 이후 값이 바뀌면 Δ</td></tr>
+                <tr><td class="k">자유 입력 ID</td><td><span class="no-t">불가</span></td><td>텍스트 입력칸 없음. RAS 에 없는 ID 는 저장 · 전이 차단</td></tr>
+                <tr><td class="k">피커 판정</td><td colspan="2">폐기(SCRAP) · CFMS 적격성 진행 중/만료 설비는 추가 불가. CMMS 교정 만료는 경고 후 추가 가능(실행 시 Absolute 인터록). 이미 등록된 설비는 "등록됨".</td></tr>
+                <tr><td class="k">해시 대상</td><td colspan="2">클래스 정의(ID · 버전 · 명칭 · 유형 · 제형 · 요구 능력 · 메모) + <b>적격 설비 ID 목록</b>. 이름 · 교정일 같은 런타임 값은 제외 → 승인 때 스냅샷을 고정해도 해시 불변.</td></tr>
+              </table>
+            </section>
+            <section class="ov-sec" id="secFlow">
+              <div class="j-head"><span class="no">4</span>데이터 흐름</div>
+              <div class="pad">
+                <div class="flow"><span class="node adm">GCM EBR_* (ADM · 조회)</span><span class="arr">→ 콤보 · 뱃지 →</span><span class="node ebr">S-03 · S-07 · S-39 · S-40 · 장비 클래스</span></div>
+                <div class="flow"><span class="node ras">RAS 설비 개체</span><span class="arr">+</span><span class="node ras">CMMS 교정</span><span class="arr">+</span><span class="node ras">CFMS 적격</span><span class="arr">→ 피커 →</span><span class="node ebr">장비 클래스 vN · 해시 · 스냅샷</span></div>
+                <div class="flow"><span class="node ebr">장비 클래스 (ID · ver · hash)</span><span class="arr">→</span><span class="node ebr">Phase (ID · ver · hash)</span><span class="arr">→</span><span class="node ebr">MBR</span></div>
+              </div>
+            </section>
+            <section class="ov-sec" id="secTree">
+              <div class="j-head">폴더 트리</div>
+              <pre class="tree"><b>master-setup/</b>
+├─ index.html                 <i># 허브 (런처: 카드 · 링크만)</i>
+├─ README.md
+├─ <b>guide/</b> s-master-setup-overview-ui.html  <i># 이 화면</i>
+├─ assets/  mesui.css · mesui.js · master-setup.css
+│           shared-store.js   <i># localStorage ebmr.masterSetup.v2 · GCM 시드</i>
+│           master-t02.js     <i># 공용 셸 · T-02 엔진</i>
+│           samples/*.json    <i># 시드 스냅샷 (참고용)</i>
+├─ <b>adm/</b>  s-adm-gcm-code-ui.html        <i># 조회 전용</i>
+├─ <b>ebr/</b>  s-ebr-phase-library-ui.html · s-ebr-config-object-ui.html
+│        s-ebr-signature-setup-ui.html · s-ebr-terminal-registry-ui.html
+│        s-ebr-equipment-class-ui.html
+└─ <b>ras/</b>  README.md                     <i># 피커 소스 안내 (클래스 없음)</i></pre>
+            </section>
+          </div>
+
+          <!-- ===================== 3열: 현황 · 런타임 상태 · 단순화 -->
+          <div class="ov-col">
+            <section class="ov-sec" id="secKpi">
+              <div class="j-head"><span class="no">5</span>기준정보 현황<span class="sub-info">shared-store 실시간</span></div>
+              <div class="kpi-grid" id="kpis"></div>
+            </section>
+            <section class="ov-sec" id="secHealth">
+              <div class="j-head">장비 클래스 런타임 상태<span class="sub-info">RAS · CMMS · CFMS mock 파생</span></div>
+              <table id="ecHealth"></table>
+            </section>
+            <section class="ov-sec" id="secShort">
+              <div class="j-head"><span class="no">6</span>PoC 단순화 (알려진 지름길)</div>
+              <table>
+                <tr><td class="k">GCM</td><td>조회 전용. 코드 테이블 · 코드 등록/수정/삭제/Import 는 제품 AdmSetupCode* 화면 몫</td></tr>
+                <tr><td class="k">전자서명</td><td>승인 · 효력전환 · 폐기의 T-11 서명은 확인 팝업으로 대체</td></tr>
+                <tr><td class="k">외부 연계</td><td>RAS · CMMS · CFMS 는 shared-store 내 mock (읽기전용)</td></tr>
+                <tr><td class="k">효력 대기</td><td>pending 단계 · 효력일 지정 생략 (승인 → 효력 직행)</td></tr>
+                <tr><td class="k">S-08</td><td>interlock 만 구조화 폼, 나머지 kind 는 텍스트 본문</td></tr>
+                <tr><td class="k">페이징</td><td>단일 페이지</td></tr>
+              </table>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+<script src="../assets/mesui.js"></script>
+<script src="../assets/shared-store.js"></script>
+<script src="../assets/ebr-user-session.js"></script>   <!-- UI-09 DEVELOPER1 헬퍼 (window.EbrUserSession) -->
+<!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 + 배치 발행 동일) ==== -->
+<script>
+/* DEVELOPER1 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+ *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
+ *   hasSodConflict(roles) · onChange(fn) → unsub
+ * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
+ * 헬퍼가 없으면(파일 미배포) 선택기는 「사용자 API 미연결」로 비활성 표시만 하고 화면 기존 동작은 그대로 둔다(게이트 미적용, 오류 없음). */
+(function (global) {
+  'use strict';
+  var WATCH_KEYS = ['ebmr.currentUser.v1', 'ebmr.userRole.v1'];   /* onChange 가 없을 때만: 다른 탭 변경 감지용 키 이름 (값은 헬퍼로만 읽음) */
+  var ROLE = { QP: ['QP', 'role-qp'], QA: ['QA', 'role-qa'], SV: ['감독자', 'ok'], OP: ['작업자', 'info'], ADMIN: ['관리자', ''] };
+  var ROLE_ORDER = ['QP', 'QA', 'SV', 'OP', 'ADMIN'];   /* 배지 우선순위 QP>QA>SV>OP>ADMIN (기획 마스터 §3.1) */
+  var GATE_SEL = '[data-p0-edit],[data-act="new"],[data-act="delete"],[data-act="submit"],[data-act="approve"],[data-act="activate"],[data-act="reject"],[data-act="retire"],#dmSave,#dmNewVer';
+  var GATE_TIP = '사용자를 선택하세요';
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var listeners = [], readyQ = [], isReady = false;
+
+  function api() { return global.EbrUserSession || null; }
+  function call(fn) {
+    var a = api(); if (!a || typeof a[fn] !== 'function') return undefined;
+    try { return a[fn].apply(a, Array.prototype.slice.call(arguments, 1)); } catch (e) { if (global.console) console.error('[EbrUserSession] ' + fn, e); return undefined; }
+  }
+  function sortRoles(roles) { return (roles || []).slice().sort(function (a, b) { return ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b); }); }
+  function roleBadge(code) { var r = ROLE[code] || [code, 'muted']; return '<span class="badge' + (r[1] ? ' ' + r[1] : '') + '" title="' + esc(code) + '">' + esc(r[0]) + '</span>'; }
+  function roleBadges(roles) { return sortRoles(roles).map(roleBadge).join(''); }
+  function statusBadge(st) { return st === 'locked' ? '<span class="badge error">잠김</span>' : st === 'inactive' ? '<span class="badge muted">비활성</span>' : ''; }
+  function rolesOfUser(u) { return !u ? [] : (Array.isArray(u.roles) ? u.roles : (call('rolesOf', u.userId) || [])); }
+  function users(filter) { var l = call('listUsers', filter || {}); return Array.isArray(l) ? l : []; }
+  function current() { return call('getCurrentUser') || null; }
+  function connected() { var a = api(); return !!(a && typeof a.getCurrentUser === 'function' && typeof a.listUsers === 'function'); }
+  function hasRole(u, code) { return rolesOfUser(u).indexOf(code) >= 0; }
+  function sod(roles) { var v = call('hasSodConflict', roles || []); return typeof v === 'boolean' ? v : false; }
+  function gateOn() { return connected() && !current(); }
+  function userLabel(u) { return u ? u.name + ' (' + u.userId + ')' : '—'; }
+
+  function render() {
+    var host = document.getElementById('userSwitch');
+    if (host) {
+      if (!connected()) {
+        host.innerHTML = '<span class="tip" title="ebr-user-session.js (DEVELOPER1) 가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+      } else {
+        var cur = current(), list = users();
+        var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
+          var bad = u.status === 'locked' ? ' — 잠김' : u.status === 'inactive' ? ' — 비활성' : '';
+          return '<option value="' + esc(u.userId) + '"' + (bad ? ' disabled' : '') + (cur && cur.userId === u.userId ? ' selected' : '') + '>' + esc(userLabel(u) + bad) + '</option>';
+        }).join('');
+        host.innerHTML = '<select class="input w-200" id="userSwitchSel" aria-label="현재 사용자" title="현재 사용자 (인증 아님 — 서명 시 ID · 비밀번호 재입력)">' + opts + '</select>' +
+          '<span class="us-roles">' + (cur ? roleBadges(rolesOfUser(cur)) + statusBadge(cur.status) : '<span class="badge warn">' + GATE_TIP + '</span>') + '</span>';
+        var sel = document.getElementById('userSwitchSel');
+        sel.addEventListener('change', function () {
+          var r = call('setCurrentUser', sel.value || null);
+          if (r && r.ok === false && global.MesUI) {
+            MesUI.toast(r.message || (r.code === 'LOCKED' ? '잠긴 계정은 선택할 수 없습니다 — 관리자(ADMIN)에게 해제를 요청하세요.'
+              : r.code === 'INACTIVE' ? '비활성 계정은 선택할 수 없습니다.' : r.code === 'SAVE_ERROR' ? '감사 기록을 저장하지 못해 사용자를 전환하지 못했습니다.' : '사용자를 찾을 수 없습니다.'),
+              r.code === 'SAVE_ERROR' ? 'error' : 'warn', 2600);   /* SAVE_ERROR: 헬퍼가 변경을 되돌림 → 선택값도 아래 refresh 로 되돌림 */
+          }
+          if (!hasOnChange || (r && r.ok === false)) refresh();   /* onChange 는 성공 시 헬퍼가 발생 — 거부(LOCKED 등)면 선택 되돌림 */
+        });
+      }
+    }
+    applyGate();
+  }
+  function applyGate() {
+    var on = gateOn();
+    document.body.classList.toggle('p0-no-user', on);
+    Array.prototype.forEach.call(document.querySelectorAll(GATE_SEL), function (b) { b.classList.toggle('p0-gated', on); });
+  }
+  function refresh() { render(); listeners.forEach(function (fn) { try { fn(current()); } catch (e) { if (global.console) console.error(e); } }); }
+
+  /* 선택 없음 게이트: 편집 버튼 클릭 차단 + 툴팁 (동적으로 그려지는 T-02 버튼 포함) */
+  document.addEventListener('click', function (e) {
+    if (!gateOn()) return;
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    if (global.MesUI) MesUI.toast(GATE_TIP + ' — 상단 사용자 선택기에서 현재 사용자를 고른 뒤 다시 시도하세요.', 'warn', 2200);
+  }, true);
+  document.addEventListener('mouseover', function (e) {
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    if (gateOn()) { if (!b.hasAttribute('data-p0-tip')) b.setAttribute('data-p0-tip', b.getAttribute('title') || ''); b.setAttribute('title', GATE_TIP); b.classList.add('p0-gated'); }
+    else if (b.hasAttribute('data-p0-tip')) { b.setAttribute('title', b.getAttribute('data-p0-tip')); b.removeAttribute('data-p0-tip'); b.classList.remove('p0-gated'); }
+  }, true);
+
+  var hasOnChange = false;
+  function start() {
+    isReady = true;
+    var a = api();
+    if (a && typeof a.onChange === 'function') { hasOnChange = true; call('onChange', function () { refresh(); }); }
+    else global.addEventListener('storage', function (e) { if (WATCH_KEYS.indexOf(e.key) >= 0) refresh(); });
+    render();
+    readyQ.splice(0).forEach(function (fn) { try { fn(); } catch (e) { if (global.console) console.error(e); } });
+  }
+
+  global.P0Ui = {
+    api: api, call: call, connected: connected, users: users, current: current, hasRole: hasRole, rolesOf: rolesOfUser, sod: sod, userLabel: userLabel,
+    roleBadge: roleBadge, roleBadges: roleBadges, statusBadge: statusBadge, sortRoles: sortRoles, ROLE: ROLE, ROLE_ORDER: ROLE_ORDER,
+    gateOn: gateOn, refresh: refresh, applyGate: applyGate, esc: esc, GATE_TIP: GATE_TIP,
+    onUserChange: function (fn) { listeners.push(fn); },
+    ready: function (fn) { if (isReady) fn(); else readyQ.push(fn); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})(window);
+</script>
+<script src="../assets/master-t02.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = MS.$, esc = MS.esc;
+  MS.load();
+  MT.shell('overview');
+  function render() {
+    var D = MS.DB, cnt = function (k, st) { return D[k].filter(function (r) { return !st || r.status === st; }).length; };
+    var used = {}; D.eqclass.forEach(function (r) { if (r.status !== 'retired') r.members.forEach(function (m) { used[m.equipId] = 1; }); });
+    var codes = Object.keys(D.gcmData).reduce(function (n, k) { return n + D.gcmData[k].length; }, 0);
+    var bad = D.eqclass.filter(function (r) { return r.status === 'effective' && r.members.some(function (m) { var rt = MS.ext.runtime(m.equipId); return rt.calState === 'expired' || rt.qualState === 'expired' || !rt.exists; }); }).length;
+    var kp = function (lbl, v, sub, code, warn) { return '<div class="kpi' + (warn ? ' warning' : '') + '"><span class="kpi-label">' + esc(lbl) + '</span><span class="kpi-value">' + v + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</span><span class="kpi-code" style="font-size:12px">' + esc(code) + '</span></div>'; };
+    $('#kpis').innerHTML = kp('GCM 코드 테이블', D.gcmTables.length, '/ 코드 ' + codes, 'ADM · 조회 전용') +
+      kp('Phase 효력', cnt('phase', 'effective'), '/ ' + cnt('phase'), 'S-03') + kp('설정 객체 효력', cnt('config', 'effective'), '/ ' + cnt('config'), 'S-07') +
+      kp('장비 클래스 효력', cnt('eqclass', 'effective'), '/ ' + cnt('eqclass'), 'MBR-02') + kp('적격 목록 사용 설비', Object.keys(used).length, '/ RAS ' + MS.ext.ras.length, 'RAS 개체 재사용') +
+      kp('교정 · 적격 만료 포함', bad, '효력본', 'CMMS · CFMS 런타임', bad > 0);
+    $('#ecHealth').innerHTML = D.eqclass.filter(function (r) { return r.status === 'effective' || r.status === 'review' || r.status === 'draft'; }).slice(0, 7).map(function (r) {
+      var issues = r.members.map(function (m) { var rt = MS.ext.runtime(m.equipId); return rt.calState === 'expired' ? m.equipId + ' 교정 만료' : rt.calState === 'due' ? m.equipId + ' 교정 임박' : rt.qualState === 'due' ? m.equipId + ' 재적격 임박' : ''; }).filter(Boolean);
+      return '<tr><td class="k"><a href="../ebr/s-ebr-equipment-class-ui.html#' + esc(r.id) + '">' + esc(r.id) + '</a> v' + r.ver + '</td><td>' + MS.lcBadge(r.status) + ' ' + esc(r.members.map(function (m) { return m.equipId; }).join(', ')) +
+        (issues.length ? ' <span class="badge ' + (issues.join().indexOf('만료') >= 0 ? 'error' : 'warn') + '">' + esc(issues.join(' · ')) + '</span>' : ' <span class="badge ok">정상</span>') + '</td></tr>';
+    }).join('');
+  }
+  render();
+  MT.onRerender(render);
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

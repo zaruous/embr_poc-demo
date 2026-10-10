@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-ebr-terminal-registry-ui  (EBR 모듈 · S-40 단말 레지스트리 · 작업실 바인딩)
+  클래스       : CEbrSetupTerminalMain   템플릿 T-02 + T-10 (900)
+  모듈 폴더    : ebr/  (eMBR 도메인 마스터 — GCM 아님)
+  사용 GCM     : EBR_TERMINAL_TYPE · EBR_AUTH_STRENGTH · EBR_MBR_STATUS
+  작업실       : RAS 작업장(areaCode) 마스터 mock 를 콤보 소스로 재사용 (shared-store MS.ext.areas)
+  저장         : ../assets/shared-store.js  localStorage 'ebmr.masterSetup.v2'
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>S-40 단말 레지스트리 — eMBR 기준정보 PoC</title>
+<link rel="stylesheet" href="../assets/mesui.css">
+<link rel="stylesheet" href="../assets/master-setup.css">
+<style>
+
+  /* 카탈로그/iframe 맞춤: mesui .shell-scale — 1920×1080 미만 뷰포트면 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+  /* ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 (공통 블록 — 기준정보 화면 + 배치 발행 동일) ====
+     위치: .title-bar 안 .breadcrumb 바로 앞, margin-left:auto (DESIGN §11-3 grpTitle: title │ 1fr │ 브레드크럼)
+     역할 배지 매핑: ui-items UI-04 (PM 승인 P5) — 기존 .badge 변형 + --bc-* 토큰만, 라벨 항상 표시 */
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }   /* UI-04: 24 (--title-h 29 안) — 키인 폼 컨트롤 높이 토큰 */
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  /* 선택 없음: 편집·서명 버튼 비활성 표시 (opacity = §13-1 disabled) + 툴팁 "사용자를 선택하세요" (클릭은 스크립트가 차단) */
+  body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
+</style>
+</head>
+<body data-root="../">
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="main-title"><span class="mod-tag">EBR</span>단말 레지스트리</span>
+    <span class="user-switch" id="userSwitch"></span>
+    <span class="breadcrumb">
+      <span>eMBR</span><span class="sep">&rsaquo;</span><span>설정 · 관리</span><span class="sep">&rsaquo;</span><a href="../index.html">기준정보</a><span class="sep">&rsaquo;</span><span class="current">S-40 단말 레지스트리</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+  <div class="shell-body">
+    <div class="ms-layout">
+      <div class="ms-main"><section class="view" id="view-terminal"></section></div>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+<script src="../assets/mesui.js"></script>
+<script src="../assets/shared-store.js"></script>
+<script src="../assets/ebr-user-session.js"></script>   <!-- UI-09 DEVELOPER1 헬퍼 (window.EbrUserSession) -->
+<!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 + 배치 발행 동일) ==== -->
+<script>
+/* DEVELOPER1 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+ *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
+ *   hasSodConflict(roles) · onChange(fn) → unsub
+ * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
+ * 헬퍼가 없으면(파일 미배포) 선택기는 「사용자 API 미연결」로 비활성 표시만 하고 화면 기존 동작은 그대로 둔다(게이트 미적용, 오류 없음). */
+(function (global) {
+  'use strict';
+  var WATCH_KEYS = ['ebmr.currentUser.v1', 'ebmr.userRole.v1'];   /* onChange 가 없을 때만: 다른 탭 변경 감지용 키 이름 (값은 헬퍼로만 읽음) */
+  var ROLE = { QP: ['QP', 'role-qp'], QA: ['QA', 'role-qa'], SV: ['감독자', 'ok'], OP: ['작업자', 'info'], ADMIN: ['관리자', ''] };
+  var ROLE_ORDER = ['QP', 'QA', 'SV', 'OP', 'ADMIN'];   /* 배지 우선순위 QP>QA>SV>OP>ADMIN (기획 마스터 §3.1) */
+  var GATE_SEL = '[data-p0-edit],[data-act="new"],[data-act="delete"],[data-act="submit"],[data-act="approve"],[data-act="activate"],[data-act="reject"],[data-act="retire"],#dmSave,#dmNewVer';
+  var GATE_TIP = '사용자를 선택하세요';
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var listeners = [], readyQ = [], isReady = false;
+
+  function api() { return global.EbrUserSession || null; }
+  function call(fn) {
+    var a = api(); if (!a || typeof a[fn] !== 'function') return undefined;
+    try { return a[fn].apply(a, Array.prototype.slice.call(arguments, 1)); } catch (e) { if (global.console) console.error('[EbrUserSession] ' + fn, e); return undefined; }
+  }
+  function sortRoles(roles) { return (roles || []).slice().sort(function (a, b) { return ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b); }); }
+  function roleBadge(code) { var r = ROLE[code] || [code, 'muted']; return '<span class="badge' + (r[1] ? ' ' + r[1] : '') + '" title="' + esc(code) + '">' + esc(r[0]) + '</span>'; }
+  function roleBadges(roles) { return sortRoles(roles).map(roleBadge).join(''); }
+  function statusBadge(st) { return st === 'locked' ? '<span class="badge error">잠김</span>' : st === 'inactive' ? '<span class="badge muted">비활성</span>' : ''; }
+  function rolesOfUser(u) { return !u ? [] : (Array.isArray(u.roles) ? u.roles : (call('rolesOf', u.userId) || [])); }
+  function users(filter) { var l = call('listUsers', filter || {}); return Array.isArray(l) ? l : []; }
+  function current() { return call('getCurrentUser') || null; }
+  function connected() { var a = api(); return !!(a && typeof a.getCurrentUser === 'function' && typeof a.listUsers === 'function'); }
+  function hasRole(u, code) { return rolesOfUser(u).indexOf(code) >= 0; }
+  function sod(roles) { var v = call('hasSodConflict', roles || []); return typeof v === 'boolean' ? v : false; }
+  function gateOn() { return connected() && !current(); }
+  function userLabel(u) { return u ? u.name + ' (' + u.userId + ')' : '—'; }
+
+  function render() {
+    var host = document.getElementById('userSwitch');
+    if (host) {
+      if (!connected()) {
+        host.innerHTML = '<span class="tip" title="ebr-user-session.js (DEVELOPER1) 가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+      } else {
+        var cur = current(), list = users();
+        var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
+          var bad = u.status === 'locked' ? ' — 잠김' : u.status === 'inactive' ? ' — 비활성' : '';
+          return '<option value="' + esc(u.userId) + '"' + (bad ? ' disabled' : '') + (cur && cur.userId === u.userId ? ' selected' : '') + '>' + esc(userLabel(u) + bad) + '</option>';
+        }).join('');
+        host.innerHTML = '<select class="input w-200" id="userSwitchSel" aria-label="현재 사용자" title="현재 사용자 (인증 아님 — 서명 시 ID · 비밀번호 재입력)">' + opts + '</select>' +
+          '<span class="us-roles">' + (cur ? roleBadges(rolesOfUser(cur)) + statusBadge(cur.status) : '<span class="badge warn">' + GATE_TIP + '</span>') + '</span>';
+        var sel = document.getElementById('userSwitchSel');
+        sel.addEventListener('change', function () {
+          var r = call('setCurrentUser', sel.value || null);
+          if (r && r.ok === false && global.MesUI) {
+            MesUI.toast(r.message || (r.code === 'LOCKED' ? '잠긴 계정은 선택할 수 없습니다 — 관리자(ADMIN)에게 해제를 요청하세요.'
+              : r.code === 'INACTIVE' ? '비활성 계정은 선택할 수 없습니다.' : r.code === 'SAVE_ERROR' ? '감사 기록을 저장하지 못해 사용자를 전환하지 못했습니다.' : '사용자를 찾을 수 없습니다.'),
+              r.code === 'SAVE_ERROR' ? 'error' : 'warn', 2600);   /* SAVE_ERROR: 헬퍼가 변경을 되돌림 → 선택값도 아래 refresh 로 되돌림 */
+          }
+          if (!hasOnChange || (r && r.ok === false)) refresh();   /* onChange 는 성공 시 헬퍼가 발생 — 거부(LOCKED 등)면 선택 되돌림 */
+        });
+      }
+    }
+    applyGate();
+  }
+  function applyGate() {
+    var on = gateOn();
+    document.body.classList.toggle('p0-no-user', on);
+    Array.prototype.forEach.call(document.querySelectorAll(GATE_SEL), function (b) { b.classList.toggle('p0-gated', on); });
+  }
+  function refresh() { render(); listeners.forEach(function (fn) { try { fn(current()); } catch (e) { if (global.console) console.error(e); } }); }
+
+  /* 선택 없음 게이트: 편집 버튼 클릭 차단 + 툴팁 (동적으로 그려지는 T-02 버튼 포함) */
+  document.addEventListener('click', function (e) {
+    if (!gateOn()) return;
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    if (global.MesUI) MesUI.toast(GATE_TIP + ' — 상단 사용자 선택기에서 현재 사용자를 고른 뒤 다시 시도하세요.', 'warn', 2200);
+  }, true);
+  document.addEventListener('mouseover', function (e) {
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    if (gateOn()) { if (!b.hasAttribute('data-p0-tip')) b.setAttribute('data-p0-tip', b.getAttribute('title') || ''); b.setAttribute('title', GATE_TIP); b.classList.add('p0-gated'); }
+    else if (b.hasAttribute('data-p0-tip')) { b.setAttribute('title', b.getAttribute('data-p0-tip')); b.removeAttribute('data-p0-tip'); b.classList.remove('p0-gated'); }
+  }, true);
+
+  var hasOnChange = false;
+  function start() {
+    isReady = true;
+    var a = api();
+    if (a && typeof a.onChange === 'function') { hasOnChange = true; call('onChange', function () { refresh(); }); }
+    else global.addEventListener('storage', function (e) { if (WATCH_KEYS.indexOf(e.key) >= 0) refresh(); });
+    render();
+    readyQ.splice(0).forEach(function (fn) { try { fn(); } catch (e) { if (global.console) console.error(e); } });
+  }
+
+  global.P0Ui = {
+    api: api, call: call, connected: connected, users: users, current: current, hasRole: hasRole, rolesOf: rolesOfUser, sod: sod, userLabel: userLabel,
+    roleBadge: roleBadge, roleBadges: roleBadges, statusBadge: statusBadge, sortRoles: sortRoles, ROLE: ROLE, ROLE_ORDER: ROLE_ORDER,
+    gateOn: gateOn, refresh: refresh, applyGate: applyGate, esc: esc, GATE_TIP: GATE_TIP,
+    onUserChange: function (fn) { listeners.push(fn); },
+    ready: function (fn) { if (isReady) fn(); else readyQ.push(fn); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})(window);
+</script>
+<script src="../assets/master-t02.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = MS.$, esc = MS.esc, O = MS.OPTS;
+  MS.load();
+  MT.shell('terminal');
+  var CFG = {
+    key: 'terminal', store: 'terminal', sid: 'S-40', clazz: 'CEbrSetupTerminalMain', title: '단말 레지스트리', group: '단말 목록 · 작업실 바인딩', dialogW: 900, formCols: 2,
+    gcm: [['EBR_TERMINAL_TYPE', '단말 유형'], ['EBR_AUTH_STRENGTH', '인증 수단 강도'], ['EBR_MBR_STATUS', '바인딩 상태']],
+    note: '작업실 바인딩 · 잠금 설정은 GMP 설정(수명주기 적용), 온라인 상태 · 최종 수신은 운영 데이터(읽기전용). 작업실 코드는 RAS 작업장 마스터 재사용. 화면 잠금 3~5분 · 세션 15분 · 근무조 상한(ES-04).',
+    search: [{ t: 'text', label: '단말 ID · 모델', keys: ['id', 'model', 'reader'] }, { t: 'select', label: '유형', k: 'type', src: 'gcm:EBR_TERMINAL_TYPE' }, { t: 'select', label: '작업실 (RAS)', k: 'room', src: O.ROOM },
+      { t: 'select', label: '온라인 상태', k: 'online', src: O.ONLINE }, { t: 'select', label: '바인딩 상태', k: 'status', src: 'gcm:EBR_MBR_STATUS' }],
+    cols: [{ h: '단말 ID', k: 'id', w: 110 }, { h: '유형', k: 'type', w: 96, src: 'gcm:EBR_TERMINAL_TYPE' }, { h: '모델', k: 'model' }, { h: '작업실 바인딩 (RAS)', k: 'room', w: 160, src: O.ROOM },
+      { h: '라인', k: 'line', w: 64 }, { h: '온라인', k: 'online', w: 104, src: O.ONLINE, badge: true, cls: 'center' },
+      { h: '화면 잠금', k: 'lock', w: 76, cls: 'num', r: function (r) { return r.lock + '분'; } }, { h: '세션', k: 'sess', w: 64, cls: 'num', r: function (r) { return r.sess + '분'; } },
+      { h: '근무조 상한', k: 'shift', w: 84, cls: 'num', r: function (r) { return r.shift + '시간'; } }, { h: '근접 리더', k: 'reader', w: 110 },
+      { h: '인증 수단', k: 'authMethod', w: 130 }, { h: '바인딩 상태', k: 'status', w: 96, cls: 'center' }, { h: '최종 수신', k: 'beat', w: 84 }],
+    form: [{ k: 'id', label: '단말 ID', type: 'text', req: true, lockOnEdit: true, ph: 'T-XX-01' }, { k: 'type', label: '단말 유형', type: 'select', src: 'gcm:EBR_TERMINAL_TYPE', req: true },
+      { k: 'model', label: '모델', type: 'text' }, { k: 'reader', label: '근접 리더', type: 'text', ph: 'RFID-XXXX' },
+      { k: 'room', label: '작업실 바인딩', type: 'select', src: O.ROOM, req: true }, { k: 'line', label: '라인', type: 'select', src: O.LINE, req: true },
+      { k: 'lock', label: '화면 잠금', type: 'number', unit: '분 (3~5, 카드 해제)', req: true }, { k: 'sess', label: '세션 만료', type: 'number', unit: '분 (≤ 15, 카드 + PIN)', req: true },
+      { k: 'shift', label: '근무조 상한', type: 'number', unit: '시간 (8~12)', req: true }, { k: 'authMethod', label: '인증 수단', type: 'select', src: 'ref:auth', req: true },
+      { k: 'note', label: '비고', type: 'textarea', span: true }],
+    blank: function () { return { id: 'T-', ver: 1, type: '', model: '', reader: '', room: '', line: '', lock: 5, sess: 15, shift: 12, authMethod: 'AM-RFID-BAND', online: 'offline', beat: '—', note: '' }; },
+    validate: function (d) {
+      if (!(d.lock >= 3 && d.lock <= 5)) return '화면 잠금은 3~5분 범위입니다 (ES-04).';
+      if (!(d.sess >= 1 && d.sess <= 15)) return '세션 만료는 15분 이하입니다 (ES-04).';
+      if (!(d.shift >= 8 && d.shift <= 12)) return '근무조 상한은 8~12시간입니다.';
+      var g = MS.gRow('EBR_TERMINAL_TYPE', d.type);
+      if (g && g.data3 === true && !d.reader) return '\'' + g.keyDesc + '\' 유형은 근접 리더가 필수입니다 (GCM EBR_TERMINAL_TYPE.PROX_READER).';
+    },
+    onChange: function (k, form) {
+      if (k !== 'type') return;
+      var g = MS.gRow('EBR_TERMINAL_TYPE', $('[data-f=type]', form).value);
+      if (g && g.data2) $('[data-f=lock]', form).value = g.data2;
+    }
+  };
+  MT.mountT02(CFG, $('#view-terminal'));
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

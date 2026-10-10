@@ -1,0 +1,1460 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-ebmr-creation-workflow-ui  (eBMR 신규 제품 생성 5단계 워크플로 PoC)
+  템플릿       : NormalBasicLayout(grpTitle 29 → grpMain) — 상단 행에 요약 키인(tplViewKeyIn3Row) + 단계 진행(.timeline),
+                 단계별 본문은 좌우 분할(.split) + tplViewKeyIn / tplGridNoPaging 조합, 하단 버튼 영역(.dialog-footer) 1순위 최우측
+  CLIENT_TYPE  : UI (root_layout 1920×1080, .shell.shell-ui)
+  팝업         : 작업 화면 미리보기 900×700 (NormalPopup900) · 확인 메시지는 MesUI.confirm
+  공용 자산     : ./assets/mesui.css, ./assets/mesui.js (외부 의존 없음) — 원래의 ebmr-workflow.css / .js 는 사용하지 않는다
+  비고         : 서버 저장·실사용 전자서명 없음. 브라우저 메모리 시뮬레이션. 생성 데이터 패키지는 tests/check-ebmr-package.cjs 로 검증.
+  고객 바인딩  : localStorage 'ebmr.customerSetup.v1' (s-ebmr-customer-setup-ui.html) — 고객·사이트·스키마 팩/NS 선택 바인딩
+  백업         : s-ebmr-creation-workflow-ui.html.bak-20261005-customer
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>eBMR 생성 워크스페이스 — 5단계 PoC</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  /* 이 화면 전용 보조 스타일 — 공용 컴포넌트 치수는 건드리지 않고 배치·보조 표시만 추가 (토큰만 사용) */
+  body { margin: 0; }
+  fieldset { margin: 0; padding: 0; border: 0; min-width: 0; min-inline-size: 0; }   /* 그룹 잠금용 fieldset: 시각 요소 없음 (.form-grid 가 상·하단선을 다시 줌) */
+
+  /* ---- 단계 진행: 공용 .timeline 을 버튼으로 사용 (클릭 = 단계 이동) */
+  .wf-steps { padding: 4px 0 8px; border-bottom: 1px solid var(--c-border-05); }
+  button.tl-step { background: none; border: 0; padding: 0; font: inherit; color: inherit; letter-spacing: inherit; cursor: pointer; }
+  button.tl-step:focus-visible { outline: 1px solid var(--c-primary); outline-offset: 2px; }
+
+  /* ---- 단계 본문 배치 */
+  .stage { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+  .stage > .split, .stage > fieldset.split, .stage > .stage-fill { flex: 1 1 auto; min-height: 0; }
+  .stage-fill { display: flex; flex-direction: column; gap: var(--body-gap); }
+  .split.wide-left { grid-template-columns: 3fr 2fr; }               /* 넓은 쪽 = 좌측(cols-2 폼은 넓은 열에만, R-01) */
+  .split.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .split > *, .designer > .rs-pane { min-width: 0; }
+  .col.blocks { gap: var(--body-gap); min-width: 0; }
+  .designer {
+    display: flex; flex-direction: row; gap: 0;
+    flex: 1 1 auto; min-height: 0; width: 100%; max-width: 100%; overflow: hidden;
+  }
+  .designer > .rs-pane {
+    min-height: 0; min-width: 100px; display: flex; flex-direction: column; overflow: hidden;
+  }
+  #paneWfLib { flex: 0 0 340px; width: 340px; }
+  #paneWfCanvas { flex: 1 1 auto; min-width: 160px; }
+  #paneWfProps { flex: 0 0 400px; width: 400px; }
+  /* ---- resizable split gutters (rs-*) — do not collide with mesui .split ---- */
+  .rs-gutter {
+    flex: 0 0 6px; width: 6px; min-width: 6px; cursor: col-resize;
+    background: #e8edf5; border: none; padding: 0; margin: 0;
+    align-self: stretch; position: relative;
+  }
+  .rs-gutter:hover, .rs-gutter.is-drag { background: #2C59D9; }
+  .rs-gutter::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px;
+  }
+  body.is-resizing { cursor: col-resize; user-select: none; }
+  body.is-resizing .rs-pane { pointer-events: none; }
+
+  .grid-block.fill { flex: 1 1 auto; min-height: 0; }
+  .grid-block.auto { flex: 0 0 auto; }
+  .scroll-y { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  .stage-toolbar .sub-info { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+  /* ---- 하단 버튼 영역 (mrc-popup-button-area 패턴, 1순위 최우측) */
+  .wf-footer { justify-content: flex-start; }
+  .wf-footer .sub-info { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ---- 형제 화면(s-ebr-batch-issue-ui)과 같은 보조 표시 */
+  .tip { display: inline-flex; }                       /* disabled 버튼(pointer-events:none)의 툴팁 래퍼 */
+  .plan-banner { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 0 12px; border: 1px solid var(--c-warn); border-left-width: 4px; font-size: 13px; }
+  .plan-banner .btn.inner { margin-left: auto; }
+  .plan-banner.good { border-color: var(--c-ok); }
+  .plan-banner.plan { border-color: var(--c-info); }
+  .plan-banner.stack { flex-direction: column; align-items: flex-start; justify-content: center; gap: 4px; padding: 8px 12px; }   /* R-03 */
+  .tabs { flex: 0 0 auto; display: flex; align-items: flex-end; gap: 20px; height: 28px; border-bottom: 1px solid var(--c-border-05); }
+  .tabs .tab { font: bold var(--fs-group)/21px var(--font); letter-spacing: inherit; color: var(--c-text-disabled); background: none; border: 0; border-bottom: 2px solid transparent; padding: 0 2px 4px; cursor: pointer; }
+  .tabs .tab.active { color: var(--c-text); border-bottom-color: var(--c-primary); }
+  .tabs .tab-meta { margin-left: auto; padding-bottom: 4px; display: inline-flex; align-items: center; gap: 6px; }
+  .src-tag { display: inline-flex; align-items: center; height: 16px; padding: 0 5px; border-radius: 2px; font-size: 10px; font-weight: bold; letter-spacing: 0; color: var(--c-text-sub); background: var(--bc-gray); white-space: nowrap; flex: 0 0 auto; }
+  .src-tag.manual { color: var(--c-primary); background: transparent; border: 1px solid var(--c-primary); }
+  .src-tag.calc { color: var(--c-summary-line); background: var(--bc-good); }
+  .unit { color: var(--c-text-sub); white-space: nowrap; }
+  .hash { font-family: Consolas, 'Courier New', monospace; }
+  .form-grid > .field > .input.fixed { flex: 0 0 auto; }
+  .form-grid > .field > .text { display: inline-flex; align-items: center; gap: 6px; }
+  .form-grid > .field > .text.block { display: block; white-space: normal; }
+  .panel-hint { flex: 1 1 auto; display: flex; flex-direction: column; gap: 4px; align-items: center; justify-content: center; color: var(--c-text-disabled); text-align: center; line-height: 1.6; }
+  .panel-notes { font-size: 12px; color: var(--c-text-sub); line-height: 1.8; margin: 8px 0 0; }
+  .panel-notes b { color: var(--c-text); }
+  .ic-info { display: inline-block; width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px;
+    background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6.5' fill='none' stroke='%235c5c5c' stroke-width='1.2'/><path d='M8 7v4.5' stroke='%235c5c5c' stroke-width='1.4' stroke-linecap='round'/><circle cx='8' cy='4.8' r='.9' fill='%235c5c5c'/></svg>") center / 14px no-repeat; }
+  .lnk { color: var(--c-primary); cursor: pointer; text-decoration: none; }
+  .lnk:hover { color: var(--c-primary-active); }
+  .title-left { display: inline-flex; align-items: flex-end; gap: 12px; min-width: 0; }
+  .title-left .sub-info { line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .req { color: var(--c-required); }
+  /* §14 R-01: 필드 끝 보조 텍스트는 넘치면 말줄임 */
+  .form-grid > .field > .unit:last-child, .form-grid > .field > .text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 여러 줄 입력(textarea)·긴 라벨 행 */
+  .form-grid > .field.multi { padding-top: 6px; padding-bottom: 6px; }
+  .form-grid > .field > textarea.input { height: auto; padding: 4px 8px; resize: none; line-height: 1.5; }
+  .prop-form > .label { white-space: normal; line-height: 1.3; }
+  .form-grid > .header:first-child { border-top: none; }
+  /* 그리드 셀 보조 */
+  .grid td .btn.inner { min-width: 0; }
+  .grid td.link-cell button { border: 0; background: none; padding: 0; font: inherit; letter-spacing: inherit; color: var(--c-primary); cursor: pointer; }
+  #fieldBody tr, tr[data-pick] { cursor: pointer; }
+  /* 파일 추가 버튼: label 안의 숨은 file input */
+  .file-button { position: relative; }
+  .file-button input[type="file"] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .file-button:focus-within { outline: 1px solid var(--c-primary); outline-offset: 1px; }
+  .file-button.disabled { opacity: .4; pointer-events: none; }
+  .lint-wrap { max-height: 122px; min-height: 0; }
+  /* 페이징 입력 높이(§14 R-05) */
+  .shell .paging input.pg-input { height: var(--paging-btn); }
+  /* 다이얼로그는 .shell 밖 → border-box 보완(§14 R-06, M-10)으로 900×700 실측 유지. 이 화면 팝업에만 적용 */
+  #dlgPreview, #dlgPreview *, #dlgPreview *::before, #dlgPreview *::after { box-sizing: border-box; }
+
+  /* 카탈로그/iframe 맞춤: mesui .shell-scale — 1920×1080 미만 뷰포트면 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+</style>
+</head>
+<body>
+
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <!-- 1) grpTitle 29px: contents_title + ic-info + mbcPath -->
+  <div class="title-bar">
+    <span class="title-left">
+      <span class="main-title">eBMR 생성 워크스페이스</span>
+      <span class="sub-info" title="샘플 데이터로 업무 흐름을 체험합니다. 입력값은 새로고침 시 초기화됩니다."><i class="ic-info"></i>PRODUCT TO BATCH RECORD — 제품 요청을 제조기준서로 설계하고, 승인된 버전으로 배치 기록을 발행합니다</span>
+    </span>
+    <span class="breadcrumb">
+      <span>eMBR</span><span class="sep">&rsaquo;</span><span>MBR 관리</span><span class="sep">&rsaquo;</span><span class="current">신규 제품 생성</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+
+  <div class="shell-body">
+    <!-- 2) 요청 요약 (tplViewKeyIn3Row, 읽기 전용) — 원래 페이지 헤더 · 컨텍스트 바 · 사용자 정보 · 사이드바 링크 -->
+    <div class="form-grid cols-3 readonly" id="frmContext">
+      <span class="label">설계 요청</span><span class="field"><span class="text"><b>REQ-2026-0042</b><span id="overallStatus" class="badge muted">등록 전</span></span></span>
+      <span class="label">제품</span><span class="field"><span class="text"><span data-bind="product">정제 A 10 mg</span><span class="unit" data-bind="productCode">TAB-A</span></span></span>
+      <span class="label">고객사</span><span class="field"><span class="text"><span data-bind="customer">한빛제약</span><span class="unit" data-bind="customerCode">HANBIT</span></span></span>
+      <span class="label">MBR</span><span class="field"><span class="text" id="contextMbr">미생성</span></span>
+      <span class="label">기준 배치</span><span class="field"><span class="text" data-bind="baseSize">100 kg</span></span>
+      <span class="label">진행 상황</span><span class="field"><span class="text"><span class="status-dot navy sm"></span><span id="contextHint">제품 요청 정보를 확인하세요</span></span></span>
+      <span class="label">처리자</span><span class="field"><span class="text">김작성 · 제조기술 · 작성자<span class="badge info">DESIGN PoC</span></span></span>
+      <span class="label">사이트</span><span class="field"><span class="text"><span data-bind="site">오송 공장</span><span class="unit" data-bind="schemaPackLabel">SP-EXT-CUSTA · CUSTA</span></span></span>
+      <span class="label">관련 화면</span><span class="field"><span class="text"><a class="lnk" href="./s-ebmr-customer-setup-ui.html">고객 설정 ↗</a><span class="vbar"></span><a class="lnk" href="./s-ebr-batch-issue-ui.html">배치 발행 상세 ↗</a><span class="vbar"></span><a class="lnk" href="./s-ebr-release-gate-ui.html">배치 검토 · 출하 게이트 ↗</a></span></span>
+    </div>
+
+    <!-- 3) 단계 진행 (.timeline 버튼, 클릭 이동) -->
+    <nav class="timeline wf-steps" id="stepper" aria-label="eBMR 생성 단계"></nav>
+
+    <!-- ============================================================ 01 제품 · 요청 등록 -->
+    <section class="stage" data-stage="1" aria-labelledby="stage1Title">
+      <div class="grid-toolbar stage-toolbar">
+        <span class="group-title" id="stage1Title">01 제품 · 요청 등록</span>
+        <span class="sub-info">고객이 요청한 제품 정보와 설계 근거 문서를 등록합니다.</span>
+        <span class="spacer"></span>
+        <span class="badge info">담당 · 제조기술</span>
+      </div>
+      <div class="split wide-left">
+        <div class="col blocks">
+          <div class="grid-block auto">
+            <div class="grid-toolbar"><span class="group-title">제품 기본정보</span><span class="spacer"></span><span class="sub-info">값 출처 <span class="src-tag manual">MANUAL</span> 사용자 입력 · <span class="req">*</span> 필수 입력</span></div>
+            <form id="requestForm">
+              <fieldset id="requestFields" class="form-grid cols-2">
+                <label class="label required" for="customerCode">고객사</label>
+                <span class="field"><select class="input" id="customerCode" required aria-label="고객사 (고객 설정 마스터)"></select>
+                  <span class="unit"><a class="lnk" href="./s-ebmr-customer-setup-ui.html" title="고객 설정 마스터">설정 ↗</a></span></span>
+                <label class="label">고객명</label>
+                <span class="field"><span class="text" id="customerName">—</span><input type="hidden" id="customer" value=""></span>
+                <label class="label required" for="productCode">제품 코드</label>
+                <span class="field"><input class="input" id="productCode" required pattern="[A-Za-z0-9][A-Za-z0-9_\-]{1,39}" title="영문·숫자·하이픈·밑줄 2~40자" value="TAB-A"></span>
+                <label class="label required" for="product">제품명</label>
+                <span class="field span-2"><input class="input" id="product" required maxlength="100" value="정제 A 10 mg"></span>
+                <label class="label required" for="dosage">제형</label>
+                <span class="field"><select class="input" id="dosage"><option value="tablet">정제</option><option value="capsule">캡슐</option><option value="liquid">액제</option></select></span>
+                <label class="label required" for="strength">제품 규격</label>
+                <span class="field"><input class="input" id="strength" required value="10 mg" maxlength="40"></span>
+                <label class="label required" for="baseSize">기준 배치량</label>
+                <span class="field"><input class="input num fixed w-120" id="baseSize" type="number" min="1" max="10000" step="0.01" required value="100"><span class="unit">kg</span></span>
+                <label class="label required" for="site">제조 사이트</label>
+                <span class="field"><select class="input" id="site" required aria-label="제조 사이트 (고객 설정)"></select></span>
+                <label class="label">스키마 팩 / NS</label>
+                <span class="field"><span class="text" id="schemaPackInfo">—</span>
+                  <input type="hidden" id="schemaPackId" value="">
+                  <input type="hidden" id="schemaPackVer" value="">
+                  <input type="hidden" id="namespace" value="">
+                  <input type="hidden" id="factoryCode" value="">
+                </span>
+                <label class="label required" for="dueDate">요청 납기</label>
+                <span class="field"><input class="input fixed w-160" id="dueDate" type="date" required></span>
+                <label class="label" for="requestType">요청 유형</label>
+                <span class="field"><select class="input" id="requestType"><option>신규 제품</option><option>위탁 제조 이관</option></select></span>
+                <label class="label" for="requestNote">요청사항</label>
+                <span class="field span-2 multi"><textarea class="input" id="requestNote" rows="2" maxlength="600">고객사 제공 제조기준서와 작업 표준을 바탕으로 전자 제조기록을 설계합니다. 원료 LOT 식별 및 중요 공정 이중 확인을 적용합니다.</textarea></span>
+              </fieldset>
+            </form>
+          </div>
+          <div class="grid-block fill">
+            <div class="grid-toolbar">
+              <span class="group-title">설계 근거 문서</span>
+              <span class="total-text" data-total-for="grdSource"></span>
+              <span class="spacer"></span>
+              <label class="btn search secondary file-button" id="sourceFilesBtn">문서 추가<input id="sourceFiles" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg" aria-label="설계 근거 문서 추가"></label>
+            </div>
+            <div class="grid-wrap">
+              <table class="grid" id="grdSource">
+                <colgroup><col class="col-no"><col><col style="width:200px"><col style="width:160px"></colgroup>
+                <thead><tr><th class="col-no">No.</th><th>문서명</th><th>구분</th><th class="center">연결 상태</th></tr></thead>
+                <tbody id="sourceBody">
+                  <tr><td class="col-no">1</td><td>고객사_제조기준서.pdf</td><td>제조기준서</td><td class="center"><span class="badge info">샘플 참조</span></td></tr>
+                  <tr><td class="col-no">2</td><td>제품별_작업표준.pdf</td><td>작업 표준</td><td class="center"><span class="badge info">샘플 참조</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <span class="sub-info"><i class="ic-info"></i>추가한 문서는 파일명만 표시합니다. 본문 해석과 서버 업로드는 연결되지 않은 상태입니다.</span>
+          </div>
+        </div>
+        <div class="col blocks">
+          <div class="grid-block auto">
+            <div class="grid-toolbar"><span class="group-title">요청 처리 계획</span><span class="spacer"></span><span class="badge warn" id="requestPlanBadge">접수 대기</span></div>
+            <div class="form-grid readonly">
+              <span class="label">요청 번호</span><span class="field"><span class="text">REQ-2026-0042</span></span>
+              <span class="label">작성 담당</span><span class="field"><span class="text">김작성 · 제조기술</span></span>
+              <span class="label">독립 검토</span><span class="field"><span class="text">이검토 · 생산관리</span></span>
+              <span class="label">QA 승인</span><span class="field"><span class="text">박승인 · 품질보증</span></span>
+            </div>
+          </div>
+          <div class="grid-block auto">
+            <div class="grid-toolbar"><span class="group-title">이번 요청으로 만들어지는 것</span></div>
+            <div class="step-list">
+              <div class="step"><span class="no">1</span><span class="name">제품별 제조기준서</span><span class="meta">공정 · 원료 · 규격 · 기록 항목</span></div>
+              <div class="step"><span class="no">2</span><span class="name">현장 작업 화면</span><span class="meta">설정한 항목으로 작업 화면 구성</span></div>
+              <div class="step"><span class="no">3</span><span class="name">배치별 전자 제조기록</span><span class="meta">승인된 MBR 버전에서 발행</span></div>
+            </div>
+          </div>
+          <div class="plan-banner bc-plan plan stack"><b>설계 요청 → MBR → eBR</b><span>MBR은 반복 생산에 사용하는 기준서이고, eBR은 한 번의 생산 배치에 대한 실행 기록입니다.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ 02 MBR 초안 생성 -->
+    <section class="stage hidden" data-stage="2" aria-labelledby="stage2Title">
+      <div class="grid-toolbar stage-toolbar">
+        <span class="group-title" id="stage2Title">02 MBR 초안 생성</span>
+        <span class="sub-info">제품에 맞는 시작 방식을 선택하고, 설계할 제조기준서 초안을 만듭니다.</span>
+        <span class="spacer"></span>
+        <span class="badge info">담당 · 제조기술</span>
+      </div>
+      <div id="draftPrerequisite" class="plan-banner bc-alam"><span class="status-dot amber"></span><span>제품 요청을 먼저 등록하세요. 각 단계의 화면은 상단 단계 진행에서 미리 살펴볼 수 있습니다.</span><button class="btn inner" type="button" data-go="1">01 요청 등록으로</button></div>
+      <fieldset id="draftFields" class="split wide-left">
+        <div class="col blocks">
+          <div class="grid-block auto">
+            <div class="grid-toolbar"><span class="group-title">초안 생성 방식</span><span class="spacer"></span><span class="sub-info">행을 선택하면 시작 방식이 바뀝니다</span></div>
+            <div class="grid-wrap fixed">
+              <table class="grid" id="grdMethod" role="radiogroup" aria-label="초안 생성 방식">
+                <colgroup><col class="col-check"><col style="width:200px"><col><col style="width:260px"></colgroup>
+                <thead><tr><th class="col-check">선택</th><th>방식</th><th>설명</th><th>특징</th></tr></thead>
+                <tbody>
+                  <tr data-pick><td class="col-check"><input type="radio" name="method" value="template" checked aria-label="표준 템플릿 적용"></td><td><b>표준 템플릿 적용</b></td><td>검증된 공정 블록과 기본 기록 항목으로 시작합니다.</td><td>권장 · 반복되는 표준 공정</td></tr>
+                  <tr data-pick><td class="col-check"><input type="radio" name="method" value="copy" aria-label="유사 MBR 복사"></td><td><b>유사 MBR 복사</b></td><td>효력 버전의 구조를 가져오고 제품별 조건을 수정합니다.</td><td>원본 추적 · 새 초안으로 생성</td></tr>
+                  <tr data-pick><td class="col-check"><input type="radio" name="method" value="blank" aria-label="신규 설계"></td><td><b>신규 설계</b></td><td>빈 구조에 라이브러리 블록을 추가하여 설계합니다.</td><td>신규 조합 · 직접 공정 구성</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="grid-block fill">
+            <div class="grid-toolbar"><span class="group-title" id="templateHeading">사용할 표준 템플릿</span><span class="spacer"></span><span class="badge ok" id="templateLibBadge">검증된 라이브러리</span><button class="btn inner" type="button" id="btnTemplateSample" title="샘플 JSON 내려받기">샘플 JSON</button><button class="btn inner" type="button" id="btnTemplateUpload" title="표준 템플릿 JSON 업로드">템플릿 JSON 업로드</button><input type="file" id="templateFile" accept=".json,application/json" hidden></div>
+            <div class="grid-wrap">
+              <table class="grid" id="grdTemplate">
+                <colgroup><col class="col-check"><col style="width:140px"><col><col style="width:80px"><col style="width:90px"><col style="width:260px"></colgroup>
+                <thead><tr><th class="col-check">선택</th><th>ID</th><th>명칭</th><th>버전</th><th class="num">공정 수</th><th class="center">구분</th></tr></thead>
+                <tbody id="templateChoices"></tbody>
+              </table>
+              <div id="blankHint" class="nodata panel-hint hidden"><b>빈 제조기준서로 시작합니다</b><span>다음 단계에서 검증된 Phase 블록을 추가하세요.</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="col blocks">
+          <div class="grid-block auto">
+            <div class="grid-toolbar"><span class="group-title">초안 생성 결과 미리보기</span></div>
+            <div class="form-grid readonly">
+              <span class="label">MBR ID</span><span class="field"><span class="text" id="draftMbrPreview"></span><span class="src-tag" title="제품 코드에서 자동 채번">AUTO</span></span>
+              <span class="label">초기 버전</span><span class="field"><span class="text">v1.0 · 초안</span></span>
+              <span class="label">적용 제품</span><span class="field"><span class="text" data-bind="product"></span></span>
+              <span class="label">기준 배치</span><span class="field"><span class="text" data-bind="baseSize"></span></span>
+              <span class="label">원본 참조</span><span class="field"><span class="text" id="originPreview"></span></span>
+            </div>
+          </div>
+          <div class="grid-block auto">
+            <div class="grid-toolbar"><span class="group-title">초기 공정 구조</span></div>
+            <div id="initialFlow" class="step-list"></div>
+          </div>
+          <span class="sub-info"><i class="ic-info"></i>원본과 연결된 버전을 명시적으로 참조합니다. 초안은 검토·승인 후 효력이 생겨야 배치에 사용할 수 있습니다.</span>
+        </div>
+      </fieldset>
+    </section>
+
+    <!-- ============================================================ 03 제조공정 · 기록 항목 설계 -->
+    <section class="stage hidden" data-stage="3" aria-labelledby="stage3Title">
+      <div class="grid-toolbar stage-toolbar">
+        <span class="group-title" id="stage3Title">03 제조공정 · 기록 항목 설계</span>
+        <span class="sub-info">공정 블록을 조합하고, 제품별 작업 조건과 기록 규격을 설정합니다.</span>
+        <span class="spacer"></span>
+        <span id="designerStatus" class="badge muted">초안 미생성</span>
+        <span class="tip" id="previewWorkTip"><button class="btn search secondary" id="previewWork" type="button">작업 화면 미리보기</button></span>
+      </div>
+      <div id="designerEmpty" class="plan-banner bc-alam"><span class="status-dot amber"></span><span>2단계에서 MBR 초안을 생성하면 설계를 시작할 수 있습니다.</span><button class="btn inner" type="button" data-go="2">02 초안 생성으로</button></div>
+      <div id="designerContent" class="stage-fill hidden">
+        <div class="designer" id="wfSplit">
+          <!-- 좌: 공정 구조 + 라이브러리 -->
+          <div class="col blocks rs-pane" id="paneWfLib">
+            <div class="grid-block auto">
+              <div class="grid-toolbar"><span class="group-title">제조공정 구조</span><span class="total-text" id="phaseCount"></span><span class="spacer"></span><span class="sub-info ellipsis">Procedure · <b data-bind="product"></b></span></div>
+              <div class="grid-wrap fixed">
+                <table class="grid selectable" id="grdPhase" aria-label="제조공정 순서">
+                  <colgroup><col class="col-no"><col><col style="width:130px"></colgroup>
+                  <thead><tr><th class="col-no">No.</th><th>공정</th><th>참조 블록</th></tr></thead>
+                  <tbody id="phaseTree"></tbody>
+                </table>
+              </div>
+              <div class="row">
+                <button class="btn inner" id="moveUp" type="button">↑ 위로</button>
+                <button class="btn inner" id="moveDown" type="button">↓ 아래로</button>
+                <span class="spacer"></span>
+                <button class="btn inner" id="removePhase" type="button">삭제</button>
+              </div>
+            </div>
+            <div class="grid-block fill">
+              <div class="grid-toolbar"><span class="group-title">Phase 라이브러리</span><span class="spacer"></span><span class="sub-info">검증된 블록 · 버전 고정</span></div>
+              <div class="grid-wrap">
+                <table class="grid" id="grdLibrary">
+                  <colgroup><col><col style="width:140px"><col class="col-icon"></colgroup>
+                  <thead><tr><th>블록</th><th>ID · 버전</th><th class="col-icon">추가</th></tr></thead>
+                  <tbody id="phaseLibrary"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <button type="button" class="rs-gutter" id="gutterL" aria-label="왼쪽 패널 너비 조절" title="드래그하여 너비 조절"></button>
+
+          <!-- 중: 선택 공정 + 기록 항목 + 원료 -->
+          <div class="col blocks rs-pane" id="paneWfCanvas">
+            <div class="grid-block auto">
+              <div class="grid-toolbar"><span class="group-title" id="phaseTitle">선택 공정</span><span id="phaseVersion" class="badge info"></span></div>
+              <fieldset id="phaseFields" class="form-grid cols-2">
+                <label class="label required" for="phaseName">공정명</label>
+                <span class="field"><input id="phaseName" class="input" required maxlength="60"><span class="src-tag manual">MANUAL</span></span>
+                <label class="label" for="equipment">설비 클래스</label>
+                <span class="field"><select id="equipment" class="input"></select></span>
+                <label class="label" for="instruction">작업 지시</label>
+                <span class="field span-2 multi"><textarea id="instruction" class="input" rows="2" maxlength="600"></textarea></span>
+              </fieldset>
+            </div>
+            <div class="grid-block auto">
+              <div class="grid-toolbar"><span class="group-title">기록 항목</span><span class="total-text" data-total-for="fieldTable"></span><span class="spacer"></span><span class="sub-info">항목을 선택하면 우측에서 속성을 편집합니다</span></div>
+              <div class="grid-wrap fixed">
+                <table class="grid selectable" id="fieldTable">
+                  <colgroup><col><col style="width:90px"><col style="width:160px"><col style="width:130px"><col style="width:110px"></colgroup>
+                  <thead><tr><th>항목</th><th>단위</th><th>허용범위</th><th>데이터 원천</th><th class="center">중요도</th></tr></thead>
+                  <tbody id="fieldBody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="grid-block fill">
+              <div class="grid-toolbar"><span class="group-title">원료 · 배합 기준</span><span class="spacer"></span><span class="sub-info">기준 배치 <b data-bind="baseSize"></b></span></div>
+              <div class="grid-wrap">
+                <table class="grid" id="grdBom">
+                  <colgroup><col style="width:130px"><col><col style="width:160px"><col style="width:200px"></colgroup>
+                  <thead><tr><th>원료 코드</th><th>원료명</th><th class="num required">기준량 (kg)</th><th>보정 규칙</th></tr></thead>
+                  <tbody id="bomBody"></tbody>
+                </table>
+              </div>
+              <div class="grid-summary"><span>원료량 합계</span><b id="bomSum"></b><span class="src-tag calc">CALC</span><span class="spacer"></span><span id="bomCheck" class="badge"></span></div>
+            </div>
+          </div>
+
+          <button type="button" class="rs-gutter" id="gutterR" aria-label="오른쪽 패널 너비 조절" title="드래그하여 너비 조절"></button>
+
+          <!-- 우: 기록 항목 속성 (좁은 열 → 1열 키인, R-01) -->
+          <div class="grid-block fill rs-pane" id="paneWfProps">
+            <div class="grid-toolbar"><span class="group-title">기록 항목 속성</span><span class="badge info">11종</span></div>
+            <fieldset id="propertyFields" class="scroll-y"><div id="properties"></div></fieldset>
+          </div>
+        </div>
+        <!-- 하: 설계 점검 -->
+        <div class="grid-block auto">
+          <div class="grid-toolbar"><span class="group-title">설계 점검</span><span id="lintCount"></span><span class="spacer"></span><button id="runLint" type="button" class="btn search">다시 점검</button></div>
+          <div class="grid-wrap fixed lint-wrap">
+            <table class="grid" id="grdLint">
+              <colgroup><col style="width:90px"><col><col style="width:220px"></colgroup>
+              <thead><tr><th class="center">판정</th><th>내용</th><th>위치</th></tr></thead>
+              <tbody id="lintMessages"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ 04 검증 · 검토 · 승인 -->
+    <section class="stage hidden" data-stage="4" aria-labelledby="stage4Title">
+      <div class="grid-toolbar stage-toolbar">
+        <span class="group-title" id="stage4Title">04 검증 · 검토 · 승인</span>
+        <span class="sub-info">설계의 완전성을 점검하고, 독립 검토와 QA 승인을 거쳐 효력을 부여합니다.</span>
+        <span class="spacer"></span>
+        <span class="badge info">역할 전환 · 데모</span>
+      </div>
+      <div class="timeline wf-steps" id="reviewStrip" aria-label="MBR 상태 경로"></div>
+      <div class="split three">
+        <!-- 1열: 설계 검증 결과 -->
+        <div class="col blocks">
+          <div class="grid-block auto">
+            <div class="grid-toolbar"><span class="group-title">설계 검증 결과</span><span id="reviewLintCount"></span><span class="spacer"></span><span class="tip" id="dryRunTip"><button class="btn search" id="dryRun" type="button">시험 실행</button></span></div>
+            <div id="reviewChecks" class="step-list"></div>
+          </div>
+          <div class="plan-banner bc-plan plan stack" id="dryRunResult">시험 실행에서 작업 화면 구성과 값의 규격 판정을 확인하세요.</div>
+        </div>
+        <!-- 2열: 검토 · 승인 경로 + 처리 이력 -->
+        <div class="col blocks">
+          <div class="grid-block auto">
+            <div class="grid-toolbar"><span class="group-title">검토 · 승인 경로</span><span class="spacer"></span><span class="sub-info">작성자 ≠ 검토자 ≠ QA 승인자</span></div>
+            <div class="grid-wrap fixed">
+              <table class="grid" id="grdRoute">
+                <colgroup><col style="width:130px"><col style="width:90px"><col><col style="width:80px"></colgroup>
+                <thead><tr><th>단계</th><th>처리자</th><th>처리 시각</th><th class="center">상태</th></tr></thead>
+                <tbody id="approvalRoute"></tbody>
+              </table>
+            </div>
+            <div class="row">
+              <label class="label" for="actingUser">현재 처리자</label>
+              <select class="input w-200" id="actingUser"><option value="author">김작성 · 작성자</option><option value="reviewer">이검토 · 독립 검토자</option><option value="qa">박승인 · QA 승인자</option></select>
+              <span class="spacer"></span>
+              <span class="tip" id="rejectTip"><button class="btn search" id="rejectAction" type="button">반려 · 새 개정본</button></span>
+              <span class="tip" id="reviewTip"><button class="btn search secondary" id="reviewAction" type="button">검토 제출</button></span>
+            </div>
+            <span class="sub-info"><i class="ic-info"></i>서명 동작은 역할과 처리 시각을 기록하는 시뮬레이션입니다. 실사용 인증·전자서명은 연결되지 않았습니다.</span>
+          </div>
+          <div class="grid-block fill">
+            <div class="grid-toolbar"><span class="group-title">처리 이력</span><span class="total-text" data-total-for="grdAudit"></span></div>
+            <div class="grid-wrap">
+              <table class="grid" id="grdAudit">
+                <colgroup><col style="width:160px"><col style="width:90px"><col></colgroup>
+                <thead><tr><th>시각</th><th>처리자</th><th>처리 내용</th></tr></thead>
+                <tbody id="auditList"></tbody>
+              </table>
+              <div class="nodata" id="auditNodata">요청 등록 후 처리 이력이 표시됩니다.</div>
+            </div>
+            <div class="paging">
+              <button class="pg-btn pg-first" type="button" disabled title="처음"></button><button class="pg-btn pg-prev" type="button" disabled title="이전"></button>
+              <button class="pg-no current" type="button">1</button>
+              <button class="pg-btn pg-next" type="button" disabled title="다음"></button><button class="pg-btn pg-last" type="button" disabled title="마지막"></button>
+              <input class="input pg-input" type="text" value="1" id="pgInput" aria-label="페이지"><button class="btn pg-go" type="button" id="btnPgGo">GO</button>
+            </div>
+          </div>
+        </div>
+        <!-- 3열: 승인 대상 MBR + 효력 준비 조건 -->
+        <div class="col blocks">
+          <div class="grid-block auto">
+            <div class="grid-toolbar"><span class="group-title">승인 대상 MBR</span><span class="spacer"></span><span id="reviewStatus" class="badge muted">미생성</span></div>
+            <div class="form-grid">
+              <span class="label">MBR</span><span class="field"><span class="text" id="rvMbr"></span></span>
+              <span class="label">제품</span><span class="field"><span class="text" id="rvProduct"></span></span>
+              <span class="label">공정 / 항목</span><span class="field"><span class="text" id="rvCount"></span></span>
+              <span class="label">설계 해시</span><span class="field"><span class="text hash" id="rvHash"></span><span class="src-tag calc" title="검토 제출 시 SHA-256 산출">CALC</span></span>
+              <label class="label required" for="ccNumber">변경관리 번호</label><span class="field"><input id="ccNumber" class="input" value="CC-2026-042" required pattern="CC-[A-Za-z0-9\-]+" title="CC-로 시작하는 변경관리 번호"><span class="src-tag manual">MANUAL</span></span>
+            </div>
+            <span class="sub-info"><i class="ic-info"></i>검토 제출 시 내용과 참조 버전이 잠깁니다. 반려하면 새 개정본에서 수정합니다.</span>
+          </div>
+          <div class="grid-block auto">
+            <div class="grid-toolbar"><span class="group-title">효력 준비 조건</span></div>
+            <div class="grid-wrap fixed">
+              <table class="grid" id="grdGate">
+                <colgroup><col class="col-check"><col><col style="width:90px"></colgroup>
+                <thead><tr><th class="col-check">확인</th><th>조건</th><th class="center">상태</th></tr></thead>
+                <tbody>
+                  <tr><td class="col-check"><input type="checkbox" id="gateTraining"></td><td><label for="gateTraining">교육 완료 · 조별 자격자 확보</label></td><td class="center"><span class="badge muted" data-gate-badge="gateTraining">미확인</span></td></tr>
+                  <tr><td class="col-check"><input type="checkbox" id="gateEquipment"></td><td><label for="gateEquipment">설비 마스터 · 적격성 준비</label></td><td class="center"><span class="badge muted" data-gate-badge="gateEquipment">미확인</span></td></tr>
+                  <tr><td class="col-check"><input type="checkbox" id="gateDocuments"></td><td><label for="gateDocuments">연계 SOP · 기준서 효력 확인</label></td><td class="center"><span class="badge muted" data-gate-badge="gateDocuments">미확인</span></td></tr>
+                  <tr><td class="col-check"><input type="checkbox" id="gateValidation"></td><td><label for="gateValidation">필요한 밸리데이션 확인</label></td><td class="center"><span class="badge muted" data-gate-badge="gateValidation">미확인</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="form-grid">
+              <label class="label required" for="effectiveDate">효력일</label><span class="field"><input class="input fixed w-160" id="effectiveDate" type="date" required><span class="src-tag manual">MANUAL</span></span>
+            </div>
+            <div class="row">
+              <span class="sub-info fill ellipsis" id="activationReason"></span>
+              <span class="tip" id="activateTip"><button id="activateMbr" class="btn search primary" type="button">효력 전환</button></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================ 05 배치 기록 생성 · BR 발행 -->
+    <section class="stage hidden" data-stage="5" aria-labelledby="stage5Title">
+      <div class="grid-toolbar stage-toolbar">
+        <span class="group-title" id="stage5Title">05 배치 기록 생성 · BR 발행</span>
+        <span class="sub-info">효력 MBR의 내용과 참조 버전을 고정하고 생산 배치의 전자기록을 생성합니다.</span>
+        <span class="spacer"></span>
+        <span class="badge info">담당 · 생산계획</span>
+      </div>
+      <div id="issueGate" class="plan-banner bc-alam"><span class="status-dot amber"></span><span id="issueGateText"></span><button class="btn inner" type="button" data-go="4">04 승인으로</button></div>
+      <div id="issueCanonNotice" class="plan-banner bc-plan plan stack" role="note">
+        <b>정본 발행 경로 안내</b>
+        <span>이 화면의 발행은 <b>교육·시뮬레이션</b>이며, <b>정본 발행은 배치 발행 화면</b>(오더 핀·freeze·<code>ebr.batch.issued.v1</code>)에서 합니다.
+          <a class="lnk" id="lnkCanonIssue" href="./s-ebr-batch-issue-ui.html">배치 발행 화면으로 →</a>
+        </span>
+      </div>
+      <div id="issueSuccess" class="plan-banner bc-good good hidden" role="status"></div>
+      <div class="split even">
+        <!-- 좌: MBR · 발행 파라미터 · 생성되는 배치 기록 -->
+        <div class="col blocks">
+          <div class="grid-block auto">
+            <div class="grid-toolbar"><span class="group-title">사용할 제조기준서</span><span class="spacer"></span><span id="issueMbrStatus" class="badge muted"></span></div>
+            <div class="form-grid cols-2 readonly">
+              <span class="label">MBR</span><span class="field"><span class="text" id="isMbr"></span></span>
+              <span class="label">제품</span><span class="field"><span class="text" id="isProduct"></span></span>
+              <span class="label">효력일</span><span class="field"><span class="text" id="isEffective"></span></span>
+              <span class="label">변경관리</span><span class="field"><span class="text" id="isCc"></span></span>
+            </div>
+          </div>
+          <div class="grid-block auto">
+            <div class="grid-toolbar"><span class="group-title">배치 발행 파라미터</span><span class="spacer"></span><span class="sub-info"><span class="req">*</span> 필수 입력 · 발행 후 MBR · 설정 객체 · 계산식 버전은 해당 배치에 고정됩니다</span></div>
+            <form id="issueForm">
+              <fieldset id="issueFields" class="form-grid cols-2">
+                <label class="label" for="batchId">배치 ID</label>
+                <span class="field"><input class="input plain" id="batchId" readonly><span class="src-tag" id="tagBatch" title="자동 채번">AUTO</span></span>
+                <label class="label required" for="batchLine">생산 라인</label>
+                <span class="field"><select class="input" id="batchLine"><option>L-01</option><option selected>L-02</option></select><span class="src-tag manual">MANUAL</span></span>
+                <label class="label required" for="batchSize">배치 사이즈</label>
+                <span class="field span-2"><input class="input num fixed w-120" id="batchSize" type="number" min="1" step="0.01" required><span class="unit">kg</span><span class="src-tag manual">MANUAL</span><span class="unit" id="batchRange"></span></span>
+                <label class="label required" for="batchStart">계획 시작</label>
+                <span class="field"><input class="input fixed w-200" id="batchStart" type="datetime-local" required><span class="src-tag manual">MANUAL</span></span>
+                <label class="label required" for="emergencyCount">비상 기록지 매수</label>
+                <span class="field"><input class="input num fixed w-80" id="emergencyCount" type="number" min="0" max="20" step="1" required value="5"><span class="unit">매</span><span class="src-tag manual">MANUAL</span></span>
+                <label class="label" for="theoryQuantity">이론 생산 수량</label>
+                <span class="field span-2"><input class="input plain num fixed w-160" id="theoryQuantity" readonly title="제품별 템플릿의 기준 수량으로 계산"><span class="src-tag calc">CALC</span><span class="unit" title="제품별 템플릿의 기준 수량으로 계산">기준 수량으로 계산</span></span>
+              </fieldset>
+            </form>
+          </div>
+          <div class="grid-block fill">
+            <div class="grid-toolbar">
+              <span class="group-title">생성되는 배치 기록</span><span class="total-text" data-total-for="grdSections"></span>
+              <span class="spacer"></span>
+              <button class="btn search hidden" id="newBatch" type="button">같은 MBR로 다음 배치</button>
+              <span class="tip" id="downloadTip" title="발행 후 다운로드할 수 있습니다"><button class="btn search secondary" id="downloadPackage" type="button" disabled>생성 데이터 패키지 다운로드</button></span>
+            </div>
+            <div class="grid-wrap">
+              <table class="grid" id="grdSections">
+                <colgroup><col class="col-no"><col><col style="width:120px"><col style="width:130px"></colgroup>
+                <thead><tr><th class="col-no">No.</th><th>공정</th><th class="num">기록 항목</th><th class="center">상태</th></tr></thead>
+                <tbody id="batchSections"></tbody>
+              </table>
+              <div class="nodata hidden" id="sectionsNodata">설계한 공정 구조가 배치에 복제됩니다.</div>
+            </div>
+            <div class="form-grid cols-3 readonly">
+              <span class="label">초기 상태</span><span class="field"><span class="text">발행 · 공정 실행 대기</span></span>
+              <span class="label">기록 항목</span><span class="field"><span class="text" id="recordCount">0건</span></span>
+              <span class="label">비상 기록지</span><span class="field"><span class="text" id="emergencyPreview"></span></span>
+            </div>
+          </div>
+        </div>
+        <!-- 우: 탭(매니페스트 / 스케일링 결과) — s-ebr-batch-issue-ui 와 같은 구성 -->
+        <div class="grid-block">
+          <div class="tabs">
+            <button class="tab active" type="button" data-tab="manifest">실행 컨텍스트 매니페스트</button>
+            <button class="tab" type="button" data-tab="scale">스케일링 결과</button>
+            <span class="tab-meta" id="tabMetaManifest"><span class="hash" id="manifestId">발행 시 채번</span><span id="manifestLock" class="badge info">고정 예정</span><span class="sub-info">객체 7종 · 버전 고정</span></span>
+            <span class="tab-meta hidden" id="tabMetaScale"><span id="scalingRatio" class="badge info"></span></span>
+          </div>
+          <div class="grid-wrap" id="wrapManifest">
+            <table class="grid" id="grdManifest">
+              <colgroup><col style="width:200px"><col style="width:220px"><col><col style="width:130px"></colgroup>
+              <thead><tr><th>객체</th><th>ID · 버전</th><th>콘텐츠 해시 (SHA-256)</th><th class="center">고정</th></tr></thead>
+              <tbody id="manifestBody"></tbody>
+            </table>
+          </div>
+          <div class="grid-wrap hidden" id="wrapScale">
+            <table class="grid" id="grdScale">
+              <colgroup><col><col style="width:180px"><col style="width:200px"></colgroup>
+              <thead><tr><th>원료</th><th class="num">기준량 (kg)</th><th class="num">배치 이론량 (kg)</th></tr></thead>
+              <tbody id="scaleBody"></tbody>
+            </table>
+          </div>
+          <div class="grid-summary hidden" id="scaleSum"></div>
+          <span class="sub-info"><i class="ic-info"></i><span id="tabFoot">SHA-256 · MBR에는 공정 블록 참조와 제품별 설계값이 함께 포함됩니다.</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 하단 버튼 영역: 이전 │ 안내 │ (다음) │ 1순위(최우측) -->
+    <div class="dialog-footer wf-footer">
+      <button id="previousStep" class="btn search" type="button">← 이전 단계</button>
+      <span class="sub-info" id="footerHint" aria-live="polite"></span>
+      <button id="nextStep" class="btn search secondary hidden" type="button">다음 단계 →</button>
+      <span class="tip" id="primaryTip"><button id="primaryAction" class="btn search primary" type="button">요청 등록 · 다음 →</button></span>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+
+<!-- ============================================================ 작업 화면 미리보기 팝업 (NormalPopup900 · 900×700) -->
+<div class="dialog-backdrop" id="workPreview">
+  <div class="dialog md" id="dlgPreview" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+    <div class="popup-title"><span class="text" id="previewTitle">작업 화면 미리보기</span><button class="popup-close" type="button" data-dialog-close aria-label="미리보기 닫기"></button></div>
+    <div class="shell-body" style="gap:16px">
+      <div class="plan-banner bc-plan plan"><span class="badge info">TRAINING</span><span>작업 화면 · 입력값은 생산 기록에 저장되지 않습니다</span></div>
+      <div class="form-grid cols-2 readonly" id="previewContext"></div>
+      <div class="grid-block fill">
+        <div class="grid-toolbar"><span class="group-title">측정 · 기록 항목</span><span class="total-text" data-total-for="grdPreview"></span><span class="spacer"></span><span class="sub-info" id="previewValidation" aria-live="polite"></span></div>
+        <div class="grid-wrap">
+          <table class="grid" id="grdPreview">
+            <colgroup><col><col style="width:140px"><col style="width:60px"><col style="width:140px"><col style="width:90px"><col style="width:190px"></colgroup>
+            <thead><tr><th>항목</th><th class="num">시험값</th><th>단위</th><th>허용범위</th><th>원천</th><th>판정</th></tr></thead>
+            <tbody id="previewContent"></tbody>
+          </table>
+        </div>
+      </div>
+      <span class="sub-info" id="previewSignatures"></span>
+    </div>
+    <div class="dialog-footer"><button class="btn search secondary" type="button" data-dialog-close>닫기</button><button class="btn search primary" id="validatePreview" type="button">입력값 판정</button></div>
+  </div>
+</div>
+
+<script src="./assets/mesui.js"></script>
+<script>
+/* 브라우저 메모리에서 동작하는 5단계 시뮬레이션. 운영 인증·서버 저장은 별도 구현 대상.
+   업무 로직(데이터 · 점검 규칙 · 해시 · 승인 분리 · 스케일링 · 패키지)은 원래 assets/ebmr-workflow.js 와 동일하고, 렌더링만 mesui 마크업으로 바꿨다. */
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const all = selector => Array.from(document.querySelectorAll(selector));
+  const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const stamp = () => MesUI.nowStamp();
+  const fmt = value => MesUI.fmt(value, 2);
+  const badge = (text, type = 'info') => '<span class="badge ' + type + '">' + esc(text) + '</span>';
+  const pad2 = n => String(n).padStart(2, '0');
+  const today = () => MesUI.nowStamp(null, 'date');
+  const setTip = (id, reason) => { const el = $(id); if (el) el.title = reason || ''; };
+  const titles = ['', '제품 · 요청 등록', 'MBR 초안 생성', '제조공정 설계', '검증 · 검토 · 승인', '배치 기록 생성'];
+  const descriptions = ['', '고객 요청 · 제품 정보', '템플릿 · 원본 선택', '공정 · 기록 항목 편집', '독립 검토 · 효력 전환', '버전 고정 · BR 발행'];
+  const states = { draft: '초안', review: '검토', approved: '승인', pending: '효력 대기', effective: '효력' };
+  /** legacy read normalize once (submitted/reviewed); writes are canonical only */
+  function normalizeMbrStatus(st) {
+    if (st === 'submitted') return 'review';
+    if (st === 'reviewed') return 'approved';
+    /* old approved(=효력 대기) cannot be auto-mapped after switch; in-memory PoC has no LS mbr */
+    return st || '';
+  }
+  function mbrStatus() { return state.mbr ? normalizeMbrStatus(state.mbr.status) : ''; }
+  const state = { step: 1, registered: false, product: null, mbr: null, method: 'template', template: 0, selectedPhase: 0, selectedField: 0, serial: 0, dryRun: false, snapshot: null, mbrHash: '', dependencies: [], audit: [], batchSeq: 412, batch: null, busy: false, tab: 'manifest' };
+  const equipment = {
+    weigh: ['WB-CLASS-01 · 칭량 부스', 'WB-CLASS-02 · 밀폐 칭량 부스'],
+    mix: ['MX-CLASS-01 · 혼합기', 'MX-CLASS-02 · 고속 혼합기'],
+    compress: ['TP-CLASS-01 · 타정기', 'TP-CLASS-02 · 고속 타정기'],
+    fill: ['CF-CLASS-01 · 캡슐 충전기'], liquidFill: ['LF-CLASS-01 · 액제 충전기'],
+    pack: ['PK-CLASS-01 · 포장기'], coat: ['CT-CLASS-01 · 코팅기']
+  };
+  const library = {
+    weigh: { name: '칭량 · 조제', id: 'PH-WEIGH', ver: '1.2', description: '원료 LOT 확인, 저울값 수집과 이중 확인', types: ['tablet', 'capsule', 'liquid'], instruction: '원료 LOT를 스캔하고 적합 상태를 확인합니다. 저울 안정값을 수집한 뒤 확인자와 대조합니다.', fields: [['원료 LOT', '', null, null, '스캔', '스캔', true], ['주성분 칭량량', 'kg', 19.9, 20.1, '장비 연동', '연동', true]] },
+    mix: { name: '혼합', id: 'PH-MIX', ver: '2.0', description: '혼합 시간·회전 속도 수집', types: ['tablet', 'capsule', 'liquid'], instruction: '투입 원료를 확인하고 설정 속도로 혼합합니다. 혼합 시간과 회전 속도를 기록합니다.', fields: [['혼합 시간', 'min', 18, 22, '장비 연동', '연동', true], ['회전 속도', 'rpm', 80, 120, '장비 연동', '연동', true]] },
+    compress: { name: '타정', id: 'PH-COMPRESS', ver: '1.4', description: '정제 중량·경도 IPC 기록', types: ['tablet'], instruction: '타정 조건을 확인하고 초기 제품의 중량과 경도를 측정합니다. IPC 적합 확인 후 생산합니다.', fields: [['정제 중량', 'mg', 95, 105, '장비 연동', '연동', true], ['정제 경도', 'N', 60, 90, '수기', '사진', true]] },
+    fill: { name: '캡슐 충전', id: 'PH-CAPSULE-FILL', ver: '1.1', description: '충전 중량·충전 수량 확인', types: ['capsule'], instruction: '캡슐과 혼합물의 식별을 확인한 후 충전합니다. 초기 충전 중량과 수량을 기록합니다.', fields: [['충전 중량', 'mg', 240, 260, '장비 연동', '연동', true], ['충전 수량', '캡슐', 1, 1000000, '장비 연동', '연동', false]] },
+    liquidFill: { name: '액제 충전', id: 'PH-LIQUID-FILL', ver: '1.3', description: '충전량·공정 온도 확인', types: ['liquid'], instruction: '용기 및 충전 설비의 상태를 확인합니다. 충전량과 공정 온도를 기록합니다.', fields: [['충전량', 'mL', 95, 105, '장비 연동', '연동', true], ['공정 온도', '℃', 18, 25, '장비 연동', '연동', true]] },
+    pack: { name: '포장', id: 'PH-PACK', ver: '1.0', description: '표시 자재 식별·포장 수량 확인', types: ['tablet', 'capsule', 'liquid'], instruction: '표시 자재의 제품명과 LOT를 대조합니다. 사용량·잔량을 확인하고 포장 수량을 기록합니다.', fields: [['표시 자재 LOT', '', null, null, '스캔', '스캔', true], ['포장 수량', '개', 1, 1000000, '장비 연동', '연동', false]] },
+    coat: { name: '코팅', id: 'PH-COAT', ver: '1.1', description: '코팅 온도·분사량 확인', types: ['tablet'], instruction: '코팅액과 설비 상태를 확인하고 코팅합니다. 급기 온도와 분사량을 기록합니다.', fields: [['급기 온도', '℃', 55, 65, '장비 연동', '연동', true], ['분사량', 'g/min', 40, 60, '장비 연동', '연동', true]] }
+  };
+  const catalog = {
+    tablet: { name: '정제', templates: [{ id: 'TPL-TAB-01', name: '정제 표준 · 직접 타정', phases: ['weigh', 'mix', 'compress', 'pack'] }, { id: 'TPL-TAB-02', name: '정제 표준 · 코팅 정제', phases: ['weigh', 'mix', 'compress', 'coat', 'pack'] }], copy: { id: 'MBR-TAB-REF', version: '3.2', name: '유사 정제 제품 · 효력 MBR', phases: ['weigh', 'mix', 'compress', 'pack'] }, bom: [['API-001', '주성분 API', .20], ['LAC-001', '유당', .79], ['MGS-001', '스테아르산Mg', .01]], quantity: 10000, unit: '정', lines: ['L-01 · 정제 1라인', 'L-02 · 정제 2라인'] },
+    capsule: { name: '캡슐', templates: [{ id: 'TPL-CAP-01', name: '캡슐 표준 · 경질 캡슐', phases: ['weigh', 'mix', 'fill', 'pack'] }], copy: { id: 'MBR-CAP-REF', version: '1.4', name: '유사 캡슐 제품 · 효력 MBR', phases: ['weigh', 'mix', 'fill', 'pack'] }, bom: [['API-001', '주성분 API', .20], ['MCC-001', '미결정셀룰로오스', .79], ['MGS-001', '스테아르산Mg', .01]], quantity: 4000, unit: '캡슐', lines: ['L-03 · 캡슐 라인'] },
+    liquid: { name: '액제', templates: [{ id: 'TPL-LIQ-01', name: '액제 표준 · 혼합 충전', phases: ['weigh', 'mix', 'liquidFill', 'pack'] }], copy: { id: 'MBR-LIQ-REF', version: '2.1', name: '유사 액제 제품 · 효력 MBR', phases: ['weigh', 'mix', 'liquidFill', 'pack'] }, bom: [['API-001', '주성분 API', .20], ['WTR-001', '정제수', .79], ['EXC-001', '보조 원료', .01]], quantity: 1000, unit: '병', lines: ['L-04 · 액제 라인'] }
+  };
+  const dependencyDefinitions = [
+    { kind: '인터록 룰 세트', id: 'ILR', version: '7', definition: { absoluteOverride: false, hardQA: 'QA 승인', controlled: '감독자 승인', warning: '사유 확인' } },
+    { kind: '중요도 사전', id: 'CD', version: '12', definition: { categories: ['CPP', 'IPC', '원료 LOT', '수율'] } },
+    { kind: 'RBE 규칙', id: 'RBE', version: '5', definition: { exceptions: ['SPEC_OUT', 'MANUAL_FALLBACK', 'CORRECTION', 'WARNING_ACK'] } },
+    { kind: '계산식', id: 'FX', version: '4', definition: { scaling: 'batchSize / baseSize', potency: 'execution approved LOT value' } },
+    { kind: '파서 규칙', id: 'PR', version: '3', definition: { stableOnly: true, acceptedQuality: 'Good' } },
+    { kind: '히스토리안 기준선', id: 'HB', version: '2', definition: { criticalSnapshot: true, compression: false } }
+  ];
+  const UPLOAD_KEY = 'ebmr.uploadedTemplates.v1';
+  const CUSTOMER_KEY = 'ebmr.customerSetup.v1';
+  const DOSAGES = ['tablet', 'capsule', 'liquid'];
+  const CUSTOMER_SEED = [
+    { customerCode: 'HANBIT', customerDesc: '한빛제약', factoryCode: 'OSONG', factoryDesc: '오송 공장', plantCode: 'P01', plantDesc: '오송 제1공장', namespace: 'CUSTA', schemaPackId: 'SP-EXT-CUSTA', schemaPackVer: '1.2.0', corePackId: 'SP-CORE', corePackVer: '1.0.0', activeFlag: true, ebmrEnabled: true },
+    { customerCode: 'GREENPH', customerDesc: '그린파마', factoryCode: 'ANSAN', factoryDesc: '안산 공장', plantCode: 'P02', plantDesc: '안산 고형제 공장', namespace: 'CUSTB', schemaPackId: 'SP-EXT-CUSTB', schemaPackVer: '1.0.1', corePackId: 'SP-CORE', corePackVer: '1.0.0', activeFlag: true, ebmrEnabled: true },
+    { customerCode: 'COREONLY', customerDesc: '코어온리바이오', factoryCode: 'OSONG', factoryDesc: '오송 공장', plantCode: 'P01', plantDesc: '오송 제1공장', namespace: 'CORE', schemaPackId: 'SP-CORE', schemaPackVer: '1.0.0', corePackId: 'SP-CORE', corePackVer: '1.0.0', activeFlag: true, ebmrEnabled: true }
+  ];
+  function loadCustomers() {
+    try {
+      const raw = localStorage.getItem(CUSTOMER_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.customers) && parsed.customers.length) return parsed.customers;
+      }
+    } catch (e) { /* ignore */ }
+    return clone(CUSTOMER_SEED);
+  }
+  function bindableCustomers() {
+    return loadCustomers().filter(c => c && c.activeFlag !== false && c.ebmrEnabled !== false);
+  }
+  function customerByCode(code) {
+    return bindableCustomers().find(c => c.customerCode === code) || null;
+  }
+  function siteOptionsFor(c) {
+    if (!c) return [];
+    const opts = [];
+    const siteLabel = (c.factoryDesc || c.factoryCode || '').trim();
+    if (siteLabel) opts.push({ value: siteLabel, factoryCode: c.factoryCode || '' });
+    if (c.plantDesc && c.plantDesc !== siteLabel) {
+      opts.push({ value: (c.factoryDesc ? c.factoryDesc + ' / ' : '') + c.plantDesc, factoryCode: c.factoryCode || '' });
+    }
+    // legacy free-text fallback sites if customer has no factory
+    if (!opts.length) opts.push({ value: '오송 공장', factoryCode: 'OSONG' }, { value: '안산 공장', factoryCode: 'ANSAN' });
+    return opts;
+  }
+  function applyCustomerSelection(code, keepSite) {
+    const sel = $('customerCode');
+    const c = customerByCode(code || (sel && sel.value));
+    if (!c) {
+      $('customerName').textContent = '(고객 설정 없음 — 고객 설정 마스터에서 등록)';
+      $('customer').value = '';
+      $('schemaPackInfo').textContent = '—';
+      $('schemaPackId').value = ''; $('schemaPackVer').value = ''; $('namespace').value = ''; $('factoryCode').value = '';
+      $('site').innerHTML = '<option value="">고객을 선택하세요</option>';
+      return null;
+    }
+    $('customerName').textContent = c.customerDesc || c.customerCode;
+    $('customer').value = c.customerDesc || c.customerCode;
+    $('schemaPackId').value = c.schemaPackId || '';
+    $('schemaPackVer').value = c.schemaPackVer || '';
+    $('namespace').value = c.namespace || '';
+    $('factoryCode').value = c.factoryCode || '';
+    $('schemaPackInfo').textContent = (c.schemaPackId || '—') + ' v' + (c.schemaPackVer || '') + ' · NS ' + (c.namespace || '—')
+      + (c.corePackId ? ' (extends ' + c.corePackId + ' ' + (c.corePackVer || '') + ')' : '');
+    const prevSite = keepSite ? $('site').value : '';
+    const sites = siteOptionsFor(c);
+    $('site').innerHTML = sites.map(o => '<option value="' + esc(o.value) + '" data-factory="' + esc(o.factoryCode) + '">' + esc(o.value) + '</option>').join('');
+    if (prevSite && sites.some(o => o.value === prevSite)) $('site').value = prevSite;
+    return c;
+  }
+  function fillCustomerSelect(preferred) {
+    const list = bindableCustomers();
+    const sel = $('customerCode');
+    const cur = preferred || sel.value || 'HANBIT';
+    sel.innerHTML = list.map(c => '<option value="' + esc(c.customerCode) + '">' + esc(c.customerCode + ' · ' + (c.customerDesc || '')) + '</option>').join('');
+    if (!list.length) {
+      sel.innerHTML = '<option value="">(바인딩 가능 고객 없음)</option>';
+      applyCustomerSelection('');
+      return;
+    }
+    if (list.some(c => c.customerCode === cur)) sel.value = cur;
+    else sel.value = list[0].customerCode;
+    applyCustomerSelection(sel.value);
+  }
+
+  function fieldTupleOk(f) {
+    return Array.isArray(f) && f.length === 7 && typeof f[0] === 'string' && f[0]
+      && (f[1] === '' || f[1] == null || typeof f[1] === 'string')
+      && (f[2] == null || typeof f[2] === 'number')
+      && (f[3] == null || typeof f[3] === 'number')
+      && typeof f[4] === 'string' && typeof f[5] === 'string' && typeof f[6] === 'boolean';
+  }
+  function validateTemplatePackage(raw) {
+    if (!raw || typeof raw !== 'object') return { ok: false, error: 'JSON 루트는 객체여야 합니다.' };
+    let pkg = raw;
+    if (Array.isArray(raw.templates)) {
+      pkg = raw;
+    } else if (raw.id && raw.name && Array.isArray(raw.phases)) {
+      pkg = { schemaVersion: raw.schemaVersion || 1, dosage: raw.dosage, templates: [raw], phases: raw.phasesDefs || raw.customPhases || raw.phaseLibrary, equipment: raw.equipmentMap || raw.equipment };
+    } else {
+      return { ok: false, error: 'templates 배열 또는 단일 템플릿(id/name/phases)이 필요합니다.' };
+    }
+    const schemaVersion = Number(pkg.schemaVersion || 1);
+    if (schemaVersion !== 1) return { ok: false, error: '지원하는 schemaVersion은 1입니다.' };
+    const customPhases = pkg.phases && typeof pkg.phases === 'object' && !Array.isArray(pkg.phases) ? pkg.phases : {};
+    const customEquip = pkg.equipment && typeof pkg.equipment === 'object' ? pkg.equipment : {};
+    for (const [kind, def] of Object.entries(customPhases)) {
+      if (!kind || !/^[A-Za-z][A-Za-z0-9_]*$/.test(kind)) return { ok: false, error: '공정 kind "' + kind + '" 형식이 올바르지 않습니다.' };
+      if (!def || typeof def !== 'object') return { ok: false, error: '공정 "' + kind + '" 정의가 없습니다.' };
+      if (!def.name || !def.id || !def.ver || !def.instruction) return { ok: false, error: '공정 "' + kind + '"에 name/id/ver/instruction이 필요합니다.' };
+      if (!Array.isArray(def.types) || !def.types.length || !def.types.every(t => DOSAGES.includes(t))) return { ok: false, error: '공정 "' + kind + '" types는 tablet|capsule|liquid 배열이어야 합니다.' };
+      if (!Array.isArray(def.fields) || !def.fields.length || !def.fields.every(fieldTupleOk)) return { ok: false, error: '공정 "' + kind + '" fields는 [name,unit,min,max,source,evidence,critical] 7칸 배열이어야 합니다.' };
+      const eq = Array.isArray(def.equipment) ? def.equipment : customEquip[kind];
+      if (!Array.isArray(eq) || !eq.length || !eq.every(e => typeof e === 'string' && e)) return { ok: false, error: '공정 "' + kind + '"에 equipment 문자 배열이 필요합니다.' };
+    }
+    if (!Array.isArray(pkg.templates) || !pkg.templates.length) return { ok: false, error: 'templates가 비어 있습니다.' };
+    const out = [];
+    for (const t of pkg.templates) {
+      if (!t || typeof t !== 'object') return { ok: false, error: '템플릿 항목이 객체가 아닙니다.' };
+      const dosage = t.dosage || pkg.dosage;
+      if (!DOSAGES.includes(dosage)) return { ok: false, error: 'dosage는 tablet|capsule|liquid 중 하나여야 합니다. (템플릿 ' + (t.id || '?') + ')' };
+      if (!t.id || typeof t.id !== 'string') return { ok: false, error: '템플릿 id가 필요합니다.' };
+      if (!t.name || typeof t.name !== 'string') return { ok: false, error: '템플릿 "' + t.id + '"에 name이 필요합니다.' };
+      if (!Array.isArray(t.phases) || !t.phases.length) return { ok: false, error: '템플릿 "' + t.id + '" phases가 비어 있습니다.' };
+      for (const kind of t.phases) {
+        if (typeof kind !== 'string' || !kind) return { ok: false, error: '템플릿 "' + t.id + '" phases에 빈 kind가 있습니다.' };
+        if (!library[kind] && !customPhases[kind]) return { ok: false, error: '템플릿 "' + t.id + '"가 알 수 없는 공정 "' + kind + '"를 참조합니다. phases에 정의를 넣으세요.' };
+        const types = (library[kind] || customPhases[kind]).types;
+        if (!types.includes(dosage)) return { ok: false, error: '공정 "' + kind + '"는 ' + dosage + ' 제형에 사용할 수 없습니다.' };
+      }
+      out.push({
+        dosage,
+        template: { id: String(t.id), name: String(t.name), version: String(t.version || '1.0'), phases: t.phases.slice(), description: t.description ? String(t.description) : '', uploaded: true },
+        customPhases, customEquip
+      });
+    }
+    return { ok: true, items: out, customPhases, customEquip };
+  }
+  function applyCustomPhases(customPhases, customEquip) {
+    Object.entries(customPhases || {}).forEach(([kind, def]) => {
+      library[kind] = {
+        name: def.name, id: def.id, ver: def.ver, description: def.description || '', types: def.types.slice(),
+        instruction: def.instruction, fields: def.fields.map(f => f.slice())
+      };
+      const eq = Array.isArray(def.equipment) && def.equipment.length ? def.equipment : (customEquip && customEquip[kind]);
+      equipment[kind] = (eq || []).slice();
+    });
+  }
+  function mergeUploadedTemplates(items) {
+    const ids = [];
+    items.forEach(item => {
+      applyCustomPhases(item.customPhases, item.customEquip);
+      const list = catalog[item.dosage].templates;
+      const idx = list.findIndex(t => t.id === item.template.id);
+      if (idx >= 0) list[idx] = Object.assign({}, item.template); else list.push(Object.assign({}, item.template));
+      ids.push(item.template.id);
+    });
+    return ids;
+  }
+  function saveUploads(packages) {
+    try { localStorage.setItem(UPLOAD_KEY, JSON.stringify(packages)); } catch (e) { /* ignore quota */ }
+  }
+  function loadUploads() {
+    try {
+      const raw = localStorage.getItem(UPLOAD_KEY);
+      if (!raw) return;
+      const packages = JSON.parse(raw);
+      if (!Array.isArray(packages)) return;
+      packages.forEach(pkg => {
+        const v = validateTemplatePackage(pkg);
+        if (v.ok) mergeUploadedTemplates(v.items);
+      });
+    } catch (e) { console.warn('uploaded templates load failed', e); }
+  }
+  function rememberPackage(pkg) {
+    let packages = [];
+    try { packages = JSON.parse(localStorage.getItem(UPLOAD_KEY) || '[]'); if (!Array.isArray(packages)) packages = []; } catch (e) { packages = []; }
+    const ids = new Set((pkg.templates || (pkg.id ? [pkg] : [])).map(t => t.id));
+    packages = packages.filter(p => {
+      const ts = p.templates || (p.id ? [p] : []);
+      return !ts.some(t => ids.has(t.id));
+    });
+    packages.push(pkg);
+    saveUploads(packages);
+  }
+  async function handleTemplateFile(file) {
+    if (!file) return;
+    let text;
+    try { text = await file.text(); } catch (e) { MesUI.toast('파일을 읽을 수 없습니다.', 'warn'); return; }
+    let raw;
+    try { raw = JSON.parse(text); } catch (e) { MesUI.toast('JSON 형식이 올바르지 않습니다.', 'warn'); return; }
+    const v = validateTemplatePackage(raw);
+    if (!v.ok) { MesUI.toast(v.error, 'warn'); return; }
+    const ids = mergeUploadedTemplates(v.items);
+    const dosages = [...new Set(v.items.map(i => i.dosage))];
+    const normalized = {
+      schemaVersion: 1,
+      templates: v.items.map(i => Object.assign({}, i.template, { dosage: i.dosage })),
+      phases: v.customPhases,
+      equipment: Object.fromEntries(Object.keys(v.customPhases || {}).map(k => [k, equipment[k]]))
+    };
+    if (dosages.length === 1) normalized.dosage = dosages[0];
+    rememberPackage(normalized);
+    const first = v.items[0];
+    if (product().dosage !== first.dosage) {
+      MesUI.toast('업로드됨 · 제형이 ' + catalog[first.dosage].name + '인 요청에서 선택하세요 (' + ids.join(', ') + ')', 'ok');
+    } else {
+      state.method = 'template';
+      state.template = Math.max(0, catalog[first.dosage].templates.findIndex(t => t.id === first.template.id));
+      const methodRadio = document.querySelector('input[name=method][value=template]');
+      if (methodRadio) methodRadio.checked = true;
+      renderDraft();
+      MesUI.toast('표준 템플릿 ' + ids.length + '건 등록 · ' + ids.join(', '), 'ok');
+    }
+    if (state.mbr) MesUI.toast('이미 생성된 초안에는 반영되지 않습니다. 새 초안에서 사용하세요.', 'warn');
+  }
+  function downloadSampleTemplate() {
+    const a = document.createElement('a');
+    a.href = './assets/samples/mbr-standard-template.sample.json';
+    a.download = 'mbr-standard-template.sample.json';
+    document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  function productFromForm() {
+    const c = customerByCode($('customerCode').value);
+    return {
+      customerCode: $('customerCode').value,
+      customer: ($('customer').value || (c && c.customerDesc) || '').trim(),
+      productCode: $('productCode').value.trim().toUpperCase(),
+      product: $('product').value.trim(),
+      dosage: $('dosage').value,
+      strength: $('strength').value.trim(),
+      baseSize: Number($('baseSize').value),
+      site: $('site').value,
+      factoryCode: $('factoryCode').value || (c && c.factoryCode) || '',
+      schemaPackId: $('schemaPackId').value || (c && c.schemaPackId) || '',
+      schemaPackVer: $('schemaPackVer').value || (c && c.schemaPackVer) || '',
+      namespace: $('namespace').value || (c && c.namespace) || '',
+      schemaPackLabel: (($('schemaPackId').value || (c && c.schemaPackId) || '') + ' · ' + ($('namespace').value || (c && c.namespace) || '')).trim(),
+      dueDate: $('dueDate').value,
+      requestType: $('requestType').value,
+      note: $('requestNote').value.trim(),
+      documents: Array.from($('sourceBody').rows).map(row => row.cells[1].textContent)
+    };
+  }
+  function product() { return state.product || productFromForm(); }
+  function definition() { return catalog[product().dosage]; }
+  function selectedPhase() { return state.mbr && state.mbr.phases[state.selectedPhase]; }
+  function editable() { return state.mbr && state.mbr.status === 'draft'; }
+  function requireDraft() { if (!editable()) { MesUI.toast('검토 제출된 설계는 잠겨 있습니다. 반려 후 새 개정본에서 수정하세요.', 'warn'); return false; } state.dryRun = false; return true; }
+  function log(action, who = '김작성') { state.audit.push({ at: stamp(), who, action }); }
+  function binds() {
+    const p = product();
+    all('[data-bind]').forEach(el => {
+      const key = el.dataset.bind;
+      if (key === 'baseSize') el.textContent = fmt(p.baseSize) + ' kg';
+      else if (key === 'schemaPackLabel') el.textContent = p.schemaPackLabel || ((p.schemaPackId || '') + (p.namespace ? ' · ' + p.namespace : '')) || '—';
+      else el.textContent = p[key] || '';
+    });
+    $('contextMbr').textContent = state.mbr ? state.mbr.id + ' v' + state.mbr.version : '미생성';
+    MesUI.setBadge('overallStatus', state.mbr ? (state.mbr.status === 'effective' ? 'ok' : 'info') : state.registered ? 'info' : 'muted', state.batch ? 'BR 발행 완료' : state.mbr ? states[state.mbr.status] : state.registered ? '요청 등록됨' : '등록 전');
+    $('contextHint').textContent = state.batch ? state.batch.id + ' 발행 완료' : state.mbr ? '설계 ' + state.mbr.phases.length + '개 공정 · ' + states[state.mbr.status] : state.registered ? 'MBR 초안을 생성하세요' : '제품 요청 정보를 확인하세요';
+  }
+  function completion(n) { return n === 1 ? state.registered : n === 2 ? !!state.mbr : n === 3 ? !!state.mbr && state.mbr.status !== 'draft' : n === 4 ? !!state.mbr && state.mbr.status === 'effective' : !!state.batch; }
+  function navigation() {
+    $('stepper').innerHTML = titles.slice(1).map((name, i) => '<button type="button" class="tl-step' + (completion(i + 1) ? ' done' : '') + (state.step === i + 1 ? ' active' : '') + '" data-go="' + (i + 1) + '"' + (state.step === i + 1 ? ' aria-current="step"' : '') + '><span class="tl-dot"></span><span class="tl-label">' + pad2(i + 1) + ' ' + name + (completion(i + 1) ? ' ✓' : '') + '</span><span class="tl-time">' + descriptions[i + 1] + '</span></button>').join('');
+    all('.stage').forEach(el => el.classList.toggle('hidden', Number(el.dataset.stage) !== state.step));
+    $('previousStep').disabled = state.step === 1 || state.busy;
+    const button = $('primaryAction');
+    button.classList.remove('hidden'); $('nextStep').classList.add('hidden');
+    let hint = '', text = '', disabled = state.busy;
+    if (state.step === 1) { text = state.registered ? 'MBR 초안 생성으로 →' : '요청 등록 · 다음 →'; hint = state.registered ? '등록한 제품 정보가 MBR 초안에 전달됩니다.' : '고객과 제품 정보를 확인한 후 요청을 등록하세요.'; }
+    if (state.step === 2) { text = state.mbr ? '공정 설계로 →' : 'MBR 초안 생성 →'; disabled ||= !state.registered; hint = state.mbr ? '초안 생성 방식은 고정되었습니다. 다음 단계에서 설계를 수정하세요.' : '템플릿의 수치와 조건은 샘플이며 제품 기준에 맞게 수정해야 합니다.'; }
+    if (state.step === 3) { text = '설계 저장 · 검증으로 →'; disabled ||= !state.mbr; hint = editable() ? '입력한 설계값을 저장하고 전체 검증 결과를 확인합니다.' : '제출된 MBR을 읽기 전용으로 표시합니다.'; }
+    if (state.step === 4) { text = '배치 발행 화면으로 →'; hint = 'QA 승인과 효력 준비 조건이 모두 충족되어야 발행할 수 있습니다.'; }
+    if (state.step === 5) { text = state.batch ? '배치 발행 완료' : '배치 기록 생성 · 발행'; disabled ||= !canIssue(); hint = state.batch ? '생성된 배치의 입력값과 버전이 잠겼습니다. 데이터 패키지를 확인하세요.' : issueReason(); }
+    button.textContent = text; button.disabled = disabled;
+    const footer = state.busy ? '콘텐츠 해시를 산출하는 중입니다…' : hint;
+    $('footerHint').textContent = footer; $('footerHint').title = footer;
+    setTip('primaryTip', !disabled ? '' : state.step === 2 && !state.registered ? '제품 요청을 먼저 등록하세요. (01 단계)' : state.step === 3 && !state.mbr ? 'MBR 초안을 먼저 생성하세요. (02 단계)' : footer);
+  }
+  function go(step) {
+    if (state.busy) return;
+    state.step = step; binds();
+    if (step === 1) renderRequest();
+    if (step === 2) renderDraft();
+    if (step === 3) renderDesigner();
+    if (step === 4) renderReview();
+    if (step === 5) renderIssue();
+    navigation();
+  }
+  function renderRequest() {
+    $('requestFields').disabled = state.registered; $('sourceFiles').disabled = state.registered;
+    $('sourceFilesBtn').classList.toggle('disabled', state.registered);
+    MesUI.setBadge('requestPlanBadge', state.registered ? 'ok' : 'warn', state.registered ? '등록 완료' : '접수 대기');
+    MesUI.setTotal('grdSource');
+  }
+  function registerRequest() {
+    if (!$('requestForm').reportValidity()) return;
+    ['product', 'productCode', 'strength'].forEach(id => { $(id).value = $(id).value.trim(); });
+    applyCustomerSelection($('customerCode').value, true);
+    if (!$('customerCode').value) { MesUI.toast('고객 설정 마스터에서 eMBR 사용 고객을 등록하세요.', 'warn'); return; }
+    if (!$('requestForm').reportValidity()) return;
+    state.product = productFromForm(); state.registered = true; log('제품 요청 등록 · ' + state.product.productCode); MesUI.toast('제품 요청이 등록되었습니다.', 'ok'); go(2);
+  }
+  function renderDraft() {
+    const d = definition(), choices = state.method === 'copy' ? [d.copy] : d.templates;
+    state.template = Math.min(state.template, choices.length - 1);
+    $('draftPrerequisite').classList.toggle('hidden', state.registered);
+    $('draftFields').disabled = !state.registered || !!state.mbr;
+    all('#grdMethod tbody tr').forEach(tr => { const r = tr.querySelector('input'); r.checked = r.value === state.method; tr.classList.toggle('selected', r.checked); });
+    $('templateHeading').textContent = state.method === 'copy' ? '복사할 효력 MBR' : '사용할 표준 템플릿';
+    $('templateChoices').classList.toggle('hidden', state.method === 'blank'); $('blankHint').classList.toggle('hidden', state.method !== 'blank');
+    $('templateChoices').innerHTML = choices.map((t, i) => '<tr data-pick' + (i === state.template ? ' class="selected"' : '') + '><td class="col-check"><input type="radio" name="template" value="' + i + '" ' + (i === state.template ? 'checked' : '') + ' aria-label="' + esc(t.name) + '"></td><td>' + esc(t.id) + '</td><td><b>' + esc(t.name) + '</b>' + (t.description ? '<div class="sub-info">' + esc(t.description) + '</div>' : '') + '</td><td>v' + (t.version || '1.0') + '</td><td class="num">' + t.phases.length + '개</td><td class="center">' + badge(state.method === 'copy' ? '효력 원본 · 새 제품은 재검토 필요' : (t.uploaded ? 'JSON 업로드' : '검증된 샘플 템플릿'), state.method === 'copy' ? 'info' : (t.uploaded ? 'info' : 'ok')) + '</td></tr>').join('');
+    const t = choices[state.template];
+    $('draftMbrPreview').textContent = 'MBR-' + product().productCode;
+    $('originPreview').textContent = state.method === 'blank' ? '신규 조합 · 원본 없음' : t.id + ' v' + (t.version || '1.0');
+    $('initialFlow').innerHTML = state.method === 'blank' ? '<div class="step wait"><span class="no">–</span><span class="name">Procedure · 빈 공정 구조</span><span class="meta">라이브러리에서 추가</span></div>' : t.phases.map((kind, i) => '<div class="step"><span class="no">' + (i + 1) + '</span><span class="name">' + esc(library[kind].name) + '</span><span class="meta">' + library[kind].id + ' v' + library[kind].ver + '</span></div>').join('');
+  }
+  function createPhase(kind) {
+    const lib = library[kind], factor = product().baseSize / 100;
+    return { key: 'OP-' + (++state.serial), kind, reference: { id: lib.id, version: lib.ver }, name: lib.name, equipment: equipment[kind][0], instruction: lib.instruction,
+      fields: lib.fields.map((f, i) => ({ key: 'F-' + state.serial + '-' + i, name: f[0], type: f[2] == null ? 'text' : 'number', unit: f[1], precision: 2, rounding: '표시 시 반올림', min: f[2] == null ? null : kind === 'weigh' ? Number((f[2] * factor).toFixed(4)) : f[2], max: f[3] == null ? null : kind === 'weigh' ? Number((f[3] * factor).toFixed(4)) : f[3], source: f[4], evidence: f[5], critical: f[6], criticalFloor: f[6], permit: '비대상', quality: 'Good만 수용', interlock: f[6] ? 'Hard-QA' : 'Warning', signature: f[6] ? '수행 · 확인' : '수행', verification: f[6] ? '동석' : '시스템', time: '시스템 시각 · 스냅샷', fallback: '장애 사유 기록 후 대체' })) };
+  }
+  function createDraft() {
+    if (!state.registered || state.mbr) return;
+    const d = definition(), t = state.method === 'copy' ? d.copy : d.templates[state.template];
+    state.mbr = { id: 'MBR-' + product().productCode, version: '1.0', status: 'draft', origin: state.method === 'blank' ? null : { id: t.id, version: t.version || '1.0' }, author: '김작성', product: clone(product()), phases: (state.method === 'blank' ? [] : t.phases).map(createPhase), bom: d.bom.map(b => ({ code: b[0], name: b[1], amount: Number((b[2] * product().baseSize).toFixed(4)) })), quantityPerKg: d.quantity, quantityUnit: d.unit };
+    $('batchSize').value = product().baseSize; $('batchLine').innerHTML = d.lines.map(line => '<option>' + esc(line) + '</option>').join('');
+    log('MBR v1.0 초안 생성 · ' + (state.method === 'blank' ? '신규 설계' : t.id + ' 참조')); MesUI.toast('MBR 초안이 생성되었습니다.', 'ok'); go(3);
+  }
+  function renderDesigner() {
+    $('designerEmpty').classList.toggle('hidden', !!state.mbr); $('designerContent').classList.toggle('hidden', !state.mbr); $('previewWork').disabled = !selectedPhase();
+    setTip('previewWorkTip', selectedPhase() ? '' : '공정을 추가·선택하면 미리볼 수 있습니다.');
+    MesUI.setBadge('designerStatus', editable() ? 'info' : 'muted', state.mbr ? states[state.mbr.status] + (editable() ? ' · 편집 가능' : ' · 읽기 전용') : '초안 미생성');
+    if (!state.mbr) return;
+    $('phaseCount').innerHTML = 'Total <b>' + state.mbr.phases.length + '</b>';
+    $('phaseTree').innerHTML = state.mbr.phases.map((p, i) => '<tr data-phase="' + i + '"' + (i === state.selectedPhase ? ' class="selected"' : '') + '><td class="col-no">' + pad2(i + 1) + '</td><td title="UP / ' + p.key + '"><b>' + esc(p.name) + '</b></td><td title="UP / ' + p.key + ' · ' + esc(p.reference.id) + ' v' + p.reference.version + '">' + esc(p.reference.id) + ' v' + p.reference.version + '</td></tr>').join('') || '<tr><td colspan="3" class="center muted">공정을 추가하세요 — 아래 라이브러리의 [+]</td></tr>';
+    $('phaseLibrary').innerHTML = Object.keys(library).filter(kind => library[kind].types.includes(product().dosage)).map(kind => '<tr><td title="' + esc(library[kind].description) + '">' + esc(library[kind].name) + '</td><td>' + library[kind].id + ' v' + library[kind].ver + '</td><td class="col-icon"><button class="btn inner" type="button" data-add="' + kind + '" title="' + esc(library[kind].name) + ' 공정 추가" aria-label="' + esc(library[kind].name) + ' 공정 추가" ' + (editable() ? '' : 'disabled') + '>+</button></td></tr>').join('');
+    $('moveUp').disabled = !editable() || state.selectedPhase === 0; $('moveDown').disabled = !editable() || state.selectedPhase >= state.mbr.phases.length - 1; $('removePhase').disabled = !editable() || !selectedPhase();
+    $('phaseFields').disabled = !editable() || !selectedPhase(); $('propertyFields').disabled = !editable() || !selectedPhase();
+    renderPhase(); renderBom(); renderLint();
+  }
+  function renderPhase() {
+    const p = selectedPhase();
+    $('phaseTitle').textContent = p ? p.name + ' · 공정 설정' : '공정 미선택'; $('phaseVersion').textContent = p ? p.reference.id + ' v' + p.reference.version : '라이브러리에서 추가';
+    $('phaseName').value = p ? p.name : ''; $('instruction').value = p ? p.instruction : '';
+    $('equipment').innerHTML = p ? equipment[p.kind].map(e => '<option' + (e === p.equipment ? ' selected' : '') + '>' + esc(e) + '</option>').join('') : '';
+    if (!p) { $('fieldBody').innerHTML = ''; MesUI.setTotal('fieldTable', 0); $('properties').innerHTML = '<div class="panel-hint">공정을 추가하면 기록 항목 속성이 표시됩니다.</div>'; return; }
+    state.selectedField = Math.min(state.selectedField, p.fields.length - 1);
+    renderFieldRows(); renderProperties();
+  }
+  function renderFieldRows() {
+    const p = selectedPhase(); if (!p) return;
+    $('fieldBody').innerHTML = p.fields.map((f, i) => '<tr tabindex="0" data-field="' + i + '" class="' + (state.selectedField === i ? 'selected' : '') + '" aria-label="' + esc(f.name) + ' 속성 편집"><td>' + esc(f.name) + '</td><td>' + esc(f.unit || '—') + '</td><td>' + (f.type === 'number' ? esc(f.min) + ' ~ ' + esc(f.max) : '식별 확인') + '</td><td>' + esc(f.source) + '</td><td class="center">' + badge(f.critical ? 'critical' : '일반', f.critical ? 'warn' : 'muted') + '</td></tr>').join('');
+    MesUI.setTotal('fieldTable');
+  }
+  function selectOptions(values, chosen) { return values.map(v => '<option' + (v === chosen ? ' selected' : '') + '>' + esc(v) + '</option>').join(''); }
+  function row(label, control) { return '<span class="label">' + label + '</span><span class="field">' + control + '</span>'; }
+  function propertySelect(label, key, values, f, disabled = false) { return row(label, '<select class="input" data-prop="' + key + '" aria-label="' + esc(label) + '"' + (disabled ? ' disabled' : '') + '>' + selectOptions(values, f[key]) + '</select>'); }
+  function renderProperties() {
+    const f = selectedPhase().fields[state.selectedField];
+    const text = f.type === 'text';
+    $('properties').innerHTML = '<div class="form-grid prop-form">' +
+      '<span class="header">정의 · 규격</span>' +
+      row('항목명', '<input class="input" data-prop="name" maxlength="60" aria-label="항목명" value="' + esc(f.name) + '">') +
+      row('① 데이터 타입', '<input class="input" aria-label="데이터 타입" value="' + (f.type === 'number' ? '수치형' : '문자형 · 식별값') + '" readonly>') +
+      row('단위', '<input class="input" data-prop="unit" maxlength="20" aria-label="단위" value="' + esc(f.unit) + '"' + (text ? ' disabled' : '') + '>') +
+      propertySelect('표시 유효 소수 자리', 'precision', ['0', '1', '2', '3', '4'], { precision: String(f.precision) }) +
+      row('② 규격 하한', '<input class="input num" type="number" step="any" data-prop="min" aria-label="규격 하한" value="' + (f.min == null ? '' : f.min) + '"' + (text ? ' disabled' : '') + '>') +
+      row('규격 상한', '<input class="input num" type="number" step="any" data-prop="max" aria-label="규격 상한" value="' + (f.max == null ? '' : f.max) + '"' + (text ? ' disabled' : '') + '>') +
+      propertySelect('③ 허가 기재 사항 · RA 지정', 'permit', ['비대상', 'RA 검토 필요'], f) +
+      propertySelect('④ 중요도' + (f.criticalFloor ? ' · 기본 중요 항목 고정' : ''), 'critical', ['일반', 'critical'], { critical: f.critical ? 'critical' : '일반' }, f.criticalFloor) +
+      '<span class="header">증거 · 수집 정책</span>' +
+      propertySelect('⑤ 증거 유형', 'evidence', ['연동', '스캔', '사진', '없음'], f) +
+      propertySelect('⑥ 품질 코드 수용', 'quality', ['Good만 수용', '비중요 항목 플래그 수용'], f) +
+      propertySelect('⑩ 데이터 원천', 'source', ['장비 연동', '스캔', '수기', '계산'], f) +
+      propertySelect('연동 장애 대체 경로', 'fallback', ['장애 사유 기록 후 대체', '대체 불가 · QA 호출'], f) +
+      '<span class="header">통제 · 서명</span>' +
+      propertySelect('⑦ 인터록 등급', 'interlock', ['Absolute', 'Hard-QA', 'Controlled', 'Warning'], f) +
+      propertySelect('⑧ 서명 요건', 'signature', ['수행 · 확인', '수행'], f) +
+      propertySelect('⑨ 확인 방식', 'verification', ['동석', '원격', '시스템', '증거 기반 사후 대조'], f) +
+      propertySelect('⑪ 시각 · 히스토리안', 'time', ['시스템 시각 · 스냅샷', '시스템 시각'], f) +
+      '</div><p class="panel-notes">라이브러리 기본값을 상속합니다. 반올림은 표시 시 적용하며 판정에는 원본 값을 사용합니다.</p>';
+  }
+  function renderBom() {
+    $('bomBody').innerHTML = state.mbr.bom.map((b, i) => '<tr><td>' + esc(b.code) + '</td><td>' + esc(b.name) + '</td><td><input class="input num" type="number" min="0.0001" step="any" value="' + b.amount + '" data-bom="' + i + '" aria-label="' + esc(b.name) + ' 기준량" ' + (editable() ? '' : 'disabled') + '></td><td>' + (i === 0 ? '역가 보정 · FX v4' : '기준량 스케일링') + '</td></tr>').join(''); updateBomSum();
+  }
+  function updateBomSum() { const sum = state.mbr.bom.reduce((total, b) => total + b.amount, 0); $('bomSum').textContent = fmt(sum) + ' kg'; MesUI.setBadge('bomCheck', Number.isFinite(sum) && Math.abs(sum - product().baseSize) < 0.00001 ? 'ok' : 'error', Math.abs(sum - product().baseSize) < 0.00001 ? '기준 배치량 일치' : '기준 배치량 불일치'); }
+  function lint() {
+    const issues = [], m = state.mbr;
+    const add = (message, phase = null, level = 'error') => issues.push({ message, phase, level });
+    if (!m) { add('MBR 초안을 먼저 생성하세요.'); return issues; }
+    if (!m.phases.length) add('제조공정이 없습니다. 라이브러리 블록을 추가하세요.');
+    if (!m.bom.every(b => Number.isFinite(b.amount) && b.amount > 0) || Math.abs(m.bom.reduce((s, b) => s + b.amount, 0) - product().baseSize) >= 0.00001) add('원료 기준량은 양수여야 하며 합계가 기준 배치량과 일치해야 합니다.');
+    m.phases.forEach((p, i) => {
+      if (!p.name.trim() || !p.instruction.trim()) add('공정명과 작업 지시를 입력하세요.', i);
+      p.fields.forEach(f => {
+        if (!f.name.trim()) add('기록 항목명이 비어 있습니다.', i);
+        if (f.type === 'number' && (!Number.isFinite(f.min) || !Number.isFinite(f.max) || f.min > f.max || !f.unit.trim())) add(f.name + ': 유효한 규격 하한·상한과 단위를 입력하세요.', i);
+        if (f.critical && f.evidence === '없음') add(f.name + ': 중요 항목의 증거 유형을 지정하세요.', i);
+        if (f.critical && f.quality !== 'Good만 수용') add(f.name + ': 중요 항목은 Good 품질 코드만 수용해야 합니다.', i);
+        if (['원격', '증거 기반 사후 대조'].includes(f.verification) && !['연동', '사진'].includes(f.evidence)) add(f.name + ': 원격·사후 대조에는 연동 또는 사진 증거가 필요합니다.', i);
+        if (f.critical && f.signature !== '수행 · 확인') add(f.name + ': 중요 항목은 수행자와 확인자를 식별해야 합니다.', i);
+        if (f.critical && f.time !== '시스템 시각 · 스냅샷') add(f.name + ': 중요 항목의 스냅샷 반입을 설정하세요.', i);
+        if (f.permit === 'RA 검토 필요') add(f.name + ': RA 검토 근거를 연결해야 합니다. 이 PoC는 RA 승인 경로 연결을 지원하지 않습니다.', i);
+      });
+    });
+    return issues;
+  }
+  function renderLint() {
+    const issues = lint(); $('lintCount').innerHTML = badge('오류 ' + issues.length, issues.length ? 'error' : 'ok');
+    $('lintMessages').innerHTML = issues.length ? issues.map(issue => '<tr><td class="center">' + badge('오류', 'error') + '</td><td title="' + esc(issue.message) + '">' + esc(issue.message) + '</td><td class="link-cell">' + (issue.phase != null ? '<button type="button" data-lint-phase="' + issue.phase + '">' + esc(state.mbr.phases[issue.phase].name) + ' →</button>' : '—') + '</td></tr>').join('') : '<tr><td class="center">' + badge('통과', 'ok') + '</td><td>공정 구조 · 원료량 · 규격 · 중요 항목 증거 · 서명 요건에 오류가 없습니다.</td><td class="muted">샘플 점검 규칙 v1</td></tr>';
+  }
+  function reviewChecks() {
+    const issues = lint();
+    const checks = [{ name: '제조공정 구조 · 필수 작업 지시', ok: !!state.mbr && !!state.mbr.phases.length && state.mbr.phases.every(p => p.name.trim() && p.instruction.trim()), detail: state.mbr ? state.mbr.phases.length + '개 공정' : '미생성' }, { name: '원료 기준량 · 합계 대조', ok: !!state.mbr && state.mbr.bom.every(b => b.amount > 0 && Number.isFinite(b.amount)) && Math.abs(state.mbr.bom.reduce((s, b) => s + b.amount, 0) - product().baseSize) < .00001, detail: '기준 ' + fmt(product().baseSize) + ' kg' }, { name: '규격 · 증거 · 서명 통합 점검', ok: !issues.length, detail: issues.length ? '오류 ' + issues.length + '건' : '샘플 규칙 통과' }, { name: '시험 실행 · 화면 입력 판정', ok: state.dryRun, detail: state.dryRun ? '시험 완료' : '미수행' }, { name: '변경관리 번호 연결', ok: /^CC-[A-Za-z0-9-]+$/.test($('ccNumber').value.trim()), detail: $('ccNumber').value.trim() || '미입력' }];
+    return checks;
+  }
+  function readyForSubmit() { return editable() && reviewChecks().every(c => c.ok); }
+  function renderReview() {
+    const m = state.mbr, status = m ? normalizeMbrStatus(m.status) : '';
+    const route = ['draft', 'review', 'approved', 'pending', 'effective'], pos = route.indexOf(status);
+    const routeTime = { draft: m ? 'v' + m.version : '', review: m && m.submittedAt, approved: m && m.reviewedAt, pending: m && m.approvedAt, effective: m && m.effectiveAt };
+    $('reviewStrip').innerHTML = route.map((s, i) => '<div class="tl-step' + (pos > i ? ' done' : pos === i ? ' active' : '') + '"><span class="tl-dot"></span><span class="tl-label">' + (pos > i ? '✓ ' : '') + states[s] + '</span><span class="tl-time">' + esc(routeTime[s] || '-') + '</span></div>').join('');
+    const checks = reviewChecks(); $('reviewChecks').innerHTML = checks.map((c, i) => '<div class="step' + (c.ok ? ' done' : '') + '"><span class="no">' + (i + 1) + '</span><span class="name">' + c.name + '</span><span class="meta">' + esc(c.detail) + ' ' + badge(c.ok ? '통과' : '대기', c.ok ? 'ok' : 'warn') + '</span></div>').join('');
+    $('reviewLintCount').innerHTML = badge('오류 ' + lint().length, lint().length ? 'error' : 'ok');
+    $('dryRun').disabled = !editable() || !!lint().length || state.busy;
+    setTip('dryRunTip', !$('dryRun').disabled ? '' : !editable() ? '초안 상태에서만 시험 실행할 수 있습니다.' : '설계 점검 오류를 먼저 해결하세요. (03 단계)');
+    $('dryRunResult').textContent = state.dryRun ? '시험 실행 완료 · ' + (m ? m.phases.length : 0) + '개 공정의 규격 내부·외부 입력을 점검했습니다. 실제 설비 연동과 생산 밸리데이션은 별도입니다.' : '시험 실행에서 작업 화면 구성과 값의 규격 판정을 확인하세요.';
+    $('dryRunResult').className = 'plan-banner stack ' + (state.dryRun ? 'bc-good good' : 'bc-plan plan');
+    const people = [{ role: '작성 · 검토 제출', name: '김작성', key: 'submittedAt' }, { role: '독립 검토', name: '이검토', key: 'reviewedAt' }, { role: 'QA 승인', name: '박승인', key: 'approvedAt' }];
+    $('approvalRoute').innerHTML = people.map(p => '<tr><td>' + p.role + '</td><td><b>' + p.name + '</b></td><td>' + esc(m && m[p.key] || '처리 대기') + '</td><td class="center">' + badge(m && m[p.key] ? '완료' : '대기', m && m[p.key] ? 'ok' : 'muted') + '</td></tr>').join('');
+    MesUI.setBadge('reviewStatus', status === 'effective' ? 'ok' : 'info', states[status] || '미생성');
+    $('rvMbr').textContent = m ? m.id + ' v' + m.version : '미생성';
+    $('rvProduct').textContent = product().product;
+    $('rvCount').textContent = m ? m.phases.length + '개 / ' + fieldCount() + '건' : '—';
+    $('rvHash').textContent = state.mbrHash || '검토 제출 시 SHA-256 산출'; $('rvHash').title = state.mbrHash || '';
+    $('ccNumber').disabled = !editable();
+    const user = $('actingUser').value, action = $('reviewAction');
+    action.textContent = status === 'review' ? '독립 검토 완료' : status === 'approved' ? 'QA 승인' : status === 'pending' || status === 'effective' ? '승인 완료' : '검토 제출';
+    action.disabled = state.busy || !m || (status === 'draft' ? user !== 'author' || !readyForSubmit() : status === 'review' ? user !== 'reviewer' : status === 'approved' ? user !== 'qa' : true);
+    setTip('reviewTip', !action.disabled ? '' : !m ? 'MBR 초안을 생성하세요.' : status === 'draft' ? (user !== 'author' ? '작성자로 처리자를 전환하세요.' : '설계 검증 결과 5개 항목이 모두 통과해야 제출할 수 있습니다.') : status === 'review' ? '독립 검토자로 처리자를 전환하세요.' : status === 'approved' ? 'QA 승인자로 처리자를 전환하세요.' : '승인이 완료되었습니다.');
+    $('rejectAction').disabled = state.busy || !m || !['review', 'approved'].includes(status) || (status === 'review' ? user !== 'reviewer' : user !== 'qa');
+    setTip('rejectTip', $('rejectAction').disabled ? '검토 중(독립 검토자) 또는 QA 승인 대기(QA 승인자) 상태에서만 반려할 수 있습니다.' : '');
+    const gateIDs = ['gateTraining', 'gateEquipment', 'gateDocuments', 'gateValidation', 'effectiveDate'];
+    gateIDs.forEach(id => { $(id).disabled = status !== 'pending' || user !== 'qa' || state.busy; });
+    all('[data-gate-badge]').forEach(el => { const on = $(el.dataset.gateBadge).checked; MesUI.setBadge(el, on ? 'ok' : 'muted', on ? '확인' : '미확인'); });
+    const reason = activationReason(); $('activateMbr').disabled = !!reason || state.busy; $('activationReason').textContent = reason || 'QA 승인자로 효력 전환할 수 있습니다.'; $('activationReason').title = $('activationReason').textContent;
+    setTip('activateTip', reason);
+    $('auditList').innerHTML = state.audit.slice().reverse().map(e => '<tr><td>' + esc(e.at) + '</td><td>' + esc(e.who) + '</td><td title="' + esc(e.action) + '">' + esc(e.action) + '</td></tr>').join('');
+    $('auditNodata').classList.toggle('hidden', state.audit.length > 0);
+    MesUI.setTotal('grdAudit');
+  }
+  function activationReason() {
+    if (!state.mbr) return 'MBR 초안을 생성하세요.';
+    if (state.mbr.status === 'effective') return '효력 전환 완료 · 배치 발행 가능';
+    if (normalizeMbrStatus(state.mbr.status) !== 'pending') return '독립 검토와 QA 승인을 먼저 완료하세요.';
+    if ($('actingUser').value !== 'qa') return 'QA 승인자로 처리자를 전환하세요.';
+    if (['gateTraining', 'gateEquipment', 'gateDocuments', 'gateValidation'].some(id => !$(id).checked)) return '효력 준비 조건 4개를 모두 확인하세요.';
+    if (!$('effectiveDate').value || $('effectiveDate').value > today()) return '효력일이 도래하지 않았습니다. 도래한 날짜를 지정하세요.';
+    return '';
+  }
+  async function digest(value) {
+    if (!window.crypto || !window.crypto.subtle) throw new Error('이 브라우저에서 SHA-256을 사용할 수 없습니다. localhost 주소로 화면을 여세요.');
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(value)));
+    return Array.from(new Uint8Array(bytes)).map(v => v.toString(16).padStart(2, '0')).join('');
+  }
+  async function reviewAction() {
+    if (state.busy || !state.mbr || $('reviewAction').disabled) return;
+    const m = state.mbr, user = $('actingUser').value;
+    if (m.status === 'draft' && user === 'author' && readyForSubmit()) {
+      state.busy = true; navigation(); renderReview();
+      try {
+        const snapshot = clone({ id: m.id, version: m.version, author: m.author, product: m.product, origin: m.origin, phases: m.phases, bom: m.bom, quantityPerKg: m.quantityPerKg, quantityUnit: m.quantityUnit, cc: $('ccNumber').value.trim() });
+        const hash = await digest(snapshot);
+        const deps = await Promise.all(dependencyDefinitions.map(async d => ({ ...clone(d), hash: await digest(d) })));
+        state.snapshot = snapshot; state.mbrHash = hash; state.dependencies = deps;
+        m.status = 'review'; m.cc = snapshot.cc; m.submittedAt = stamp(); log('MBR v' + m.version + ' 검토 제출 · 내용과 버전 고정'); $('actingUser').value = 'reviewer';
+        MesUI.toast('검토 제출 완료 · 독립 검토자 역할로 전환했습니다.', 'ok');
+      } catch (error) { MesUI.alert(error.message, 'Error'); }
+      finally { state.busy = false; }
+    } else if (normalizeMbrStatus(m.status) === 'review' && user === 'reviewer') { m.status = 'approved'; m.reviewedAt = stamp(); log('독립 검토 완료', '이검토'); $('actingUser').value = 'qa'; MesUI.toast('독립 검토 완료 · QA 승인자 역할로 전환했습니다.', 'ok'); }
+    else if (normalizeMbrStatus(m.status) === 'approved' && user === 'qa') { m.status = 'pending'; m.approvedAt = stamp(); log('QA 승인 완료 · 효력 준비 대기', '박승인'); MesUI.toast('QA 승인 완료 · 효력 조건을 확인하세요.', 'ok'); }
+    binds(); renderReview(); navigation();
+  }
+  function fieldCount() { return state.mbr ? state.mbr.phases.reduce((count, p) => count + p.fields.length, 0) : 0; }
+  function issueReason() {
+    if (!state.mbr || state.mbr.status !== 'effective') return '효력 MBR이 없습니다. 4단계에서 QA 승인과 효력 전환을 완료하세요.';
+    if (state.batch) return '발행 완료 · 같은 MBR로 다음 배치를 만들 수 있습니다.';
+    if (!Number.isFinite(Number($('batchSize').value)) || !$('batchSize').value || Number($('batchSize').value) < product().baseSize * .5 || Number($('batchSize').value) > product().baseSize * 2) return '배치 사이즈는 ' + fmt(product().baseSize * .5) + '~' + fmt(product().baseSize * 2) + ' kg 범위로 입력하세요.';
+    if (!$('batchStart').value || !$('batchStart').validity.valid) return '계획 시작 시각을 입력하세요.';
+    const ef = Number($('emergencyCount').value);
+    if (!$('emergencyCount').value || !Number.isInteger(ef) || ef < 0 || ef > 20) return '비상 기록지 매수는 0~20 사이의 정수여야 합니다.';
+    if (!$('batchLine').value) return '생산 라인을 선택하세요.';
+    return '';
+  }
+  function canIssue() { return !state.busy && !issueReason(); }
+  function manifestRows() { return state.mbr && state.mbrHash ? [{ kind: 'MBR', id: state.mbr.id, version: state.mbr.version, hash: state.mbrHash }].concat(state.dependencies) : []; }
+  function efText(seq, count) { return count === 0 ? '발행 안 함 · 0매' : 'EF-' + String(seq).padStart(4, '0') + '-01' + (count > 1 ? '~' + String(count).padStart(2, '0') : '') + ' · ' + count + '매'; }
+  function setTab(tab) {
+    state.tab = tab;
+    all('.tabs .tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    $('wrapManifest').classList.toggle('hidden', tab !== 'manifest'); $('tabMetaManifest').classList.toggle('hidden', tab !== 'manifest');
+    $('wrapScale').classList.toggle('hidden', tab !== 'scale'); $('tabMetaScale').classList.toggle('hidden', tab !== 'scale');
+    $('scaleSum').classList.toggle('hidden', tab !== 'scale' || !state.mbr);
+    $('tabFoot').textContent = tab === 'scale' ? '발행 시 1차 이론값입니다. 역가 보정은 칭량 시 승인된 LOT 함량으로 수행합니다.' : 'SHA-256 · MBR에는 공정 블록 참조와 제품별 설계값이 함께 포함됩니다.';
+  }
+  function renderIssue() {
+
+    (function syncCanonIssueLink() {
+      var a = $('lnkCanonIssue');
+      if (!a) return;
+      var on = '';
+      try {
+        if (state.order && state.order.orderNo) on = state.order.orderNo;
+        else if (state.orderNo) on = state.orderNo;
+      } catch (e) {}
+      a.href = './s-ebr-batch-issue-ui.html' + (on ? ('?orderNo=' + encodeURIComponent(String(on).toUpperCase())) : '');
+    })();
+
+    const m = state.mbr;
+    const locked = !m || m.status !== 'effective'; $('issueGate').classList.toggle('hidden', !locked); $('issueGateText').textContent = locked ? issueReason() : '';
+    $('issueFields').disabled = locked || !!state.batch;
+    MesUI.setBadge('issueMbrStatus', !locked ? 'ok' : 'muted', m ? states[m.status] : '미생성');
+    $('isMbr').textContent = m ? m.id + ' v' + m.version : '미생성';
+    $('isProduct').textContent = product().product;
+    $('isEffective').textContent = m && m.effectiveAt ? m.effectiveAt : '효력 전환 전';
+    $('isCc').textContent = m && m.cc ? m.cc : '미연결';
+    $('batchId').value = state.batch ? state.batch.id : 'BR-' + today().slice(0, 4) + '-' + String(state.batchSeq).padStart(4, '0');
+    $('tagBatch').textContent = state.batch ? '확정' : 'AUTO'; $('tagBatch').className = state.batch ? 'src-tag calc' : 'src-tag';
+    $('batchSize').min = product().baseSize * .5; $('batchSize').max = product().baseSize * 2;
+    $('batchRange').textContent = '샘플 발행 범위 ' + fmt(product().baseSize * .5) + '~' + fmt(product().baseSize * 2) + ' kg'; $('batchRange').title = $('batchRange').textContent;
+    $('manifestId').textContent = state.batch ? state.batch.manifest.id : '발행 시 채번'; MesUI.setBadge('manifestLock', state.batch ? 'ok' : 'info', state.batch ? '고정 완료' : '고정 예정');
+    $('manifestBody').innerHTML = manifestRows().map(d => '<tr><td>' + esc(d.kind) + '</td><td>' + esc(d.id) + ' · v' + d.version + '</td><td class="hash" title="' + d.hash + '">' + d.hash.slice(0, 8) + '…</td><td class="center">' + (state.batch ? badge('고정됨', 'ok') : badge('발행 시 고정', 'muted')) + '</td></tr>').join('') || '<tr><td colspan="4" class="center muted">검토 제출 시 버전별 콘텐츠 해시를 산출합니다.</td></tr>';
+    $('batchSections').innerHTML = m ? m.phases.map((p, i) => '<tr><td class="col-no">' + pad2(i + 1) + '</td><td><b>' + esc(p.name) + '</b></td><td class="num">' + p.fields.length + '개 항목</td><td class="center">' + badge('실행 대기', 'muted') + '</td></tr>').join('') : '';
+    $('sectionsNodata').classList.toggle('hidden', !!m);
+    MesUI.setTotal('grdSections');
+    $('recordCount').textContent = fieldCount() + '건'; $('downloadPackage').disabled = !state.batch; $('newBatch').classList.toggle('hidden', !state.batch);
+    setTip('downloadTip', state.batch ? '' : '발행 후 다운로드할 수 있습니다.');
+    $('issueSuccess').classList.toggle('hidden', !state.batch);
+    if (state.batch) $('issueSuccess').innerHTML = badge('발행 완료', 'ok') + '<b>배치 기록이 생성되었습니다 · ' + esc(state.batch.id) + '</b><span>' + esc(m.id) + ' v' + m.version + ' · ' + fmt(state.batch.size) + ' kg · ' + state.batch.manifest.id + ' · ' + esc(state.batch.issuedAt) + '</span>';
+    updateScaling(); setTab(state.tab);
+  }
+  function updateScaling() {
+    const size = Number($('batchSize').value), ratio = size / product().baseSize, valid = Number.isFinite(size) && size > 0;
+    $('scalingRatio').textContent = valid ? '기준 대비 ×' + fmt(ratio) : '사이즈 미입력';
+    $('theoryQuantity').value = state.mbr && valid ? MesUI.fmt(Math.round(size * state.mbr.quantityPerKg)) + ' ' + state.mbr.quantityUnit : '—';
+    $('scaleBody').innerHTML = state.mbr ? state.mbr.bom.map(b => '<tr><td>' + esc(b.name) + '</td><td class="num">' + fmt(b.amount) + '</td><td class="num">' + (valid ? fmt(b.amount * ratio) : '—') + '</td></tr>').join('') : '';
+    $('scaleSum').innerHTML = state.mbr ? '<span>합계</span><b>' + (valid ? fmt(state.mbr.bom.reduce((s, b) => s + b.amount * ratio, 0)) + ' kg' : '—') + '</b><span class="src-tag calc">CALC</span><span class="muted">기준 ' + fmt(product().baseSize) + ' kg × ' + (valid ? fmt(ratio) : '—') + ' · 발행 시 1차 이론값</span>' : '';
+    $('emergencyPreview').textContent = efText(state.batch ? state.batch.seq : state.batchSeq, Number($('emergencyCount').value));
+  }
+  function issueBatch() {
+    if (!canIssue() || !$('issueForm').reportValidity()) return;
+    MesUI.confirm($('batchId').value + ' · ' + fmt(Number($('batchSize').value)) + ' kg를 발행합니다.\n' + state.mbr.id + ' v' + state.mbr.version + '와 실행 컨텍스트를 이 배치에 고정합니다.', () => {
+      if (!canIssue()) return;
+      const seq = state.batchSeq;
+      state.batch = { id: $('batchId').value, seq, status: '발행', size: Number($('batchSize').value), line: $('batchLine').value, plannedStart: $('batchStart').value, issuedAt: stamp(), product: clone(product()), masterRecipe: clone(state.snapshot), approval: { submittedAt: state.mbr.submittedAt, reviewedAt: state.mbr.reviewedAt, approvedAt: state.mbr.approvedAt, effectiveAt: state.mbr.effectiveAt }, manifest: { id: 'MF-' + String(seq).padStart(4, '0'), objects: clone(manifestRows()) }, theoreticalQuantity: Math.round(Number($('batchSize').value) * state.mbr.quantityPerKg), scaling: state.mbr.bom.map(b => ({ ...clone(b), theoreticalAmount: b.amount * Number($('batchSize').value) / product().baseSize })), emergencyForms: { count: Number($('emergencyCount').value), controlNumbers: efText(seq, Number($('emergencyCount').value)) }, sections: state.mbr.phases.map(p => ({ phaseKey: p.key, name: p.name, status: '실행 대기', records: p.fields.map(f => ({ fieldKey: f.key, name: f.name, value: null, status: '미입력' })) })), demo: true };
+      Object.assign(state.batch.approval, { submittedBy: '김작성', reviewedBy: '이검토', approvedBy: '박승인', activatedBy: '박승인', simulation: true });
+      log(state.batch.id + ' 발행 · ' + state.batch.manifest.id + ' 고정', '생산계획'); binds(); renderIssue(); navigation(); MesUI.toast(state.batch.id + ' 발행 완료', 'ok');
+    }, { title: 'BR 발행 확인', okText: '발행', cancelText: '취소' });
+  }
+  function preview() {
+    const p = selectedPhase(); if (!p) return;
+    $('previewTitle').textContent = p.name + ' · 작업 화면 미리보기';
+    $('previewContext').innerHTML = '<span class="label">제품</span><span class="field"><span class="text">' + esc(product().product) + '</span></span>' +
+      '<span class="label">MBR</span><span class="field"><span class="text">' + esc(state.mbr.id) + ' v' + state.mbr.version + '</span></span>' +
+      '<span class="label">설비 클래스</span><span class="field"><span class="text">' + esc(p.equipment) + '</span></span>' +
+      '<span class="label">라이브러리</span><span class="field"><span class="text">' + esc(p.reference.id) + ' v' + p.reference.version + '</span></span>' +
+      '<span class="label">작업 지시</span><span class="field span-2 multi"><span class="text block">' + esc(p.instruction) + '</span></span>';
+    $('previewContent').innerHTML = p.fields.map((f, i) => '<tr><td>' + esc(f.name) + (f.critical ? ' ' + badge('critical', 'warn') : '') + '</td><td><input class="input' + (f.type === 'number' ? ' num' : '') + '" data-preview="' + i + '" type="' + (f.type === 'number' ? 'number' : 'text') + '" step="any" value="' + (f.type === 'number' ? Number(((f.min + f.max) / 2).toFixed(f.precision)) : 'LOT-DEMO-001') + '" aria-label="' + esc(f.name) + ' 시험값"></td><td>' + esc(f.unit || 'ID') + '</td><td>' + (f.type === 'number' ? esc(f.min) + ' ~ ' + esc(f.max) + ' ' + esc(f.unit) : '스캔 식별값 확인') + '</td><td>' + esc(f.source) + '</td><td id="previewJudge' + i + '">' + badge('미판정', 'muted') + '</td></tr>').join('');
+    MesUI.setTotal('grdPreview');
+    $('previewSignatures').textContent = '공정 서명: ' + Array.from(new Set(p.fields.map(f => f.signature))).join(' / ') + ' · 라이브러리 ' + p.reference.id + ' v' + p.reference.version;
+    $('previewValidation').innerHTML = ''; MesUI.openDialog('workPreview');
+  }
+  function validatePreview() {
+    const p = selectedPhase(); if (!p) return;
+    let okCount = 0, ngCount = 0;
+    all('[data-preview]').forEach(input => {
+      const i = Number(input.dataset.preview), f = p.fields[i], v = f.type === 'number' ? Number(input.value) : input.value.trim(), ok = f.type === 'number' ? input.value !== '' && Number.isFinite(v) && v >= f.min && v <= f.max : !!v;
+      input.classList.toggle('status-error', !ok); input.classList.toggle('status-normal', ok);
+      $('previewJudge' + i).innerHTML = badge(ok ? '적합' : '이탈', ok ? 'ok' : 'error') + ' <span class="text" title="' + (ok ? '범위 또는 식별값 확인' : esc(f.interlock) + ' 경로 안내') + '">' + (ok ? '범위 또는 식별값 확인' : esc(f.interlock) + ' 경로 안내') + '</span>';
+      ok ? okCount++ : ngCount++;
+    });
+    $('previewValidation').innerHTML = badge('적합 ' + okCount, 'ok') + ' ' + badge('이탈 ' + ngCount, ngCount ? 'error' : 'muted');
+  }
+  document.addEventListener('click', event => {
+    const target = event.target.closest('[data-go], [data-phase], [data-field], [data-add], [data-lint-phase]'); if (!target) return;
+    if (target.dataset.go) { go(Number(target.dataset.go)); return; }
+    if (target.dataset.phase != null) { state.selectedPhase = Number(target.dataset.phase); state.selectedField = 0; renderDesigner(); return; }
+    if (target.dataset.field != null) { state.selectedField = Number(target.dataset.field); renderFieldRows(); renderProperties(); return; }
+    if (target.dataset.add && requireDraft()) { state.mbr.phases.push(createPhase(target.dataset.add)); state.selectedPhase = state.mbr.phases.length - 1; state.selectedField = 0; renderDesigner(); }
+    if (target.dataset.lintPhase != null) { state.selectedPhase = Number(target.dataset.lintPhase); state.selectedField = 0; renderDesigner(); }
+  });
+  $('fieldBody').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.target.closest('[data-field]').click(); } });
+  $('customerCode').addEventListener('change', () => { if (state.registered) return; applyCustomerSelection($('customerCode').value); binds(); });
+  $('site').addEventListener('change', () => { if (!state.registered) binds(); });
+  $('requestForm').addEventListener('input', () => { if (!state.registered) binds(); });
+  $('requestForm').addEventListener('change', () => { if (!state.registered) binds(); });
+  $('requestForm').addEventListener('submit', e => { e.preventDefault(); if (!state.registered) registerRequest(); });
+  $('issueForm').addEventListener('submit', e => { e.preventDefault(); issueBatch(); });
+  $('sourceFiles').addEventListener('change', e => { if (state.registered) return; Array.from(e.target.files).forEach(f => { const row = document.createElement('tr'); row.innerHTML = '<td class="col-no">' + ($('sourceBody').rows.length + 1) + '</td><td>' + esc(f.name) + '</td><td>요청 첨부</td><td class="center">' + badge('파일명 연결', 'info') + '</td>'; $('sourceBody').appendChild(row); }); e.target.value = ''; MesUI.setTotal('grdSource'); });
+  $('draftFields').addEventListener('click', event => { const tr = event.target.closest('tr[data-pick]'); if (!tr || event.target.matches('input') || $('draftFields').disabled) return; const r = tr.querySelector('input[type=radio]'); if (r && !r.disabled && !r.checked) r.click(); });
+  $('draftFields').addEventListener('change', event => { if (!state.registered || state.mbr) return; if (event.target.name === 'method') { state.method = event.target.value; state.template = 0; } if (event.target.name === 'template') state.template = Number(event.target.value); renderDraft(); });
+  $('btnTemplateUpload').onclick = () => $('templateFile').click();
+  $('btnTemplateSample').onclick = downloadSampleTemplate;
+  $('templateFile').addEventListener('change', e => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) handleTemplateFile(f); });
+
+  $('phaseFields').addEventListener('input', event => { if (!requireDraft() || !selectedPhase()) return; const p = selectedPhase(); if (event.target.id === 'phaseName') p.name = event.target.value; if (event.target.id === 'instruction') p.instruction = event.target.value; if (event.target.id === 'equipment') p.equipment = event.target.value; renderLint(); });
+  $('phaseName').addEventListener('change', () => { if (editable()) renderDesigner(); });
+  $('properties').addEventListener('change', event => {
+    const key = event.target.dataset.prop; if (!key || !requireDraft()) return;
+    const f = selectedPhase().fields[state.selectedField], input = event.target;
+    if (key === 'critical' && f.criticalFloor) return;
+    f[key] = ['min', 'max', 'precision'].includes(key) ? input.value === '' ? null : Number(input.value) : key === 'critical' ? input.value === 'critical' : input.value;
+    renderFieldRows(); renderLint();
+  });
+  $('bomBody').addEventListener('input', event => { if (event.target.dataset.bom == null || !requireDraft()) return; state.mbr.bom[Number(event.target.dataset.bom)].amount = event.target.value === '' ? NaN : Number(event.target.value); updateBomSum(); renderLint(); });
+  function movePhase(offset) { if (!requireDraft()) return; const index = state.selectedPhase, next = index + offset; if (next < 0 || next >= state.mbr.phases.length) return; [state.mbr.phases[index], state.mbr.phases[next]] = [state.mbr.phases[next], state.mbr.phases[index]]; state.selectedPhase = next; renderDesigner(); }
+  $('moveUp').onclick = () => movePhase(-1); $('moveDown').onclick = () => movePhase(1);
+  $('removePhase').onclick = () => { if (!editable() || !selectedPhase()) return; MesUI.confirm(selectedPhase().name + ' 공정을 초안에서 삭제할까요?', () => { if (!requireDraft()) return; state.mbr.phases.splice(state.selectedPhase, 1); state.selectedPhase = Math.max(0, state.selectedPhase - 1); state.selectedField = 0; renderDesigner(); }, { title: 'Delete', okText: '삭제', cancelText: '취소' }); };
+  $('runLint').onclick = () => { renderLint(); MesUI.toast('설계 점검 완료 · 오류 ' + lint().length + '건', lint().length ? 'warn' : 'ok'); };
+  $('previewWork').onclick = preview; $('validatePreview').onclick = validatePreview;
+  $('dryRun').onclick = () => { if (!editable() || lint().length) return; state.dryRun = state.mbr.phases.every(p => p.fields.every(f => f.type !== 'number' || (f.min <= (f.min + f.max) / 2 && (f.min + f.max) / 2 <= f.max && !(f.min <= f.min - 1 && f.min - 1 <= f.max)))); log('시험 실행 · 화면 항목 및 규격 내부·외부 값 판정 확인'); renderReview(); MesUI.toast('샘플 시험 실행 완료', 'ok'); };
+  $('actingUser').onchange = renderReview; $('ccNumber').oninput = () => { if (editable()) renderReview(); };
+  $('reviewAction').onclick = reviewAction;
+  $('rejectAction').onclick = () => { if ($('rejectAction').disabled) return; MesUI.confirm('제출된 버전을 보존하고 수정용 새 개정본을 만듭니다.', () => { const m = state.mbr; if (!['review', 'approved'].includes(normalizeMbrStatus(m.status))) return; const oldVersion = m.version; m.previousSubmissions = (m.previousSubmissions || []).concat([{ snapshot: clone(state.snapshot), hash: state.mbrHash, submittedAt: m.submittedAt, reviewedAt: m.reviewedAt || null, rejectedAt: stamp() }]); m.version = '1.' + (Number(m.version.split('.')[1]) + 1); m.status = 'draft'; delete m.submittedAt; delete m.reviewedAt; delete m.approvedAt; state.snapshot = null; state.mbrHash = ''; state.dependencies = []; state.dryRun = false; log('v' + oldVersion + ' 반려 · v' + m.version + ' 새 개정본', $('actingUser').value === 'qa' ? '박승인' : '이검토'); $('actingUser').value = 'author'; go(3); }, { okText: '새 개정본', cancelText: '취소' }); };
+  ['gateTraining', 'gateEquipment', 'gateDocuments', 'gateValidation', 'effectiveDate'].forEach(id => { $(id).onchange = renderReview; });
+  $('activateMbr').onclick = () => { if (activationReason() || state.busy) return; state.mbr.status = 'effective'; state.mbr.effectiveAt = $('effectiveDate').value; log('MBR v' + state.mbr.version + ' 효력 전환', '박승인'); binds(); renderReview(); navigation(); MesUI.toast('효력 전환 완료 · 배치 발행 가능합니다.', 'ok'); };
+  ['batchSize', 'batchStart', 'emergencyCount', 'batchLine'].forEach(id => { $(id).addEventListener('input', () => { if (state.batch) return; updateScaling(); navigation(); }); });
+  $('batchSize').addEventListener('input', () => { if (!state.batch && state.tab !== 'scale') setTab('scale'); });
+  all('.tabs .tab').forEach(b => { b.addEventListener('click', () => setTab(b.dataset.tab)); });
+  $('newBatch').onclick = () => { if (!state.batch) return; state.batchSeq += 1; state.batch = null; binds(); renderIssue(); navigation(); };
+  $('downloadPackage').onclick = () => { if (!state.batch) return; const url = URL.createObjectURL(new Blob([JSON.stringify(state.batch, null, 2)], { type: 'application/json' })); const link = document.createElement('a'); link.href = url; link.download = state.batch.id + '-poc-package.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
+  $('previousStep').onclick = () => go(Math.max(1, state.step - 1));
+  $('nextStep').onclick = () => go(Math.min(5, state.step + 1));
+  $('primaryAction').onclick = () => { if ($('primaryAction').disabled) return; if (state.step === 1) state.registered ? go(2) : registerRequest(); else if (state.step === 2) state.mbr ? go(3) : createDraft(); else if (state.step === 3) { if (editable()) log('공정 설계 저장 · ' + state.mbr.phases.length + '개 공정'); go(4); } else if (state.step === 4) go(5); else issueBatch(); };
+  $('btnPgGo').onclick = () => MesUI.toast('처리 이력은 1페이지로 구성됩니다. (PoC)', 'info');
+  $('btnCopyLink').onclick = () => { const done = () => MesUI.toast('화면 링크를 복사했습니다.', 'ok'); if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(location.href).then(done, () => MesUI.toast('클립보드에 접근할 수 없습니다.', 'warn')); else MesUI.toast('클립보드에 접근할 수 없습니다.', 'warn'); };
+  const due = new Date(); due.setDate(due.getDate() + 14); $('dueDate').value = MesUI.nowStamp(due, 'date'); $('effectiveDate').value = today(); $('batchStart').value = today() + 'T09:00';
+  loadUploads();
+  fillCustomerSelect('HANBIT');
+  binds(); renderRequest(); navigation();
+
+  /* —— resizable split panes (3-col) —— */
+  /* localStorage shape: {"left": <px>, "right": <px>}  key=ebmr.creationWorkflow.split.v1 */
+  var SPLIT_KEY = 'ebmr.creationWorkflow.split.v1';
+  var SPLIT_DEFAULT_LEFT = 340;
+  var SPLIT_DEFAULT_RIGHT = 400;
+  function rsLogicalPx(visualPx) {
+    var wrap = document.getElementById('shellScale');
+    var s = 1;
+    try {
+      if (wrap) s = parseFloat(getComputedStyle(wrap).getPropertyValue('--scale')) || 1;
+    } catch (err) { s = 1; }
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    return visualPx / s;
+  }
+  function applySplitWidths(left, right) {
+    var split = document.getElementById('wfSplit');
+    if (!split) return;
+    var splitW = rsLogicalPx(split.getBoundingClientRect().width) || 1200;
+    var gutters = 12;
+    var minL = 100, minC = 160, minR = 140;
+    var maxL = Math.max(minL, Math.floor(splitW * 0.4));
+    var maxR = Math.max(minR, Math.floor(splitW * 0.55));
+    var lo = Math.max(minL, Math.min(maxL, left | 0));
+    var ro = Math.max(minR, Math.min(maxR, right | 0));
+    if (lo + ro + gutters + minC > splitW) {
+      var overflow = lo + ro + gutters + minC - splitW;
+      var shrinkR = Math.min(overflow, Math.max(0, ro - minR));
+      ro -= shrinkR;
+      overflow -= shrinkR;
+      if (overflow > 0) lo = Math.max(minL, lo - overflow);
+    }
+    var outline = document.getElementById('paneWfLib');
+    var insp = document.getElementById('paneWfProps');
+    if (outline) { outline.style.flex = '0 0 ' + lo + 'px'; outline.style.width = lo + 'px'; }
+    if (insp) { insp.style.flex = '0 0 ' + ro + 'px'; insp.style.width = ro + 'px'; }
+  }
+  function loadSplit() {
+    try {
+      var s = JSON.parse(localStorage.getItem(SPLIT_KEY) || 'null');
+      if (s && s.left && s.right) applySplitWidths(s.left, s.right);
+    } catch (e) {}
+  }
+  function saveSplit() {
+    var L = document.getElementById('paneWfLib');
+    var R = document.getElementById('paneWfProps');
+    if (!L || !R) return;
+    localStorage.setItem(SPLIT_KEY, JSON.stringify({
+      left: rsLogicalPx(L.getBoundingClientRect().width),
+      right: rsLogicalPx(R.getBoundingClientRect().width)
+    }));
+  }
+  function bindGutter(gutterId, side) {
+    var gut = document.getElementById(gutterId);
+    if (!gut) return;
+    gut.addEventListener('mousedown', function (ev) {
+      ev.preventDefault();
+      var startX = ev.clientX;
+      var startL = rsLogicalPx(document.getElementById('paneWfLib').getBoundingClientRect().width);
+      var startR = rsLogicalPx(document.getElementById('paneWfProps').getBoundingClientRect().width);
+      var splitW = rsLogicalPx(document.getElementById('wfSplit').getBoundingClientRect().width);
+      gut.classList.add('is-drag');
+      document.body.classList.add('is-resizing');
+      function onMove(e) {
+        var dx = rsLogicalPx(e.clientX - startX);
+        var left = startL, right = startR;
+        if (side === 'L') left = startL + dx;
+        else right = startR - dx;
+        var maxSide = splitW - 12 - 160;
+        if (left + right > maxSide) {
+          if (side === 'L') left = maxSide - right;
+          else right = maxSide - left;
+        }
+        applySplitWidths(left, right);
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        gut.classList.remove('is-drag');
+        document.body.classList.remove('is-resizing');
+        saveSplit();
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    gut.addEventListener('dblclick', function () {
+      if (side === 'L') applySplitWidths(SPLIT_DEFAULT_LEFT, rsLogicalPx(document.getElementById('paneWfProps').getBoundingClientRect().width));
+      else applySplitWidths(rsLogicalPx(document.getElementById('paneWfLib').getBoundingClientRect().width), SPLIT_DEFAULT_RIGHT);
+      saveSplit();
+    });
+  }
+  loadSplit();
+  bindGutter('gutterL', 'L');
+  bindGutter('gutterR', 'R');
+
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

@@ -1,0 +1,1264 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-ebr-packaging-exec-ui  (포장 실행 eBR — 생산 실행 이후 · 출하 게이트 이전)
+  템플릿       : T-04 단계 실행(좌 단계 목록 + 우 단계 상세) · T-11 전자서명 팝업(수행/확인 2인 · QA 확인 · 검토)
+  CLIENT_TYPE  : UI (shell-ui 1920×1080, root_layout 20px 30px, 13px Malgun Gothic)
+  흐름         : 생산 실행(BR-2026-0412 벌크 정제) → [포장 실행 8단계] → 출하 게이트(s-ebr-release-gate-ui)
+                 1 포장 라인 셋업 · 2 시작 라인 클리어런스 · 3 포장 자재 확인 · 4 라벨·코딩 첫 시료
+                 5 포장 실행·IPC · 6 수량 정산·수율 · 7 종료 라인 클리어런스 · 8 포장 기록 검토 → 출하 게이트 인계
+  GMP 규칙(PoC): 단계 순서 인터록(이전 단계 서명 전 다음 단계 조작 불가) · 서명 후 단계 값 잠금(🔒 + 바인딩 해시)
+                 수행자 ≠ 확인자(2인) · 라벨 첫 시료는 QA 확인 · 인쇄 자재 정산 차이 0 (차이 시 일탈 연결 필수)
+                 아트워크 버전/LOT 불일치 스캔은 Absolute 인터록(사용 불가) · 수율 98.0~100.5 % · 정제 미설명 차이 ≤ 0.5 %
+  공용 자산     : ./assets/mesui.css · mesui.js (master-setup 에서 복사, 생산 실행 PoC 와 공유)
+  PoC 단순화    : 저장소 없음(메모리) · 사용자 ID + 비밀번호 인증(비밀번호 '0000' = 인증 실패 사례)
+                 설비·RAS·CMMS·CFMS·시리얼 서버는 정적 mock · 데모 바는 셸 우하단 DEMO 버튼(화면 영역 비침범)
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>포장 실행 기록 (eBR) — eMBR PoC</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  body { margin: 0; background: #fff; }
+  .lnk { color: var(--c-primary); cursor: pointer; }
+  .lnk:hover { color: var(--c-primary-active); }
+  .tip { display: inline-flex; }
+  .form-grid > .field > .text { display: inline-flex; align-items: center; gap: 6px; }
+  .form-grid.cols-3 { --form-label-w: 120px; }
+
+  /* 본문: 좌 단계 목록 / 우 단계 상세 */
+  .exec {
+    flex: 1 1 auto; min-height: 0; display: flex; flex-direction: row; gap: 0;
+    width: 100%; max-width: 100%; overflow: hidden;
+  }
+  .exec-left.rs-pane {
+    display: flex; flex-direction: column; gap: 14px; min-height: 0; min-width: 160px; overflow: hidden;
+  }
+  #paneExecSteps { flex: 0 0 330px; width: 330px; }
+  .exec > .pane.rs-pane { flex: 1 1 auto; min-width: 200px; }
+  /* ---- resizable split gutters (rs-*) — do not collide with mesui .split ---- */
+  .rs-gutter {
+    flex: 0 0 6px; width: 6px; min-width: 6px; cursor: col-resize;
+    background: #e8edf5; border: none; padding: 0; margin: 0;
+    align-self: stretch; position: relative;
+  }
+  .rs-gutter:hover, .rs-gutter.is-drag { background: #2C59D9; }
+  .rs-gutter::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px;
+  }
+  body.is-resizing { cursor: col-resize; user-select: none; }
+  body.is-resizing .rs-pane { pointer-events: none; }
+
+  .step-list .step { cursor: pointer; grid-template-columns: 30px minmax(0, 1fr) auto; min-height: 44px; }
+  .step-list .step:hover { background: var(--c-list-hover); }
+  .step-list .step.sel { box-shadow: inset 4px 0 0 var(--c-primary); background: var(--c-row-selected); }
+  .step .name small { display: block; font-size: 11px; font-weight: normal; color: var(--c-text-sub); margin-top: 2px; }
+  .step.wait .name small { color: var(--c-text-disabled); }
+  .step.handoff .no { background: var(--c-navy); color: #fff; }
+  .mini { border-top: 1px solid var(--c-border-01); border-bottom: 1px solid var(--c-border-03); font-size: 12px; }
+  .mini .mrow { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 10px; border-top: 1px solid var(--c-border-05); }
+  .mini .mrow:first-child { border-top: none; }
+  .mini .mrow .k { flex: 0 0 96px; color: var(--c-text-sub); }
+  .mini .mrow .v { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .pane { display: flex; flex-direction: column; gap: 12px; min-height: 0; min-width: 0; }
+  .pane-head { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; min-height: 28px; }
+  .pane-head .group-title { font-size: 18px; }
+  .pane-head .sub-info { margin-left: 4px; }
+  .pane-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+  .pane-body > .grid-block { min-height: 0; }
+  .pane-body .split { gap: 24px; }
+  .banner { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 4px 12px; font-size: 12px; border-left: 4px solid var(--c-info); background: var(--bc-plan); }
+  .banner.block { border-color: var(--c-error); background: var(--bc-faulty); }
+  .banner.ok { border-color: var(--c-ok); background: var(--bc-good); }
+  .banner.warn { border-color: var(--c-warn); background: var(--bc-alam); }
+  .banner b { font-weight: bold; }
+
+  .flow-strip {
+    flex: 0 0 36px; display: flex; align-items: center; gap: 0; padding: 0 4px;
+    border: 1px solid var(--c-border-03); background: var(--bc-gray-light);
+  }
+  .flow-strip .fl {
+    display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 14px;
+    font-size: 12px; color: var(--c-text-sub); border-radius: 2px; white-space: nowrap;
+    text-decoration: none;
+  }
+  .flow-strip .fl .n {
+    width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: bold; background: var(--bc-gray); color: var(--c-text-sub);
+  }
+  .flow-strip .fl.done { color: var(--c-text); }
+  .flow-strip .fl.done .n { background: var(--c-ok); color: #fff; }
+  .flow-strip .fl.active { color: var(--c-primary); font-weight: bold; background: #fff; box-shadow: inset 0 -2px 0 var(--c-primary); }
+  .flow-strip .fl.active .n { background: var(--c-primary); color: #fff; }
+  .flow-strip .fl.wait .n { background: var(--bc-gray); color: var(--c-text-disabled); }
+  .flow-strip .arrow { color: var(--c-border-03); padding: 0 4px; font-size: 14px; }
+  .flow-strip .hint { margin-left: auto; font-size: 11px; color: var(--c-text-disabled); padding-right: 8px; }
+  .snap-banner {
+    display: flex; align-items: flex-start; gap: 8px; min-height: 32px; padding: 8px 12px;
+    border: 1px solid var(--c-border-04); border-radius: var(--radius); font-size: 12px;
+    background: var(--bc-plan); margin: 0 0 8px;
+  }
+  .snap-banner.bc-alam { background: var(--bc-alam); border-color: var(--c-error); }
+  .snap-banner.bc-good { background: var(--bc-good); }
+  .snap-banner.bc-gray { background: var(--bc-gray-light); }
+  .snap-banner.hidden { display: none; }
+  .snap-banner .mono { font-family: Consolas, 'Courier New', monospace; }
+  .next-cta { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+
+
+  /* 서명 바: 단계별 서명 슬롯 */
+  .sign-bar { flex: 0 0 auto; display: flex; align-items: stretch; gap: 10px; padding-top: 10px; border-top: 1px solid var(--c-border-03); }
+  .slot { flex: 0 0 300px; display: flex; flex-direction: column; justify-content: center; gap: 3px; min-height: 52px; padding: 6px 12px; border: 1px solid var(--c-border-04); border-left: 4px solid var(--c-border-03); background: var(--bc-gray-light); font-size: 12px; }
+  .slot .s-m { font-weight: bold; display: flex; align-items: center; gap: 6px; }
+  .slot .s-v { color: var(--c-text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .slot.signed { border-left-color: var(--c-ok); background: #f3fbf6; }
+  .slot.ready { border-left-color: var(--c-primary); background: var(--c-board-normal); }
+  .slot .tip { align-self: flex-start; }
+  .sign-bar .sb-note { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; gap: 4px; font-size: 12px; color: var(--c-text-sub); min-width: 0; }
+  .sign-bar .sb-note .issue { color: var(--c-error); }
+  .hash { font: 11px Consolas, monospace; color: var(--c-primary); letter-spacing: 0; }
+  .mono { font-family: Consolas, monospace; letter-spacing: 0; }
+
+  /* 판정 표시 */
+  .j { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .j::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--c-text-disabled); flex: 0 0 auto; }
+  .j.ok::before { background: var(--c-ok); } .j.ng { color: var(--c-error); font-weight: bold; } .j.ng::before { background: var(--c-error); }
+  .j.wn::before { background: var(--c-warn); } .j.wt { color: var(--c-text-disabled); }
+  .grid tbody tr.ng td { background: rgba(249, 213, 209, 0.5); }
+  .grid tbody tr.wn td { background: rgba(255, 238, 218, 0.6); }
+  .grid tbody tr.sum td { background: var(--c-summary-bg); font-weight: bold; border-top: 1px solid var(--c-summary-line); }
+  .grid td select.input, .grid td input.input { height: 24px; }
+  .grid td input.num { text-align: right; }
+
+  /* 스캔 바 */
+  .scan { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--c-bg-light); border-top: 1px solid var(--c-border-05); border-bottom: 1px solid var(--c-border-05); }
+  .scan .barcode { width: 420px; }
+  .scan .label { font-weight: bold; }
+
+  /* 라벨 미리보기 */
+  .lab-wrap { display: grid; grid-template-columns: 520px minmax(0, 1fr); gap: 24px; min-height: 0; }
+  .lab-wrap > .col, .lab-wrap > .grid-block { min-height: 0; }
+  .carton { position: relative; flex: 0 0 auto; height: 250px; border: 1px solid var(--c-border-02); background: linear-gradient(180deg, #ffffff 0, #f7f9ff 100%); padding: 16px 18px; display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 14px; box-shadow: 0 2px 6px rgba(0,0,0,.08); }
+  .carton .brand { font-size: 22px; font-weight: bold; color: #0b2a8a; letter-spacing: -0.03em; }
+  .carton .brand small { display: block; font-size: 12px; font-weight: normal; color: #445; margin-top: 2px; }
+  .carton .stripe { height: 6px; background: linear-gradient(90deg, #2C59D9, #37b284); margin: 8px 0 10px; border-radius: 3px; }
+  .carton .vd { font: 12px/1.75 Consolas, 'Malgun Gothic', monospace; letter-spacing: 0; border: 1px dashed #9aa6c8; padding: 6px 10px; background: #fff; }
+  .carton .vd b { display: inline-block; width: 74px; font-weight: normal; color: #556; font-family: 'Malgun Gothic', sans-serif; }
+  .carton .dmbox { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-top: 22px; }
+  .carton canvas { width: 110px; height: 110px; image-rendering: pixelated; border: 4px solid #fff; outline: 1px solid #ccd; }
+  .carton .hri { font: 10px/1.35 Consolas, monospace; letter-spacing: 0; text-align: center; color: #222; }
+  .carton .tag { position: absolute; right: 8px; top: 8px; }
+  .carton.pending .vd { color: var(--c-text-disabled); }
+
+  /* 데모 바(화면 밖) */
+  .demo-fab { position: fixed; right: 2px; bottom: 0; width: 26px; height: 18px; border: 1px solid #555; border-radius: 3px 3px 0 0; background: #333; color: #fff; font: bold 9px/16px 'Malgun Gothic', sans-serif; text-align: center; cursor: pointer; z-index: 900; opacity: .85; }
+  .demo-panel { position: fixed; right: 12px; bottom: 24px; z-index: 900; display: none; flex-direction: column; gap: 6px; padding: 10px 14px; background: rgba(40, 40, 40, 0.94); color: #fff; border-radius: 4px; box-shadow: 0 6px 12px rgba(0,0,0,.3); font: 12px 'Malgun Gothic', sans-serif; letter-spacing: -0.03em; }
+  .demo-panel.open { display: flex; }
+  .demo-panel .dp-title { font-weight: bold; color: #ffb100; }
+  .demo-panel .dp-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; max-width: 340px; }
+  .demo-panel label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+  .demo-panel input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: #ffb100; }
+  .demo-panel button { font: 12px 'Malgun Gothic', sans-serif; padding: 2px 10px; border: 1px solid #888; background: #555; color: #fff; border-radius: 2px; cursor: pointer; }
+  .demo-panel button:hover { background: #666; }
+
+  /* 전자서명 팝업 */
+  .sign-meaning { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; vertical-align: middle; background: var(--c-navy); flex: 0 0 auto; }
+  .auth-panel { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  .auth-row { display: flex; align-items: center; gap: 8px; font-size: 12px; min-height: 30px; }
+  .auth-row > .label { flex: 0 0 84px; font-size: 12px; }
+  .auth-row > .input { flex: 1 1 auto; }
+  .auth-hint { font-size: 12px; color: var(--c-text-sub); line-height: 1.6; padding: 8px 10px; background: var(--bc-gray-light); border: 1px solid var(--c-border-05); }
+  .auth-hint .mono { color: var(--c-primary); }
+  .user-card { border: 1px solid var(--c-border-04); border-radius: var(--radius); padding: 8px 12px; display: flex; align-items: baseline; gap: 10px; background: var(--c-board-normal); min-height: 42px; }
+  .user-card .name { font-size: 18px; font-weight: bold; }
+  .user-card .sub { font-size: 12px; color: var(--c-text-sub); }
+  .sign-err { min-height: 18px; font-size: 12px; color: var(--c-error); font-weight: bold; }
+
+  /* 카탈로그/iframe 맞춤: mesui .shell-scale — 1920×1080 미만 뷰포트면 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+</style>
+</head>
+<body>
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui" id="shell">
+  <div class="title-bar">
+    <span class="main-title">포장 실행 기록 (eBR)</span>
+    <span class="breadcrumb"><span>eMBR</span><span class="sep">&rsaquo;</span><span>배치 실행</span><span class="sep">&rsaquo;</span><span class="current">포장 실행</span><button class="copy" type="button" title="링크 복사" id="btnCopy"></button></span>
+  </div>
+  <div class="shell-body">
+    <div class="flow-strip" id="flowStrip" aria-label="배치 수명주기 위치">
+      <a class="fl done lnk" id="lnkIssue" href="./s-ebr-batch-issue-ui.html" title="BR 발행"><span class="n">1</span>BR 발행</a>
+      <span class="arrow">&rsaquo;</span>
+      <a class="fl done lnk" id="lnkProd" href="./s-ebr-production-exec-ui.html" title="생산 실행"><span class="n">2</span>생산 실행</a>
+      <span class="arrow">&rsaquo;</span>
+      <span class="fl active" id="lnkPack"><span class="n">3</span>포장</span>
+      <span class="arrow">&rsaquo;</span>
+      <a class="fl wait lnk" id="lnkLot" href="./s-ebr-lot-trace-ui.html" title="LOT 추적"><span class="n">4</span>LOT 추적</a>
+      <span class="arrow">&rsaquo;</span>
+      <a class="fl wait lnk" id="lnkRelease" href="./s-ebr-release-gate-ui.html" title="출하 게이트"><span class="n">5</span>출하 게이트</a>
+      <span class="hint">포장 실행 · issued 메타 · 쿼리 전파</span>
+    </div>
+    <div class="snap-banner hidden" id="snapBanner" role="status">
+      <span class="status-dot navy" id="snapBannerDot"></span>
+      <span id="snapBannerText">발행 스냅샷을 로드하세요 (?orderNo= 또는 ?batchId=)</span>
+    </div>
+    <div class="search-box cols-4">
+      <div class="search-control"><span class="label">포장 지시</span><span class="codeview full"><input class="input code" type="text" value="PO-2026-0412-P1" id="schPo"><button class="cv-btn" type="button" title="포장 지시 조회" id="btnPoCv"></button><input class="input desc" type="text" value="정제 A 10 mg · PTP 30정" readonly></span></div>
+      <div class="search-control"><span class="label">벌크 배치</span><span class="field"><input class="input" type="text" id="schBulk" value="BR-2026-0412" readonly><span class="badge ok">생산 실행 완료</span></span></div>
+      <div class="search-control"><span class="label">포장 라인</span><select class="input" id="schLine"><option>PK-L02 블리스터 라인 2</option><option>PK-L01 블리스터 라인 1</option><option>PK-B01 병 포장 라인</option></select></div>
+      <div class="search-actions"><button class="btn search" type="button" id="btnReset">Reset</button><button class="btn search secondary" type="button" id="btnSearch">Search</button></div>
+    </div>
+    <div class="form-grid cols-3 readonly" id="frmSummary">
+      <span class="label">포장 지시</span><span class="field"><span class="text">PO-2026-0412-P1 <span class="muted">· PBR-TAB-A-PTP30 v2.1 (효력)</span></span></span>
+      <span class="label">제품 · 포장 단위</span><span class="field"><span class="text">정제 A 10 mg <span class="muted">· PTP 10정 × 3 = 30정/단상자 · 120 단상자/수송박스</span></span></span>
+      <span class="label">상태</span><span class="field"><span class="text"><span class="badge info" id="smStatus">실행 중</span><span class="muted" id="smStatusNote"></span></span></span>
+      <span class="label">벌크 배치</span><span class="field"><span class="text"><span class="lnk" id="lnkBulk">BR-2026-0412</span><span class="muted" id="bulkMeta">· 정제 498,500 T 수령 · MBR-TAB-A v3.2</span></span></span>
+      <span class="label">제조번호 · 기한</span><span class="field"><span class="text"><b class="mono">TA0412</b><span class="muted">· 제조 2026-10-05 · 사용기한 2028-10-04</span></span></span>
+      <span class="label">계획 수량</span><span class="field"><span class="text">16,600 단상자 <span class="muted">· 이론 16,616 (498,500 T ÷ 30)</span></span></span>
+      <span class="label">일탈 (P0)</span><span class="field"><span class="text"><span class="badge muted" id="devChip">미종결 0</span><span class="muted" id="devChipNote"></span><span class="spacer"></span><button class="btn search" type="button" id="btnDevDraft" title="Dev.create → ebr.deviation.v1">일탈 초안</button></span></span>
+    </div>
+    <div class="exec" id="execSplit">
+      <div class="exec-left rs-pane" id="paneExecSteps">
+        <div class="grid-toolbar"><span class="group-title">포장 단계</span><span class="total-text" id="stepTotal"></span></div>
+        <div class="step-list" id="stepList"></div>
+        <div class="grid-toolbar"><span class="group-title">라인 현황</span><span class="spacer"></span><span class="badge ok">환경 정상</span></div>
+        <div class="mini" id="lineMini"></div>
+      </div>
+      <button type="button" class="rs-gutter" id="gutterMain" aria-label="패널 너비 조절" title="드래그하여 너비 조절"></button>
+      <div class="pane rs-pane" id="pane"></div>
+    </div>
+    <div class="banner" id="notice"></div>
+  </div>
+</div></div> <!-- #shellScale -->
+
+<!-- ===================== T-11 전자서명 팝업 1100×700 ===================== -->
+<div class="dialog-backdrop" id="dlgSign" data-no-esc>
+  <div class="dialog">
+    <div class="popup-title">
+      <span class="text"><span class="sign-meaning" id="signDot"></span><span id="signTitle">전자서명</span></span>
+      <button class="popup-close" type="button" data-dialog-close aria-label="Close"></button>
+    </div>
+    <div class="shell-body">
+      <div class="form-grid cols-2 readonly">
+        <span class="label">포장 지시</span><span class="field"><span class="text">PO-2026-0412-P1 · 제조번호 TA0412</span></span>
+        <span class="label">단계</span><span class="field"><span class="text" id="sfStep"></span></span>
+        <span class="label">서명 의미</span><span class="field"><span class="text" id="sfMeaning"></span></span>
+        <span class="label">요구 역할</span><span class="field"><span class="text" id="sfRole"></span></span>
+        <span class="label">2인 규칙</span><span class="field"><span class="text" id="sfTwo"></span></span>
+        <span class="label">인증 강도</span><span class="field"><span class="text">ID + 비밀번호 (재인증 · 세션 서명 불가)</span></span>
+      </div>
+      <div class="split" style="grid-template-columns: 3fr 2fr;">
+        <div class="grid-block">
+          <div class="grid-toolbar"><span class="group-title">서명 대상 값</span><span class="total-text" data-total-for="grdSignVals"></span><span class="spacer"></span><span class="muted" style="font-size:12px">서명 시 값 + 서명자 + 시각을 묶어 해시(바인딩)</span></div>
+          <div class="grid-wrap">
+            <table class="grid" id="grdSignVals">
+              <colgroup><col style="width:44px"><col><col style="width:230px"><col style="width:90px"></colgroup>
+              <thead><tr><th class="center">#</th><th>항목</th><th>값</th><th>판정</th></tr></thead>
+              <tbody id="grdSignValsBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="auth-panel">
+          <div class="user-card" id="signUser"></div>
+          <div class="auth-row"><span class="label required">사용자 ID</span><input class="input" type="text" id="signId" placeholder="ID 직접 입력" autocomplete="off"></div>
+          <div class="auth-row"><span class="label required">비밀번호</span><input class="input" type="password" id="signPw" autocomplete="new-password"></div>
+          <div class="auth-row"><span class="label">코멘트</span><input class="input" type="text" id="signCmt" placeholder="선택 입력"></div>
+          <div class="auth-hint">서명 선언: 본인은 위 값을 직접 확인했으며, 이 전자서명이 자필 서명과 동등한 효력을 가짐에 동의합니다.<br>
+            PoC 사용자 — <span class="mono">OP-0101</span> 작업자 A · <span class="mono">OP-0102</span> 작업자 B · <span class="mono">SV-0003</span> 감독자 C · <span class="mono">QA-0007</span> QA D<br>
+            비밀번호는 아무 값이나 가능 (<span class="mono">0000</span> = 인증 실패 사례)</div>
+          <div class="sign-err" id="signErr"></div>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn search secondary" type="button" data-dialog-close>취소</button>
+      <button class="btn search primary" type="button" id="btnDoSign">서명</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== 화면 밖 데모 바 ===================== -->
+<div class="demo-fab" id="demoFab" title="데모 바 열기/닫기">DEMO</div>
+<div class="demo-panel" id="demoPanel">
+  <span class="dp-title">데모 바 (화면 밖)</span>
+  <div class="dp-row"><button type="button" data-demo="scanBad">PM-2002 v5 스캔(오류)</button><button type="button" data-demo="scanOk">PM-2002 v6 스캔(정상)</button></div>
+  <label><input type="checkbox" id="demoVisionFail"> 비전 챌린지 실패 사례(제조번호 오류 시료 통과)</label>
+  <label><input type="checkbox" id="demoDiff"> 인쇄 자재(단상자) 정산 차이 2매</label>
+  <div class="dp-row"><span>빠른 진행:</span><button type="button" data-ff="3">자재까지</button><button type="button" data-ff="4">라벨까지</button><button type="button" data-ff="5">실행까지</button><button type="button" data-ff="7">종료 클리어런스까지</button><button type="button" data-ff="8">전체</button></div>
+  <div class="dp-row"><button type="button" data-demo="reset">초기화</button></div>
+</div>
+
+<script src="./assets/mesui.js"></script>
+<script src="./assets/ebr-p0-stores.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function hash8(s) { var h = 2166136261; for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 16777619) >>> 0; } return ('0000000' + h.toString(16)).slice(-8); }
+  function fmt(n, d) { return MesUI.fmt(n, d); }
+  function num(v) { var n = parseFloat(String(v).replace(/,/g, '')); return isNaN(n) ? 0 : n; }
+
+  /* ===== P0: issued meta (read-only) + flow query ===== */
+  var ISSUED_LS_KEY = 'ebr.batch.issued.v1';
+  var uiCtx = {
+    hasSnapshot: false, demoMode: true,
+    orderNo: '', batchId: '', processTreeId: '', ver: '', contentHash: '', product: '', mf: ''
+  };
+  function loadIssuedBatches() {
+    try {
+      var raw = localStorage.getItem(ISSUED_LS_KEY);
+      if (!raw) return [];
+      var arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  }
+  function findIssued(opts) {
+    opts = opts || {};
+    var orderNo = (opts.orderNo || '').toUpperCase();
+    var batchId = opts.batchId || '';
+    var list = loadIssuedBatches();
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (batchId && String(r.batchId || '') === batchId) return r;
+      if (orderNo && String(r.orderNo || '').toUpperCase() === orderNo) return r;
+    }
+    return null;
+  }
+  function flowQuery() {
+    var q = [];
+    var on = uiCtx.orderNo || '';
+    var bid = uiCtx.batchId || (typeof BATCH !== 'undefined' && BATCH && BATCH.id) || '';
+    if (on) q.push('orderNo=' + encodeURIComponent(on));
+    if (bid) q.push('batchId=' + encodeURIComponent(bid));
+    return q.length ? ('?' + q.join('&')) : '';
+  }
+  function wireFlowStripLinks() {
+    var q = flowQuery();
+    var map = {
+      lnkIssue: './s-ebr-batch-issue-ui.html',
+      lnkProd: './s-ebr-production-exec-ui.html',
+      lnkPack: './s-ebr-packaging-exec-ui.html',
+      lnkLot: './s-ebr-lot-trace-ui.html',
+      lnkRelease: './s-ebr-release-gate-ui.html'
+    };
+    Object.keys(map).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && el.tagName === 'A') el.href = map[id] + q;
+    });
+  }
+  function showSnapBanner(msg, cls) {
+    var b = document.getElementById('snapBanner');
+    if (!b) return;
+    var t = document.getElementById('snapBannerText');
+    if (t) t.innerHTML = msg;
+    b.className = 'snap-banner ' + (cls || '');
+    b.classList.remove('hidden');
+  }
+
+  var DEMO_BATCH_ID = 'BR-2026-0412';
+  var DEMO_PRODUCT = '정제 A 10 mg';
+  var DEMO_MBR = 'MBR-TAB-A v3.2';
+  var BATCH = { id: DEMO_BATCH_ID, product: DEMO_PRODUCT, mbr: DEMO_MBR, orderNo: '', processTreeId: 'MBR-TAB-A', ver: '3.2', contentHash: '', mf: '' };
+
+  function applyIssuedLabels(rec) {
+    uiCtx.hasSnapshot = true;
+    uiCtx.demoMode = false;
+    uiCtx.orderNo = rec.orderNo || '';
+    uiCtx.batchId = rec.batchId || '';
+    uiCtx.processTreeId = rec.processTreeId || '';
+    uiCtx.ver = rec.ver || '';
+    uiCtx.contentHash = rec.contentHash || '';
+    uiCtx.product = rec.product || DEMO_PRODUCT;
+    uiCtx.mf = rec.mf || rec.manifestId || '';
+    BATCH.id = uiCtx.batchId || BATCH.id;
+    BATCH.product = uiCtx.product;
+    BATCH.orderNo = uiCtx.orderNo;
+    BATCH.processTreeId = uiCtx.processTreeId;
+    BATCH.ver = uiCtx.ver;
+    BATCH.contentHash = uiCtx.contentHash;
+    BATCH.mf = uiCtx.mf;
+    BATCH.mbr = (uiCtx.processTreeId || '') + (uiCtx.ver ? ' v' + uiCtx.ver : '');
+    if ($('schBulk')) $('schBulk').value = BATCH.id;
+    if ($('lnkBulk')) $('lnkBulk').textContent = BATCH.id;
+    if ($('bulkMeta')) {
+      $('bulkMeta').textContent = '· ' + (BATCH.product || DEMO_PRODUCT) + ' · ' + (BATCH.mbr || DEMO_MBR) +
+        (uiCtx.contentHash ? ' · hash ' + uiCtx.contentHash.slice(0, 8) + '…' : '');
+    }
+    showSnapBanner(
+      '발행 스냅샷 — 배치 <b class="mono">' + esc(uiCtx.batchId) + '</b>' +
+      (uiCtx.orderNo ? ' · 오더 <b class="mono">' + esc(uiCtx.orderNo) + '</b>' : '') +
+      ' · 제품 <b>' + esc(uiCtx.product) + '</b>' +
+      ' · 트리 <b class="mono">' + esc(uiCtx.processTreeId) + ' v' + esc(uiCtx.ver) + '</b>' +
+      ' · hash <b class="mono">' + esc((uiCtx.contentHash || '').slice(0, 8)) + '…</b>' +
+      (uiCtx.mf ? ' · mf <b class="mono">' + esc(uiCtx.mf) + '</b>' : ''),
+      'bc-good'
+    );
+    wireFlowStripLinks();
+  }
+  function applyDemoBanner() {
+    uiCtx.hasSnapshot = false;
+    uiCtx.demoMode = true;
+    uiCtx.orderNo = '';
+    uiCtx.batchId = DEMO_BATCH_ID;
+    uiCtx.processTreeId = 'MBR-TAB-A';
+    uiCtx.ver = '3.2';
+    uiCtx.contentHash = '';
+    uiCtx.product = DEMO_PRODUCT;
+    uiCtx.mf = '';
+    BATCH.id = DEMO_BATCH_ID;
+    if ($('schBulk')) $('schBulk').value = BATCH.id;
+    if ($('lnkBulk')) $('lnkBulk').textContent = BATCH.id;
+    showSnapBanner(
+      '<b>데모 모드</b> — 하드코딩 배치 <b class="mono">' + esc(DEMO_BATCH_ID) + '</b> 사용 중. 실제 발행 스냅샷(<code>ebr.batch.issued.v1</code>)이 아닙니다. <code>?orderNo=</code> 또는 <code>?batchId=</code> 로 진입하세요.',
+      'bc-alam'
+    );
+    wireFlowStripLinks();
+  }
+  function bindIssuedFromQuery() {
+    var q = new URLSearchParams(location.search || '');
+    var orderNo = (q.get('orderNo') || '').trim().toUpperCase();
+    var batchId = (q.get('batchId') || '').trim();
+    var fallbackId = ($('schBulk') && $('schBulk').value) || DEMO_BATCH_ID;
+    var rec = null;
+    if (orderNo || batchId) rec = findIssued({ orderNo: orderNo, batchId: batchId });
+    if (!rec && fallbackId) rec = findIssued({ batchId: fallbackId });
+    if (rec && (rec.batchId || rec.orderNo)) {
+      applyIssuedLabels(rec);
+      return true;
+    }
+    applyDemoBanner();
+    return false;
+  }
+
+  /* ======================= 마스터 · mock ======================= */
+  var USERS = {
+    'OP-0101': { name: '작업자 A', role: 'OP', roleNm: '포장 작업자', note: '자격 PK-L02 유효(2027-04)' },
+    'OP-0102': { name: '작업자 B', role: 'OP', roleNm: '포장 작업자', note: '자격 PK-L02 유효(2027-01)' },
+    'SV-0003': { name: '감독자 C', role: 'SV', roleNm: '포장 감독자', note: '자격 유효(2027-06)' },
+    'QA-0007': { name: 'QA D', role: 'QA', roleNm: '현장 QA', note: '자격 유효(2027-03)' }
+  };
+  var ROLE_NM = { OP: '작업자', SV: '감독자', QA: 'QA' };
+  var MEANING = { '수행': '#2C59D9', '확인': '#37b284', 'QA 확인': '#6952db', '검토': '#0b043e' };
+  var MEANING_EN = { '수행': 'Performed by', '확인': 'Verified by', 'QA 확인': 'QA Verified by', '검토': 'Reviewed by' };
+  var DOCHK = [{ id: 'do', m: '수행', roles: ['OP', 'SV'] }, { id: 'chk', m: '확인', roles: ['OP', 'SV'] }];
+  var STEPS = [
+    { k: 'line', name: '포장 라인 셋업', desc: '설비 상태 · 포맷 부품 · 파라미터', slots: DOCHK },
+    { k: 'clrS', name: '시작 라인 클리어런스', desc: '이전 제품 · 자재 · 라벨 잔류 확인', slots: DOCHK },
+    { k: 'mat', name: '포장 자재 확인', desc: '불출 자재 스캔 · 아트워크 버전', slots: DOCHK },
+    { k: 'lab', name: '라벨 · 코딩 첫 시료', desc: '가변 데이터 대조 · 비전 챌린지', slots: [DOCHK[0], { id: 'qa', m: 'QA 확인', roles: ['QA'] }] },
+    { k: 'exe', name: '포장 실행 · IPC', desc: '카운트 · 공정 중 검사 · 이벤트', slots: DOCHK },
+    { k: 'rec', name: '수량 정산 · 수율', desc: '정제 수지 · 인쇄 자재 정산', slots: [DOCHK[0], { id: 'chk', m: '확인', roles: ['SV'] }] },
+    { k: 'clrE', name: '종료 라인 클리어런스', desc: '잔여 자재 회수 · 데이터 삭제 · 이송', slots: DOCHK },
+    { k: 'rev', name: '포장 기록 검토', desc: '서명 · 감사추적 · 예외 검토', slots: [{ id: 'rev', m: '검토', roles: ['SV'] }] }
+  ];
+  var EQ = [
+    { id: 'BL-0201', nm: '블리스터 포장기', cls: 'EC-BLISTER v2', ras: '가동 가능', cmms: ['—', ''], cfms: ['적격 ~2027-02-28', 'ok'], fmt: 'FP-PTP10-A01 성형·실링 금형' },
+    { id: 'VS-0201', nm: '정제 비전 검사기', cls: 'EC-VISION v1', ras: '가동 가능', cmms: ['교정 ~2027-01-15', 'ok'], cfms: ['적격 ~2027-05-31', 'ok'], fmt: '레시피 VIS-TA10-03' },
+    { id: 'CT-0201', nm: '카토너', cls: 'EC-CARTONER v1', ras: '가동 가능', cmms: ['—', ''], cfms: ['적격 ~2027-02-28', 'ok'], fmt: 'FP-CTN30-B02 단상자 포맷' },
+    { id: 'PR-0201', nm: '잉크젯 코더(단상자)', cls: 'EC-CODER v1', ras: '가동 가능', cmms: ['—', ''], cfms: ['적격 ~2026-12-31', 'ok'], fmt: '코딩 템플릿 CT-TA10 v4' },
+    { id: 'SR-0201', nm: '시리얼 판독 · 어그리게이션', cls: 'EC-SERIAL v2', ras: '가동 가능', cmms: ['교정 ~2027-03-02', 'ok'], cfms: ['적격 ~2027-03-31', 'ok'], fmt: 'GS1 DataMatrix 등급 ≥ C' },
+    { id: 'CW-0201', nm: '체크웨이어', cls: 'EC-CHECKWEIGHER v1', ras: '가동 가능', cmms: ['교정 임박 D-12 (~2026-10-17)', 'wn'], cfms: ['적격 ~2027-02-28', 'ok'], fmt: '기준 32.4 g ± 0.6 g' },
+    { id: 'LB-0201', nm: '수송박스 라벨러(SSCC)', cls: 'EC-LABELER v1', ras: '가동 가능', cmms: ['—', ''], cfms: ['적격 ~2027-02-28', 'ok'], fmt: 'SSCC 라벨 템플릿 SH v1' }
+  ];
+  var PARAMS = [
+    { nm: '블리스터 성형 온도', spec: '140 ± 5', unit: '℃', set: 141, lo: 135, hi: 145 },
+    { nm: '실링 온도', spec: '220 ± 5', unit: '℃', set: 221, lo: 215, hi: 225 },
+    { nm: '실링 압력', spec: '4.0 ~ 5.0', unit: 'bar', set: 4.4, lo: 4.0, hi: 5.0 },
+    { nm: '블리스터 속도', spec: '≤ 120', unit: 'cpm', set: 110, lo: 0, hi: 120 },
+    { nm: '카토너 속도', spec: '≤ 180', unit: 'cpm', set: 160, lo: 0, hi: 180 },
+    { nm: '체크웨이어 기준 중량', spec: '32.4 ± 0.6', unit: 'g', set: 32.4, lo: 31.8, hi: 33.0 }
+  ];
+  var SETUP = [
+    { nm: 'PBR 레시피 다운로드 · 버전', val: 'PBR-TAB-A-PTP30 v2.1 = 설비 레시피 v2.1' },
+    { nm: '포맷 부품 ID 스캔', val: 'FP-PTP10-A01 · FP-CTN30-B02 일치' },
+    { nm: '코딩 템플릿 버전', val: 'CT-TA10 v4 (아트워크 AW-CTN-TA10 v4 연동)' },
+    { nm: '일련번호 할당(시리얼 서버)', val: 'SN 100000001 ~ 100016800 (16,800)' }
+  ];
+  var CLR_S = [
+    { t: '이전 제품(정제 B 5 mg) · 자재 · 라벨 라인 상 잔류 없음', photo: true },
+    { t: '이전 배치 문서 · 견본 · 지시서 라인에서 제거', photo: false },
+    { t: '코더 · 프린터 이전 가변 데이터 삭제 · 카운터 0', photo: true },
+    { t: '비전 · 시리얼 시스템 이전 레시피 해제', photo: false },
+    { t: '리젝트 통 · 폐기통 비움', photo: true },
+    { t: '블리스터 포켓 · 피더 · 가이드 레일 잔류 정제 없음', photo: true },
+    { t: "설비 상태표지 '청소 완료' · 청소 유효기한 내 (~2026-10-08 08:40)", photo: false },
+    { t: '작업실 온습도 · 차압 기준 내 (22.1 ℃ · 41 %RH · +12 Pa)', photo: false },
+    { t: '라인 경계 표시 · 인접 라인(PK-L01) 격리 커튼', photo: false },
+    { t: '포장 지시서 · PBR 버전 현장 게시 일치', photo: false }
+  ];
+  var CLR_E = [
+    { t: '잔여 인쇄 자재 전량 회수 — 정산 반납 수량과 일치', photo: true },
+    { t: '코딩된 리젝트 · 셋업 자재 파기(파기 기록 첨부)', photo: true },
+    { t: '코더 · 프린터 가변 데이터 삭제 · 카운터 리셋', photo: false },
+    { t: '미사용 일련번호 시리얼 서버 반납 등록', photo: false },
+    { t: '라인 상 정제 · 자재 · 라벨 잔류 없음', photo: true },
+    { t: "설비 상태표지 '청소 필요' 부착", photo: false },
+    { t: '라벨 · 코딩 견본 포장 기록 첨부', photo: false },
+    { t: '완제품 138 수송박스 격리 창고(WH-Q1) 이송 · QA 판정 대기', photo: false }
+  ];
+  var MATS = [
+    { code: 'PM-1001', nm: 'PVC/PVDC 필름 250 mm', kind: '1차', aw: '—', lot: 'PV2609-11', qc: '적합', exp: '2028-03-31', req: 186.0, iss: 190.0, unit: 'kg', d: 1 },
+    { code: 'PM-1002', nm: '알루미늄 호일(인쇄) 250 mm', kind: '1차 · 인쇄', aw: 'AW-ALU-TA10 v3', lot: 'AL2609-04', qc: '적합', exp: '2028-05-31', req: 64.0, iss: 66.0, unit: 'kg', d: 1 },
+    { code: 'PM-2001', nm: '단상자 정제 A 10 mg 30정', kind: '2차 · 인쇄', aw: 'AW-CTN-TA10 v4', lot: 'CT2609-21', qc: '적합', exp: '2029-09-30', req: 16800, iss: 16800, unit: 'EA', d: 0 },
+    { code: 'PM-2002', nm: '첨부문서(사용설명서)', kind: '2차 · 인쇄', aw: 'AW-PIL-TA10 v6', lot: 'PI2609-08', qc: '적합', exp: '2029-08-31', req: 16800, iss: 16800, unit: 'EA', d: 0 },
+    { code: 'PM-2003', nm: '봉합 라벨(개봉 방지)', kind: '2차 · 인쇄', aw: 'AW-SEAL v2', lot: 'SL2608-30', qc: '적합', exp: '2028-08-31', req: 16800, iss: 16800, unit: 'EA', d: 0 },
+    { code: 'PM-3001', nm: '수송박스 120 단상자', kind: '3차 · 인쇄', aw: 'AW-SHP-TA10 v1', lot: 'SB2609-02', qc: '적합', exp: '—', req: 139, iss: 140, unit: 'EA', d: 0 },
+    { code: 'PM-3002', nm: '수송박스 라벨(SSCC)', kind: '3차 · 인쇄', aw: 'AW-SSCC v1', lot: 'LB2609-15', qc: '적합', exp: '2028-09-30', req: 139, iss: 140, unit: 'EA', d: 0 }
+  ];
+  var LAB_FIELDS = [
+    { nm: '제품명', ai: '', inst: '정제 A 10 mg (TAB-A)', pr: '정제 A 10 mg (TAB-A)' },
+    { nm: '제조번호', ai: '(10)', inst: 'TA0412', pr: 'TA0412' },
+    { nm: '제조일자', ai: '', inst: '2026-10-05', pr: '2026-10-05' },
+    { nm: '사용기한', ai: '(17)', inst: '2028-10-04 (281004)', pr: '2028-10-04 (281004)' },
+    { nm: '상품코드 GTIN', ai: '(01)', inst: '08806543210984', pr: '08806543210984' },
+    { nm: '일련번호(첫 시료)', ai: '(21)', inst: '100000001', pr: '100000001' },
+    { nm: 'DataMatrix 판독 등급', ai: '', inst: 'ISO/IEC 15415 ≥ C', pr: 'B (3.4)' }
+  ];
+  var CHALLENGES = [
+    { nm: '코드 누락 시료', exp: '리젝트' },
+    { nm: '제조번호 오류 시료 (TA0411)', exp: '리젝트' },
+    { nm: 'DataMatrix 훼손 시료', exp: '리젝트' },
+    { nm: '사용기한 누락 시료', exp: '리젝트' }
+  ];
+  var IPC_SLOTS = ['14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00', '17:30', '18:00'];
+  var EVENTS = [
+    { t: '14:42', ev: '블리스터 정지 — 호일 롤 교체', act: 'AL2609-04 롤 #2 스캔 확인 후 재개', who: '작업자 A' },
+    { t: '15:18', ev: '체크웨이어 연속 리젝트 3 — 첨부문서 누락', act: '피더 걸림 제거 · 직전 20 단상자 재검 적합', who: '작업자 B' },
+    { t: '16:05', ev: '비전 리젝트 — 결손 정제 포켓', act: '자동 배출 확인 · 리젝트 통 이동', who: '작업자 A' }
+  ];
+  var BULK_IN = 498500;
+
+  /* ======================= 상태(메모리) ======================= */
+  function seedSig(k, s, uid, at) { return { uid: uid, at: at, hash: hash8(k + s + uid + at) }; }
+  function initial() {
+    return {
+      sel: 2,
+      sig: {
+        'line.do': seedSig('line', 'do', 'OP-0101', '2026-10-05 13:05:12'), 'line.chk': seedSig('line', 'chk', 'OP-0102', '2026-10-05 13:09:40'),
+        'clrS.do': seedSig('clrS', 'do', 'OP-0101', '2026-10-05 13:20:31'), 'clrS.chk': seedSig('clrS', 'chk', 'SV-0003', '2026-10-05 13:28:05')
+      },
+      clrS: CLR_S.map(function () { return '적합'; }),
+      clrE: CLR_E.map(function () { return ''; }),
+      matScan: [true, true, true, false, true, true, true],
+      matBad: null,
+      lab: { checks: LAB_FIELDS.map(function () { return false; }), chal: CHALLENGES.map(function () { return ''; }), retain: false, printed: false },
+      exe: { closed: false, ipc: 0 },
+      rec: { good: 16480, qc: 40, ret: 20, rejSheet: 186, bulkWaste: 210,
+             pm: { 'PM-1001': [181.9, 3.0, 1.4, 3.4], 'PM-1002': [62.7, 1.1, 0.6, 1.5], 'PM-2001': [16540, 52, 30, 178], 'PM-2002': [16540, 41, 20, 199],
+                   'PM-2003': [16540, 38, 20, 202], 'PM-3001': [138, 1, 0, 1], 'PM-3002': [138, 0, 1, 1] },
+             dev: '' },
+      visionFail: false, handed: false, handedAt: '',
+      audit: [
+        { at: '2026-10-05 12:58:02', uid: 'OP-0101', act: '단계 시작', tgt: '1 포장 라인 셋업', val: '', why: '' },
+        { at: '2026-10-05 13:05:12', uid: 'OP-0101', act: '전자서명(수행)', tgt: '1 포장 라인 셋업', val: '13개 값 바인딩', why: '' },
+        { at: '2026-10-05 13:09:40', uid: 'OP-0102', act: '전자서명(확인)', tgt: '1 포장 라인 셋업', val: '13개 값 바인딩', why: '' },
+        { at: '2026-10-05 13:20:31', uid: 'OP-0101', act: '전자서명(수행)', tgt: '2 시작 라인 클리어런스', val: '10/10 적합 · 사진 4', why: '' },
+        { at: '2026-10-05 13:28:05', uid: 'SV-0003', act: '전자서명(확인)', tgt: '2 시작 라인 클리어런스', val: '10개 값 바인딩', why: '' },
+        { at: '2026-10-05 13:34:50', uid: 'OP-0101', act: '자재 스캔', tgt: 'PM-1001 ~ PM-3002 (6건)', val: '일치', why: '' }
+      ]
+    };
+  }
+  var S = initial();
+
+  function sig(k, s) { return S.sig[k + '.' + s]; }
+  function stepDone(i) { var st = STEPS[i]; return st.slots.every(function (sl) { return !!sig(st.k, sl.id); }); }
+  function activeIdx() { for (var i = 0; i < STEPS.length; i++) if (!stepDone(i)) return i; return STEPS.length; }
+  function locked(i) { return stepDone(i) || !!sig(STEPS[i].k, STEPS[i].slots[0].id) || S.handed; }
+  function waiting(i) { return i > activeIdx(); }
+  function editable(i) { return !waiting(i) && !locked(i); }
+  function userNm(uid) { return USERS[uid] ? USERS[uid].name : uid; }
+  function log(uid, act, tgt, val, why) { S.audit.push({ at: MesUI.nowStamp(), uid: uid || 'OP-0101', act: act, tgt: tgt || '', val: val || '', why: why || '' }); }
+  function stepLabel(i) { return (i + 1) + ' ' + STEPS[i].name; }
+
+  /* ---------- 파생: 정산 ---------- */
+  function recCalc() {
+    var r = S.rec;
+    var goodT = r.good * 30, qcT = r.qc * 30, retT = r.ret * 30, rejT = r.rejSheet * 10;
+    var acc = goodT + qcT + retT + rejT + r.bulkWaste;
+    var diff = BULK_IN - acc, diffPct = diff / BULK_IN * 100;
+    var yieldPct = (goodT + qcT + retT) / BULK_IN * 100;
+    var pm = MATS.map(function (m) {
+      var v = r.pm[m.code];
+      var d = +(m.iss - v[0] - v[1] - v[2] - v[3]).toFixed(m.d);
+      var printed = m.kind.indexOf('인쇄') >= 0 && m.unit === 'EA';
+      var ok = printed ? d === 0 : Math.abs(d) / m.iss * 100 <= 2.0;
+      return { m: m, used: v[0], rej: v[1], setup: v[2], back: v[3], diff: d, printed: printed, tol: printed ? '0 (100 % 정산)' : '± 2.0 %', ok: ok };
+    });
+    return { goodT: goodT, qcT: qcT, retT: retT, rejT: rejT, acc: acc, diff: diff, diffPct: diffPct, yieldPct: yieldPct,
+             yieldOk: yieldPct >= 98.0 && yieldPct <= 100.5, diffOk: Math.abs(diffPct) <= 0.5, pm: pm,
+             pmNg: pm.filter(function (p) { return !p.ok; }) };
+  }
+  function exeCounts() {
+    if (S.exe.closed) return { sheets: 49620, rejS: 186, cartons: 16540, rejC: 52, cw: 9, shippers: 138, pct: 100 };
+    var p = S.exe.ipc ? Math.min(0.95, 0.105 * S.exe.ipc) : 0;
+    var c = Math.round(16540 * p);
+    return { sheets: c * 3, rejS: Math.round(186 * p), cartons: c, rejC: Math.round(52 * p), cw: Math.round(9 * p), shippers: Math.floor(c / 120), pct: Math.round(p * 100) };
+  }
+
+  /* ---------- 단계별 사전 조건(수행 서명 전) ---------- */
+  function issues(i) {
+    var k = STEPS[i].k, out = [];
+    if (k === 'clrS') S.clrS.forEach(function (v, j) { if (v !== '적합') out.push('클리어런스 항목 ' + (j + 1) + ' ' + (v || '미확인')); });
+    if (k === 'mat') {
+      if (S.matBad) out.push('차단된 스캔 미해결: ' + S.matBad);
+      S.matScan.forEach(function (v, j) { if (!v) out.push(MATS[j].code + ' ' + MATS[j].nm + ' 미스캔'); });
+    }
+    if (k === 'lab') {
+      S.lab.chal.forEach(function (v, j) { if (v && v !== '리젝트') out.push('비전 챌린지 실패: ' + CHALLENGES[j].nm + ' (통과됨)'); });
+      if (!S.lab.printed) out.push('첫 시료 미인쇄');
+      var nc = S.lab.checks.filter(function (x) { return !x; }).length;
+      if (nc) out.push('가변 데이터 대조 미확인 ' + nc + '건');
+      var nch = S.lab.chal.filter(function (v) { return v === ''; }).length;
+      if (nch) out.push('비전 챌린지 미실시 ' + nch + '건');
+      if (!S.lab.retain) out.push('첫 시료 보관(기록 첨부) 미확인');
+    }
+    if (k === 'exe') { if (S.exe.ipc < 9) out.push('IPC 기록 ' + S.exe.ipc + '/9 (30분 간격)'); if (!S.exe.closed) out.push('카운트 미마감'); }
+    if (k === 'rec') {
+      var c = recCalc();
+      if (c.pmNg.length && !S.rec.dev) out.push('인쇄 자재 정산 차이: ' + c.pmNg.map(function (p) { return p.m.nm + ' ' + (p.diff > 0 ? '+' : '') + p.diff; }).join(', ') + ' — 일탈 연결 필요');
+      if (!c.yieldOk) out.push('수율 ' + fmt(c.yieldPct, 2) + ' % — 기준 98.0 ~ 100.5 % 이탈');
+      if (!c.diffOk) out.push('정제 미설명 차이 ' + fmt(c.diffPct, 3) + ' % — 기준 ≤ 0.5 %');
+    }
+    if (k === 'clrE') S.clrE.forEach(function (v, j) { if (v !== '적합') out.push('종료 클리어런스 항목 ' + (j + 1) + ' ' + (v || '미확인')); });
+    if (k === 'rev') for (var j = 0; j < 7; j++) if (!stepDone(j)) out.push(stepLabel(j) + ' 미완료');
+    return out;
+  }
+  function hasBlock(i) {
+    var k = STEPS[i] && STEPS[i].k;
+    if (k === 'mat') return !!S.matBad;
+    if (k === 'lab') return S.lab.chal.some(function (v) { return v && v !== '리젝트'; });
+    if (k === 'rec') return recCalc().pmNg.length > 0 && !S.rec.dev;
+    if (k === 'clrS') return S.clrS.indexOf('부적합') >= 0;
+    if (k === 'clrE') return S.clrE.indexOf('부적합') >= 0;
+    return false;
+  }
+
+  /* ---------- 서명 대상 값 [항목, 값, 판정] ---------- */
+  function signValues(i) {
+    var k = STEPS[i].k, rows = [], c, x, j;
+    if (k === 'line') {
+      EQ.forEach(function (e) { rows.push([e.id + ' ' + e.nm, e.ras + ' · ' + (e.cmms[0] !== '—' ? e.cmms[0] : e.cfms[0]), e.cmms[1] === 'wn' ? 'wn' : 'ok']); });
+      PARAMS.forEach(function (p) { rows.push([p.nm, p.set + ' ' + p.unit + ' (' + p.spec + ')', 'ok']); });
+    }
+    if (k === 'clrS') CLR_S.forEach(function (it, j) { rows.push([it.t, (S.clrS[j] || '미확인') + (it.photo ? ' · 사진' : ''), S.clrS[j] === '적합' ? 'ok' : 'wt']); });
+    if (k === 'mat') MATS.forEach(function (m, j) { rows.push([m.code + ' ' + m.nm, m.lot + (m.aw !== '—' ? ' · ' + m.aw : ''), S.matScan[j] ? 'ok' : 'wt']); });
+    if (k === 'lab') {
+      LAB_FIELDS.forEach(function (f, j) { rows.push([f.nm, S.lab.printed ? f.pr : '—', S.lab.checks[j] ? 'ok' : 'wt']); });
+      CHALLENGES.forEach(function (ch, j) { var v = S.lab.chal[j]; rows.push(['챌린지 · ' + ch.nm, v || '미실시', v === '리젝트' ? 'ok' : v ? 'ng' : 'wt']); });
+    }
+    if (k === 'exe') {
+      x = exeCounts();
+      rows.push(['블리스터 양품 시트', fmt(x.sheets) + ' 시트', 'ok'], ['단상자 양품', fmt(x.cartons) + ' EA', 'ok'], ['리젝트(블리스터/단상자)', fmt(x.rejS) + ' 시트 / ' + fmt(x.rejC) + ' EA', 'ok'],
+        ['수송박스 · 어그리게이션', fmt(x.shippers) + ' 박스 · SN ' + fmt(x.cartons), 'ok'], ['IPC 기록', S.exe.ipc + '/9 전 항목 적합', S.exe.ipc >= 9 ? 'ok' : 'wt'], ['라인 이벤트', EVENTS.length + '건 (조치 완료)', 'ok']);
+    }
+    if (k === 'rec') {
+      c = recCalc();
+      rows.push(['벌크 수령', fmt(BULK_IN) + ' T', 'ok'], ['양품 + 샘플', fmt(c.goodT + c.qcT + c.retT) + ' T', 'ok'], ['수율', fmt(c.yieldPct, 2) + ' % (98.0 ~ 100.5)', c.yieldOk ? 'ok' : 'ng'], ['정제 미설명 차이', fmt(c.diff) + ' T (' + fmt(c.diffPct, 3) + ' %)', c.diffOk ? 'ok' : 'ng']);
+      c.pm.forEach(function (p) { rows.push(['정산 · ' + p.m.nm, '차이 ' + p.diff + ' ' + p.m.unit, p.ok ? 'ok' : S.rec.dev ? 'wn' : 'ng']); });
+      if (S.rec.dev) rows.push(['연결 일탈', S.rec.dev + ' (초안)', 'wn']);
+    }
+    if (k === 'clrE') CLR_E.forEach(function (it, j) { rows.push([it.t, S.clrE[j] || '미확인', S.clrE[j] === '적합' ? 'ok' : 'wt']); });
+    if (k === 'rev') for (j = 0; j < 7; j++) (function (j) { var st = STEPS[j]; rows.push([stepLabel(j), st.slots.map(function (sl) { var g = sig(st.k, sl.id); return sl.m + ' ' + (g ? userNm(g.uid) : '—'); }).join(' · '), stepDone(j) ? 'ok' : 'wt']); })(j);
+    return rows;
+  }
+  function jcell(st, txt) {
+    var c = st === 'ok' ? 'ok' : st === 'ng' ? 'ng' : st === 'wn' ? 'wn' : 'wt';
+    return '<span class="j ' + c + '">' + esc(txt || ({ ok: '적합', ng: '부적합', wn: '주의', wt: '대기' })[c]) + '</span>';
+  }
+  function th(cols) { return '<colgroup>' + cols.map(function (c) { return '<col' + (c[1] ? ' style="width:' + c[1] + '"' : '') + '>'; }).join('') + '</colgroup><thead><tr>' + cols.map(function (c) { return '<th' + (c[2] ? ' class="' + c[2] + '"' : '') + '>' + c[0] + '</th>'; }).join('') + '</tr></thead>'; }
+  function gridBlock(title, extra, cols, body, style) {
+    return '<div class="grid-block"' + (style ? ' style="' + style + '"' : '') + '><div class="grid-toolbar"><span class="group-title">' + title + '</span>' + (extra || '') + '</div><div class="grid-wrap"><table class="grid">' + th(cols) + '<tbody>' + body + '</tbody></table></div></div>';
+  }
+
+  /* ======================= 렌더: 좌측 · 요약 · 안내 ======================= */
+  function renderNav() {
+    var a = activeIdx(), h = '';
+    STEPS.forEach(function (st, i) {
+      var done = stepDone(i), cls = done ? 'done' : i === a ? (hasBlock(i) ? 'blocked' : 'active') : 'wait', meta;
+      if (done) meta = sig(st.k, st.slots[st.slots.length - 1].id).at.slice(11, 16) + ' 🔒';
+      else if (i === a) { var n = st.slots.filter(function (sl) { return sig(st.k, sl.id); }).length; meta = hasBlock(i) ? '차단' : n ? '서명 ' + n + '/' + st.slots.length : '진행 중'; }
+      else meta = '대기';
+      h += '<div class="step ' + cls + (S.sel === i ? ' sel' : '') + '" data-step="' + i + '"><span class="no">' + (i + 1) + '</span><span class="name">' + esc(st.name) + '<small>' + esc(st.desc) + '</small></span><span class="meta">' + esc(meta) + '</span></div>';
+    });
+    var all = a >= STEPS.length;
+    h += '<div class="step ' + (S.handed ? 'done' : all ? 'active handoff' : 'wait') + '" data-step="7"><span class="no">' + (S.handed ? '' : '→') + '</span><span class="name">출하 게이트 인계<small>QA 배치 검토 · 출하 승인(S-32)</small></span><span class="meta">' + (S.handed ? S.handedAt.slice(11, 16) : all ? '인계 가능' : '대기') + '</span></div>';
+    $('stepList').innerHTML = h;
+    var nd = 0; for (var i = 0; i < STEPS.length; i++) if (stepDone(i)) nd++;
+    $('stepTotal').innerHTML = '완료 <b>' + nd + '</b> / ' + STEPS.length;
+  }
+  function renderMini() {
+    var x = exeCounts(), a = activeIdx(), st;
+    if (a === 4 && !S.exe.closed) st = S.exe.ipc ? '<span class="badge info">가동 중 · ' + x.pct + ' %</span>' : '<span class="badge muted">기동 대기</span>';
+    else if (a > 4) st = '<span class="badge ok">생산 종료</span>';
+    else if (a === 4) st = '<span class="badge ok">카운트 마감</span>';
+    else st = '<span class="badge muted">셋업 · 기동 차단(단계 ' + (a + 1) + ')</span>';
+    var rows = [
+      ['라인 · 작업실', 'PK-L02 블리스터 라인 2 · PR-204 포장실 2'],
+      ['단말', 'T-PK02 (OI) · 세션 작업자 A'],
+      ['라인 상태', st],
+      ['속도 설정', '블리스터 110 cpm · 카토너 160 cpm'],
+      ['카운터', a >= 4 ? fmt(x.cartons) + ' 단상자 · 리젝트 ' + fmt(x.rejC) : '0 (리셋 확인)'],
+      ['환경', '22.1 ℃ · 41 %RH · 차압 +12 Pa'],
+      ['청소 유효', '~2026-10-08 08:40 (감독자 C)']
+    ];
+    $('lineMini').innerHTML = rows.map(function (r) { return '<div class="mrow"><span class="k">' + r[0] + '</span><span class="v">' + r[1] + '</span></div>'; }).join('');
+  }
+
+  function packBatchId() {
+    try {
+      var el = $('schBulk');
+      if (el && el.value) return String(el.value).trim();
+    } catch (e) {}
+    return (typeof uiCtx !== 'undefined' && uiCtx && uiCtx.batchId) || 'BR-2026-0412';
+  }
+  function refreshDevChip() {
+    var chip = $('devChip'), note = $('devChipNote');
+    if (!chip) return;
+    var bid = packBatchId();
+    var open = [];
+    try {
+      if (typeof Dev !== 'undefined' && Dev.listOpen) open = Dev.listOpen(bid) || [];
+    } catch (e) { open = []; }
+    var n = open.length;
+    if (n > 0) {
+      chip.className = 'badge warn';
+      chip.textContent = '미종결 ' + n;
+      if (note) note.textContent = ' · ' + open.map(function (d) { return d.id; }).join(', ');
+    } else {
+      chip.className = 'badge ok';
+      chip.textContent = '미종결 0';
+      if (note) note.textContent = '';
+    }
+    /* keep local packaging link in sync if store has open items */
+    if (n && !S.rec.dev) S.rec.dev = open[0].id;
+  }
+  function createPackDeviationDraft() {
+    if (typeof Dev === 'undefined' || !Dev.create) {
+      MesUI.toast('EbrP0 Dev API 없음 — ebr-p0-stores.js 로드 확인', 'warn');
+      return null;
+    }
+    var bid = packBatchId();
+    var item = Dev.create({
+      batchId: bid,
+      orderNo: (typeof uiCtx !== 'undefined' && uiCtx && uiCtx.orderNo) || null,
+      source: 'packaging',
+      title: '포장 일탈 초안',
+      grade: 'Hard-QA',
+      status: 'open',
+      capaLink: null
+    });
+    S.rec.dev = item.id;
+    log('OP-0101', '일탈 초안', stepLabel(5), item.id + ' (packaging)', 'Dev.create');
+    refreshDevChip();
+    renderAll();
+    MesUI.toast('일탈 초안 ' + item.id + ' 등록 (ebr.deviation.v1)', 'warn');
+    return item;
+  }
+
+  function renderSummary() {
+    var a = activeIdx();
+    if (S.handed) { MesUI.setBadge($('smStatus'), 'ok', '출하 게이트 인계'); $('smStatusNote').textContent = S.handedAt + ' · QA 배치 검토 대기'; }
+    else if (a >= STEPS.length) { MesUI.setBadge($('smStatus'), 'ok', '포장 완료'); $('smStatusNote').textContent = '8/8 단계 서명 · 인계 가능'; }
+    else { var b = hasBlock(a); MesUI.setBadge($('smStatus'), b ? 'error' : 'info', b ? '실행 중 · 차단' : '실행 중'); $('smStatusNote').textContent = '단계 ' + (a + 1) + '/8 ' + STEPS[a].name; }
+    refreshDevChip();
+  }
+  function renderNotice() {
+    var n = $('notice'), a = activeIdx(), cls = 'banner', msg;
+    if (S.handed) { cls += ' ok'; msg = '<b>출하 게이트 인계 완료</b> · ' + esc(S.handedAt) + ' · 포장 기록 PKR-0412 v1 확정 → 출하 게이트(S-32) #8 UNSIGNED 0건 · #9 물질수지 반영' + (S.rec.dev ? ' · 일탈 ' + esc(S.rec.dev) + ' 종결 전까지 #2 차단 유지' : '') + '<span class="next-cta"><a class="lnk" id="ctaRelease" href="./s-ebr-release-gate-ui.html' + flowQuery() + '">출하 게이트로 →</a></span>'; }
+    else if (a >= STEPS.length) { cls += ' ok'; msg = '<b>포장 8단계 서명 완료</b> — [8 포장 기록 검토]에서 <b>출하 게이트로 인계</b>를 누르세요.'; }
+    else {
+      var is = issues(a);
+      if (hasBlock(a)) { cls += ' block'; msg = '<b>차단 — ' + esc(stepLabel(a)) + '</b> · ' + esc(is[0] || '') + (is.length > 1 ? ' 외 ' + (is.length - 1) + '건' : ''); }
+      else if (is.length) msg = '<b>다음 작업 — ' + esc(stepLabel(a)) + '</b> · ' + esc(is.slice(0, 2).join(' · ')) + (is.length > 2 ? ' 외 ' + (is.length - 2) + '건' : '');
+      else { var nx = STEPS[a].slots.filter(function (sl) { return !sig(STEPS[a].k, sl.id); })[0]; msg = '<b>다음 작업 — ' + esc(stepLabel(a)) + '</b> · 사전 조건 충족 · <b>' + esc(nx.m) + ' 서명</b> 대기 (' + nx.roles.map(function (r) { return ROLE_NM[r]; }).join('/') + ')'; }
+      msg += '<span class="spacer"></span><span class="muted">순서 인터록: 이전 단계 서명 전 다음 단계 입력 불가 · 서명된 단계는 잠금</span>';
+    }
+    n.className = cls; n.innerHTML = msg;
+  }
+
+  /* ======================= 렌더: 우측 공통 ======================= */
+  function head(i, extra) {
+    var badge = S.handed ? '<span class="badge ok">확정 · 읽기 전용</span>' : stepDone(i) ? '<span class="badge ok">완료 🔒</span>' : waiting(i) ? '<span class="badge muted">대기 — 이전 단계 미완료</span>' : locked(i) ? '<span class="badge info">수행 서명됨 · 확인 대기</span>' : hasBlock(i) ? '<span class="badge error">차단</span>' : '<span class="badge info">진행 중</span>';
+    return '<div class="pane-head"><span class="group-title">' + (i + 1) + '. ' + esc(STEPS[i].name) + '</span>' + badge + '<span class="sub-info">' + esc(STEPS[i].desc) + '</span><span class="spacer"></span>' + (extra || '') + '</div>';
+  }
+  function signBar(i) {
+    var st = STEPS[i], h = '<div class="sign-bar">', is = issues(i);
+    st.slots.forEach(function (sl, j) {
+      var g = sig(st.k, sl.id), dot = '<span class="sign-meaning" style="background:' + MEANING[sl.m] + ';margin:0"></span>';
+      if (g) { h += '<div class="slot signed"><span class="s-m">' + dot + esc(sl.m) + ' <span class="badge ok">유효</span></span><span class="s-v">' + esc(userNm(g.uid)) + ' (' + esc(g.uid) + ') · ' + esc(g.at) + '</span><span class="s-v">바인딩 <span class="hash">#' + esc(g.hash) + '</span></span></div>'; return; }
+      var ready = !S.handed && (j === 0 ? !waiting(i) && is.length === 0 : !!sig(st.k, st.slots[j - 1].id));
+      var why = waiting(i) ? '이전 단계 미완료' : j === 0 ? (is.length ? '사전 조건 미충족 ' + is.length + '건' : '') : (!ready ? '앞 서명 대기' : '');
+      h += '<div class="slot' + (ready ? ' ready' : '') + '"><span class="s-m">' + dot + esc(sl.m) + ' <span class="muted" style="font-weight:normal">(' + sl.roles.map(function (r) { return ROLE_NM[r]; }).join('/') + (j > 0 ? ' · 수행자와 다른 사람' : '') + ')</span></span>' +
+        '<span class="tip" title="' + esc(why) + '"><button class="btn inner' + (ready ? ' secondary' : '') + '" type="button" data-sign="' + i + ':' + sl.id + '"' + (ready ? '' : ' disabled') + '>' + esc(sl.m) + ' 서명</button></span>' + (why ? '<span class="s-v">' + esc(why) + '</span>' : '') + '</div>';
+    });
+    h += '<div class="sb-note">';
+    if (stepDone(i)) h += '<span>서명 완료 — 단계 값 잠금. 정정은 감사추적 사유 입력 + 재서명(부분 대체) 경로로만 가능합니다.</span>';
+    else if (waiting(i)) h += '<span class="muted">대기 단계 — 조회만 가능 (순서 인터록)</span>';
+    else if (locked(i)) h += '<span>수행 서명 완료 — 값 잠금. 확인자는 같은 값을 다시 확인한 뒤 서명합니다.</span>';
+    else if (is.length) h += is.slice(0, 3).map(function (x) { return '<span class="issue">• ' + esc(x) + '</span>'; }).join('') + (is.length > 3 ? '<span class="issue">… 외 ' + (is.length - 3) + '건</span>' : '');
+    else h += '<span>사전 조건 충족 — 수행 서명 가능</span>';
+    return h + '</div></div>';
+  }
+  function dis(i, extra) { return editable(i) && (extra === undefined || extra) ? '' : ' disabled'; }
+  function resSelect(i, kind, j, v) {
+    return '<select class="input" data-res="' + kind + ':' + j + '"' + dis(i) + '><option value=""' + (v ? '' : ' selected') + '>— 선택</option><option' + (v === '적합' ? ' selected' : '') + '>적합</option><option' + (v === '부적합' ? ' selected' : '') + '>부적합</option></select>';
+  }
+  function note(t) { return '<span class="muted" style="font-size:12px">' + t + '</span>'; }
+
+  /* ======================= 단계 상세 ======================= */
+  var PANES = {};
+  PANES.line = function (i) {
+    var eq = EQ.map(function (e, j) {
+      return '<tr class="' + (e.cmms[1] === 'wn' ? 'wn' : '') + '"><td class="col-no">' + (j + 1) + '</td><td class="mono">' + e.id + '</td><td>' + esc(e.nm) + '</td><td>' + esc(e.cls) + '</td><td><span class="badge ok">' + esc(e.ras) + '</span></td><td>' + (e.cmms[1] ? jcell(e.cmms[1], e.cmms[0]) : '<span class="muted">해당 없음</span>') + '</td><td>' + jcell(e.cfms[1], e.cfms[0]) + '</td><td title="' + esc(e.fmt) + '">' + esc(e.fmt) + '</td><td>' + jcell('ok', '일치') + '</td></tr>';
+    }).join('');
+    var pr = PARAMS.map(function (p) { var ok = p.set >= p.lo && p.set <= p.hi; return '<tr><td>' + esc(p.nm) + '</td><td>' + esc(p.spec) + ' ' + p.unit + '</td><td class="num">' + p.set + '</td><td>' + p.unit + '</td><td>' + jcell(ok ? 'ok' : 'ng') + '</td></tr>'; }).join('');
+    var su = SETUP.map(function (s) { return '<tr><td>' + esc(s.nm) + '</td><td title="' + esc(s.val) + '">' + esc(s.val) + '</td><td>' + jcell('ok', '확인') + '</td></tr>'; }).join('');
+    return head(i, note('설비 상태 = RAS · 교정 = CMMS · 적격 = CFMS (런타임 조회 · 서명 시 스냅샷 고정)')) +
+      '<div class="pane-body"><div class="banner warn"><b>주의</b> CW-0201 체크웨이어 교정 만료 D-12 — 실행 허용(Warning). 만료되면 Absolute 인터록으로 라인 기동을 막습니다.</div>' +
+      gridBlock('포장 라인 설비 — PK-L02', '<span class="total-text">Total <b>' + EQ.length + '</b></span>',
+        [['#', '50px', 'center'], ['설비 ID', '90px'], ['설비명', '200px'], ['장비 클래스(MBR)', '170px'], ['RAS 상태', '100px'], ['CMMS 교정', '230px'], ['CFMS 적격', '170px'], ['포맷 부품 · 레시피'], ['확인', '80px']], eq, 'flex:0 0 auto') +
+      '<div class="split even" style="flex:1 1 auto">' +
+      gridBlock('라인 파라미터 (PBR 지시 vs 설정)', '', [['파라미터'], ['지시값', '130px'], ['설정값', '90px', 'num'], ['단위', '60px'], ['판정', '80px']], pr) +
+      gridBlock('셋업 확인', '', [['항목', '220px'], ['확인 값'], ['판정', '80px']], su) +
+      '</div></div>' + signBar(i);
+  };
+  function clrPane(i, items, vals, kind, info) {
+    var rows = items.map(function (c, j) {
+      var v = vals[j], ph = c.photo ? (v === '적합' ? '<span class="badge info">사진 IMG-' + kind.toUpperCase() + '-' + (j + 1) + '</span>' : '<span class="badge muted">사진 필수</span>') : '<span class="muted">—</span>';
+      return '<tr class="' + (v === '부적합' ? 'ng' : '') + '"><td class="col-no">' + (j + 1) + '</td><td title="' + esc(c.t) + '">' + esc(c.t) + '</td><td>' + resSelect(i, kind, j, v) + '</td><td>' + ph + '</td><td>' + (v ? jcell(v === '적합' ? 'ok' : 'ng') : jcell('wt')) + '</td></tr>';
+    }).join('');
+    var n = vals.filter(function (v) { return v === '적합'; }).length;
+    return '<div class="pane-body">' + info +
+      gridBlock('점검 항목', '<span class="total-text">적합 <b>' + n + '</b> / ' + items.length + '</span><span class="spacer"></span><button class="btn search" type="button" data-act="allOk:' + kind + '"' + dis(i) + '>전체 적합</button>',
+        [['#', '50px', 'center'], ['항목'], ['결과', '140px', 'required'], ['증빙', '170px'], ['판정', '100px']], rows, 'flex:1 1 auto') + '</div>' + signBar(i);
+  }
+  PANES.clrS = function (i) {
+    var info = '<div class="form-grid cols-3 readonly"><span class="label">이전 제품</span><span class="field"><span class="text">정제 B 5 mg · BR-2026-0398 (PTP 14정)</span></span><span class="label">청소</span><span class="field"><span class="text">완료 2026-10-05 08:40 · 감독자 C · 유효 72 h</span></span><span class="label">청소 유효기한</span><span class="field"><span class="text">' + jcell('ok', '~2026-10-08 08:40 유효') + '</span></span></div>';
+    return head(i, note('2인 확인(수행 ≠ 확인) · 사진 증빙 필수 4항목')) + clrPane(i, CLR_S, S.clrS, 'clrS', info);
+  };
+  PANES.mat = function (i) {
+    var rows = MATS.map(function (m, j) {
+      var bad = S.matBad && S.matBad.indexOf(m.code) === 0;
+      var sc = S.matScan[j] ? '<span class="badge ok">일치</span>' : bad ? '<span class="badge error">차단</span>' : '<span class="badge muted">미스캔</span>';
+      return '<tr class="' + (bad ? 'ng' : '') + '"><td class="col-no">' + (j + 1) + '</td><td class="mono">' + m.code + '</td><td title="' + esc(m.nm) + '">' + esc(m.nm) + '</td><td>' + esc(m.kind) + '</td><td class="mono">' + esc(m.aw) + '</td><td class="mono">' + m.lot + '</td><td>' + jcell('ok', m.qc) + '</td><td>' + m.exp + '</td><td class="num">' + fmt(m.req, m.d) + '</td><td class="num">' + fmt(m.iss, m.d) + '</td><td>' + m.unit + '</td><td>' + sc + '</td></tr>';
+    }).join('');
+    var n = S.matScan.filter(Boolean).length;
+    var ban = S.matBad ? '<div class="banner block"><b>Absolute 인터록 — 사용 불가</b> ' + esc(S.matBad) + ' · 자재를 격리하고 올바른 LOT/버전을 다시 스캔하세요.<span class="spacer"></span><button class="btn inner" type="button" data-act="quarantine"' + dis(i) + '>격리 기록</button></div>'
+      : '<div class="banner">불출 자재를 바코드로 스캔합니다. 자재 코드 · LOT · 아트워크 버전 · QC 상태 · 유효기한을 PBR 자재 목록과 대조하고, 하나라도 다르면 Absolute 인터록으로 막습니다.</div>';
+    return head(i, note('불출 지시 MI-0412-P1 · 창고 → 포장실 2 이송 13:31')) +
+      '<div class="pane-body">' + ban +
+      '<div class="scan"><span class="label">자재 스캔</span><span class="barcode"><input class="input" type="text" id="scanIn" placeholder="자재코드/LOT/버전  예) PM-2002/PI2609-08/v6"' + dis(i) + '><button class="kb-btn" type="button" title="키보드"></button></span><button class="btn search secondary" type="button" data-act="scan"' + dis(i) + '>확인</button><span class="spacer"></span><span class="total-text">스캔 <b>' + n + '</b> / ' + MATS.length + '</span></div>' +
+      gridBlock('불출 자재 (PBR 자재 목록 대조)', '<span class="total-text">Total <b>' + MATS.length + '</b></span>',
+        [['#', '50px', 'center'], ['자재코드', '86px'], ['자재명'], ['구분', '96px'], ['아트워크 · 버전', '140px'], ['입고 LOT', '100px'], ['QC', '80px'], ['유효기한', '96px'], ['지시량', '84px', 'num'], ['불출량', '84px', 'num'], ['단위', '50px'], ['스캔', '100px']], rows, 'flex:1 1 auto') +
+      '</div>' + signBar(i);
+  };
+  PANES.lab = function (i) {
+    var pr = S.lab.printed, ed = editable(i) && pr;
+    var vf = LAB_FIELDS.map(function (f, j) {
+      return '<tr><td>' + esc(f.nm) + ' <span class="muted">' + f.ai + '</span></td><td class="mono" title="' + esc(f.inst) + '">' + esc(f.inst) + '</td><td class="mono">' + esc(pr ? f.pr : '—') + '</td><td>' + (pr ? jcell('ok', '일치') : jcell('wt')) + '</td><td class="center"><input type="checkbox" data-labchk="' + j + '"' + (S.lab.checks[j] ? ' checked' : '') + (ed ? '' : ' disabled') + '></td></tr>';
+    }).join('');
+    var ch = CHALLENGES.map(function (c, j) {
+      var v = S.lab.chal[j], st = v === '' ? 'wt' : v === '리젝트' ? 'ok' : 'ng';
+      return '<tr class="' + (st === 'ng' ? 'ng' : '') + '"><td>' + esc(c.nm) + '</td><td>' + c.exp + '</td><td>' + (v ? esc(v) : '<span class="muted">—</span>') + '</td><td>' + jcell(st) + '</td><td class="center"><button class="btn inner" type="button" data-chal="' + j + '"' + (ed ? '' : ' disabled') + '>' + (v ? '재투입' : '투입') + '</button></td></tr>';
+    }).join('');
+    var chNg = S.lab.chal.some(function (v) { return v && v !== '리젝트'; });
+    var ban = chNg ? '<div class="banner block"><b>차단 — 비전 챌린지 실패</b> 제조번호 오류 시료가 리젝트되지 않았습니다. 비전 레시피 · 코더 템플릿을 재셋업한 뒤 해당 챌린지를 다시 실시하세요(라인 기동 차단).</div>'
+      : '<div class="banner">첫 시료를 인쇄해 가변 데이터를 PBR 지시값과 대조하고, 불량 챌린지 시료로 비전 · 시리얼 판독 리젝트 기능을 검증합니다. QA 확인 서명 전에는 포장 실행으로 넘어갈 수 없습니다.</div>';
+    var dash = '··········';
+    return head(i, '<button class="btn search' + (pr ? '' : ' secondary') + '" type="button" data-act="printFirst"' + dis(i, !pr) + '>첫 시료 인쇄</button>') +
+      '<div class="pane-body">' + ban + '<div class="lab-wrap" style="flex:1 1 auto">' +
+      '<div class="col"><div class="grid-toolbar"><span class="group-title">단상자 코딩 미리보기</span><span class="spacer"></span>' + note('템플릿 CT-TA10 v4 · AW-CTN-TA10 v4') + '</div>' +
+      '<div class="carton' + (pr ? '' : ' pending') + '"><span class="tag">' + (pr ? '<span class="badge ok">첫 시료 SN 100000001</span>' : '<span class="badge muted">인쇄 전</span>') + '</span>' +
+      '<div><div class="brand">정제 A 10 mg<small>TAB-A · 30정 (10정 × 3 PTP) · 전문의약품</small></div><div class="stripe"></div>' +
+      '<div class="vd"><b>제조번호</b>' + (pr ? 'TA0412' : dash) + '<br><b>제조일자</b>' + (pr ? '2026-10-05' : dash) + '<br><b>사용기한</b>' + (pr ? '2028-10-04' : dash) + '<br><b>일련번호</b>' + (pr ? '100000001' : dash) + '</div></div>' +
+      '<div class="dmbox"><canvas id="dm" width="22" height="22"></canvas><div class="hri">' + (pr ? '(01)08806543210984<br>(17)281004 (10)TA0412<br>(21)100000001' : 'GS1 DataMatrix') + '</div></div></div>' +
+      '<label class="checkbox mt-8"><input type="checkbox" data-act="retain"' + (S.lab.retain ? ' checked' : '') + (ed ? '' : ' disabled') + '> 첫 시료 1매 포장 기록 첨부(보관) — 스캔 이미지 IMG-LAB-0412-01</label>' +
+      gridBlock('비전 · 시리얼 챌린지', '<span class="total-text">리젝트 확인 <b>' + S.lab.chal.filter(function (v) { return v === '리젝트'; }).length + '</b> / ' + CHALLENGES.length + '</span>',
+        [['챌린지 시료'], ['기대', '70px'], ['결과', '70px'], ['판정', '80px'], ['실행', '76px', 'center']], ch, 'flex:1 1 auto; margin-top:8px') + '</div>' +
+      '<div class="col">' +
+      gridBlock('가변 데이터 대조 (지시값 ↔ 첫 시료 비전 판독)', '<span class="total-text">확인 <b>' + S.lab.checks.filter(Boolean).length + '</b> / ' + LAB_FIELDS.length + '</span><span class="spacer"></span><button class="btn search" type="button" data-act="labAll"' + (ed ? '' : ' disabled') + '>전체 확인</button>',
+        [['항목', '190px'], ['지시값(PBR · 제품 마스터)'], ['첫 시료 인쇄값', '220px'], ['판정', '80px'], ['작업자 확인', '90px', 'center']], vf, 'flex:1 1 auto') +
+      '<div class="form-grid cols-2 readonly"><span class="label">코딩 위치</span><span class="field"><span class="text">단상자 측면 B · 마킹 영역 40 × 25 mm</span></span><span class="label">어그리게이션</span><span class="field"><span class="text">단상자 SN 120 → 수송박스 SSCC</span></span>' +
+      '<span class="label">호일 인쇄</span><span class="field"><span class="text">AW-ALU-TA10 v3 · 엠보 TA0412 / EXP 2028.10</span></span><span class="label">일련번호 보고</span><span class="field"><span class="text">출하 시 보고 — PoC 범위 외</span></span></div>' +
+      '</div></div></div>' + signBar(i);
+  };
+  PANES.exe = function (i) {
+    var x = exeCounts(), ed = editable(i);
+    var kpi = [['블리스터 양품', fmt(x.sheets), '시트', '리젝트 ' + fmt(x.rejS) + ' 시트'], ['단상자 양품', fmt(x.cartons), 'EA', 'SN 어그리게이션 ' + fmt(x.cartons)], ['단상자 리젝트', fmt(x.rejC), 'EA', '체크웨이어 ' + x.cw + ' 포함'], ['수송박스', fmt(x.shippers), '박스', 'SSCC 라벨 부착'], ['진행률', x.pct, '%', '계획 16,600 단상자']]
+      .map(function (k) { return '<div class="kpi"><span class="kpi-label">' + k[0] + '</span><span class="kpi-value">' + k[1] + '<small>' + k[2] + '</small></span><span class="kpi-code">' + k[3] + '</span></div>'; }).join('');
+    var ipc = '';
+    for (var j = 0; j < S.exe.ipc; j++) ipc += '<tr><td class="col-no">' + (j + 1) + '</td><td>' + IPC_SLOTS[j] + '</td><td>' + jcell('ok', '10 시트 누출 없음') + '</td><td>' + jcell('ok', '제조번호 · 기한 · SN 선명') + '</td><td>' + jcell('ok', '누락 시료 리젝트 정상') + '</td><td>B (3.' + (2 + j % 5) + ')</td><td>' + jcell('ok') + '</td><td>' + (j % 2 ? '작업자 B' : '작업자 A') + '</td></tr>';
+    var nev = S.exe.closed ? 3 : S.exe.ipc >= 6 ? 3 : S.exe.ipc >= 3 ? 2 : S.exe.ipc >= 2 ? 1 : 0;
+    var ev = EVENTS.slice(0, nev).map(function (e) { return '<tr><td>' + e.t + '</td><td title="' + esc(e.ev) + '">' + esc(e.ev) + '</td><td title="' + esc(e.act) + '">' + esc(e.act) + '</td><td>' + e.who + '</td></tr>'; }).join('');
+    return head(i, '<button class="btn search" type="button" data-act="ipc"' + dis(i, S.exe.ipc < 9) + '>IPC 기록</button><button class="btn search secondary" type="button" data-act="close"' + dis(i, !S.exe.closed && S.exe.ipc >= 1) + '>카운트 마감</button>') +
+      '<div class="pane-body"><div class="kpi-board">' + kpi + '</div>' +
+      gridBlock('공정 중 검사 (IPC · 30분 간격)', '<span class="total-text">Total <b>' + S.exe.ipc + '</b> / 9</span><span class="spacer"></span>' + note('리크: 메틸렌블루 −0.8 bar 60 s · 체크웨이어 챌린지: 첨부문서 누락 · PTP 1매 누락 시료'),
+        [['#', '50px', 'center'], ['시각', '70px'], ['리크 테스트'], ['인쇄 · 코딩'], ['체크웨이어 챌린지'], ['판독 등급', '100px'], ['판정', '80px'], ['작업자', '90px']], ipc || '<tr><td colspan="8" class="center muted">기록 없음 — [IPC 기록]으로 첫 검사를 입력하면 라인이 기동됩니다.</td></tr>', 'flex:1 1 auto') +
+      gridBlock('라인 이벤트 · 알람', '<span class="total-text">Total <b>' + nev + '</b></span>', [['시각', '70px'], ['이벤트', '40%'], ['조치'], ['기록자', '90px']], ev || '<tr><td colspan="4" class="center muted">이벤트 없음</td></tr>', 'flex:0 0 160px') +
+      '</div>' + signBar(i);
+  };
+  PANES.rec = function (i) {
+    var c = recCalc(), ed = editable(i), r = S.rec;
+    function inp(key, v) { return ed ? '<input class="input num" type="text" data-rec="' + key + '" value="' + v + '">' : fmt(v); }
+    var tab = [
+      ['벌크 정제 수령 (BR-2026-0412)', '—', fmt(BULK_IN), '생산 실행 이관'],
+      ['양품 단상자', inp('good', r.good), fmt(c.goodT), '× 30 T'],
+      ['QC 시험 샘플 (단상자)', inp('qc', r.qc), fmt(c.qcT), '× 30 T'],
+      ['보관 샘플 (단상자)', inp('ret', r.ret), fmt(c.retT), '× 30 T'],
+      ['공정 리젝트 PTP (시트)', inp('rejSheet', r.rejSheet), fmt(c.rejT), '× 10 T · 파기'],
+      ['벌크 잔량 폐기 (T)', inp('bulkWaste', r.bulkWaste), fmt(r.bulkWaste), '칭량 환산']
+    ].map(function (x) { return '<tr><td>' + x[0] + '</td><td class="num">' + x[1] + '</td><td class="num">' + x[2] + '</td><td class="muted">' + x[3] + '</td></tr>'; }).join('') +
+      '<tr class="sum"><td>미설명 차이</td><td></td><td class="num">' + fmt(c.diff) + '</td><td>' + jcell(c.diffOk ? 'ok' : 'ng', fmt(c.diffPct, 3) + ' % (≤ 0.5 %)') + '</td></tr>' +
+      '<tr class="sum"><td>수율 (양품 + 샘플) ÷ 수령</td><td></td><td class="num">' + fmt(c.yieldPct, 2) + ' %</td><td>' + jcell(c.yieldOk ? 'ok' : 'ng', '98.0 ~ 100.5 %') + '</td></tr>';
+    var pm = c.pm.map(function (p) {
+      var k = p.m.code, st = p.ok ? 'ok' : S.rec.dev ? 'wn' : 'ng';
+      function pi(idx, v) { return ed ? '<input class="input num" type="text" data-pm="' + k + ':' + idx + '" value="' + v + '">' : fmt(v, p.m.d); }
+      return '<tr class="' + (st === 'ng' ? 'ng' : st === 'wn' ? 'wn' : '') + '"><td title="' + esc(p.m.nm) + '">' + esc(p.m.nm) + '</td><td class="num">' + fmt(p.m.iss, p.m.d) + '</td><td class="num">' + pi(0, p.used) + '</td><td class="num">' + pi(1, p.rej) + '</td><td class="num">' + pi(2, p.setup) + '</td><td class="num">' + pi(3, p.back) + '</td><td class="num"><b>' + fmt(p.diff, p.m.d) + '</b></td><td>' + p.m.unit + '</td><td>' + esc(p.tol) + '</td><td>' + jcell(st, st === 'ok' ? '적합' : st === 'wn' ? '일탈 연결' : '부적합') + '</td></tr>';
+    }).join('');
+    var ng = c.pmNg.length, ban;
+    if (ng && !S.rec.dev) ban = '<div class="banner block"><b>차단 — 인쇄 자재 정산 불일치</b> ' + esc(c.pmNg.map(function (p) { return p.m.nm + ' 차이 ' + p.diff + ' ' + p.m.unit; }).join(', ')) + ' · 인쇄 자재는 100 % 정산 대상입니다. 다시 세어도 차이가 남으면 일탈을 등록하세요.<span class="spacer"></span><button class="btn inner" type="button" data-act="dev"' + dis(i) + '>일탈 초안</button></div>';
+    else if (S.rec.dev) ban = '<div class="banner warn"><b>일탈 연결됨</b> ' + esc(S.rec.dev) + ' (초안 · QMS 조사 중) — 포장 기록 서명은 가능, 종결 전까지 출하 게이트 조건 #2에서 차단됩니다.</div>';
+    else ban = '<div class="banner ok"><b>정산 적합</b> 인쇄 자재 차이 0 · 필름/호일 ± 2.0 % 이내 · 정제 미설명 차이 ' + fmt(c.diffPct, 3) + ' % · 수율 ' + fmt(c.yieldPct, 2) + ' %</div>';
+    return head(i, note('카운터 값은 실행 마감 시 자동 이관 · 수기 수정은 감사추적에 기록')) +
+      '<div class="pane-body">' + ban + '<div class="split" style="grid-template-columns: 2fr 3fr; flex:1 1 auto">' +
+      gridBlock('정제 수지 (Tablet Accountability)', '', [['항목'], ['수량', '110px', 'num'], ['환산 정(T)', '110px', 'num'], ['비고', '160px']], tab) +
+      gridBlock('포장 자재 정산 (Reconciliation)', '<span class="total-text">불일치 <b>' + ng + '</b></span><span class="spacer"></span>' + note('차이 = 불출 − 사용 − 리젝트 − 셋업·챌린지 − 반납'),
+        [['자재'], ['불출', '76px', 'num'], ['사용', '86px', 'num'], ['리젝트', '70px', 'num'], ['셋업·챌린지', '84px', 'num'], ['반납', '70px', 'num'], ['차이', '60px', 'num'], ['단위', '52px'], ['허용', '104px'], ['판정', '86px']], pm) +
+      '</div></div>' + signBar(i);
+  };
+  PANES.clrE = function (i) {
+    var info = '<div class="form-grid cols-3 readonly"><span class="label">완제품 이송</span><span class="field"><span class="text">138 수송박스 · 16,480 단상자 → WH-Q1</span></span><span class="label">재고 상태</span><span class="field"><span class="text"><span class="badge warn">격리 · QA 판정 대기</span></span></span><span class="label">반납 자재</span><span class="field"><span class="text">MR-0412-P1 · 7 품목 창고 반납</span></span></div>';
+    return head(i, note('다음 배치 혼입 방지 — 잔여 인쇄 자재 회수 수량은 6단계 반납 수량과 대조')) + clrPane(i, CLR_E, S.clrE, 'clrE', info);
+  };
+  PANES.rev = function (i) {
+    var sr = '', n = 0, unsigned = 0;
+    STEPS.forEach(function (st, j) { st.slots.forEach(function (sl) { var g = sig(st.k, sl.id); n++; if (!g) unsigned++;
+      sr += '<tr><td>' + esc(stepLabel(j)) + '</td><td><span class="sign-meaning" style="background:' + MEANING[sl.m] + '"></span>' + esc(sl.m) + '</td><td>' + (g ? esc(userNm(g.uid)) + ' <span class="muted">(' + g.uid + ')</span>' : '<span class="muted">—</span>') + '</td><td>' + (g ? esc(USERS[g.uid].roleNm) : '') + '</td><td>' + (g ? g.at : '') + '</td><td>' + (g ? '<span class="hash">#' + g.hash + '</span>' : '') + '</td><td>' + (g ? '<span class="badge ok">유효</span>' : '<span class="badge muted">UNSIGNED</span>') + '</td></tr>'; }); });
+    var au = S.audit.slice().reverse().map(function (a) { var bad = /차단|일탈|실패|격리/.test(a.act); return '<tr class="' + (bad ? 'wn' : '') + '"><td>' + a.at + '</td><td>' + esc(userNm(a.uid)) + '</td><td>' + esc(a.act) + '</td><td title="' + esc(a.tgt) + '">' + esc(a.tgt) + '</td><td title="' + esc(a.val) + '">' + esc(a.val) + '</td><td title="' + esc(a.why) + '">' + esc(a.why) + '</td></tr>'; }).join('');
+    var exc = S.audit.filter(function (a) { return /차단|일탈|실패|격리/.test(a.act); }).length;
+    var all = activeIdx() >= STEPS.length, c = recCalc();
+    var handBtn = '<span class="tip" title="' + (all ? '' : '8단계 서명 완료 후 가능') + '"><button class="btn search primary" type="button" data-act="handoff"' + (all && !S.handed ? '' : ' disabled') + '>출하 게이트로 인계</button></span>';
+    return head(i, handBtn) + '<div class="pane-body">' +
+      '<div class="form-grid cols-3 readonly"><span class="label">UNSIGNED</span><span class="field"><span class="text">' + (unsigned ? '<span class="badge warn">' + unsigned + '건</span>' : '<span class="badge ok">0건</span>') + '</span></span>' +
+      '<span class="label">예외 · 차단 이력</span><span class="field"><span class="text">' + (exc ? '<span class="badge warn">' + exc + '건</span>' : '<span class="badge ok">0건</span>') + '<span class="muted">감사추적 강조 행</span></span></span>' +
+      '<span class="label">물질수지</span><span class="field"><span class="text">수율 ' + fmt(c.yieldPct, 2) + ' % · 인쇄 자재 ' + (c.pmNg.length ? '<span class="fc-fail">불일치 ' + c.pmNg.length + '</span>' + (S.rec.dev ? '<span class="muted">(' + esc(S.rec.dev) + ')</span>' : '') : '차이 0') + '</span></span>' +
+      '<span class="label">포장 기록</span><span class="field"><span class="text">PKR-0412 v1 ' + (S.handed ? '<span class="badge ok">확정</span>' : '<span class="badge muted">작성 중</span>') + '</span></span>' +
+      '<span class="label">출하 게이트 반영</span><span class="field"><span class="text">#2 일탈 · #8 UNSIGNED · #9 물질수지</span></span>' +
+      '<span class="label">인계</span><span class="field"><span class="text">' + (S.handed ? esc(S.handedAt) + ' → QA D 검토 큐' : '<span class="muted">대기</span>') + '</span></span></div>' +
+      '<div class="split even" style="flex:1 1 auto">' +
+      gridBlock('서명 현황', '<span class="total-text">Total <b>' + n + '</b></span>', [['단계', '150px'], ['의미', '92px'], ['서명자'], ['역할', '80px'], ['시각', '132px'], ['해시', '94px'], ['상태', '80px']], sr) +
+      gridBlock('감사추적', '<span class="total-text">Total <b>' + S.audit.length + '</b></span><span class="spacer"></span>' + note('최신순 · 추가 전용(수정 · 삭제 불가)'), [['시각', '136px'], ['사용자', '70px'], ['동작', '120px'], ['대상', '150px'], ['값'], ['사유', '90px']], au) +
+      '</div></div>' + signBar(i);
+  };
+
+  function renderPane() { var st = STEPS[S.sel]; $('pane').innerHTML = PANES[st.k](S.sel); if (st.k === 'lab') drawDM(); }
+  function renderAll() { renderSummary(); renderNav(); renderMini(); renderPane(); renderNotice(); }
+
+  /* GS1 DataMatrix 모양(장식용 결정적 패턴 — 실제 인코딩 아님) */
+  function drawDM() {
+    var cv = $('dm'); if (!cv) return;
+    var g = cv.getContext('2d'), n = 22, seed = S.lab.printed ? 412 : 7;
+    g.fillStyle = '#fff'; g.fillRect(0, 0, n, n);
+    g.fillStyle = S.lab.printed ? '#111' : '#c8ccd6';
+    for (var y = 0; y < n; y++) for (var x = 0; x < n; x++) {
+      var on;
+      if (x === 0 || y === n - 1) on = true;
+      else if (y === 0) on = x % 2 === 0;
+      else if (x === n - 1) on = y % 2 === 1;
+      else { seed = (seed * 1103515245 + 12345) & 0x7fffffff; on = (seed >> 16) % 100 < 48; }
+      if (on) g.fillRect(x, y, 1, 1);
+    }
+  }
+
+  /* ======================= 전자서명 (T-11) ======================= */
+  var pending = null;
+  function openSign(i, slotId) {
+    var st = STEPS[i], sl = st.slots.filter(function (x) { return x.id === slotId; })[0];
+    pending = { i: i, sl: sl };
+    $('signTitle').textContent = '전자서명 — ' + sl.m;
+    $('signDot').style.background = MEANING[sl.m];
+    $('sfStep').textContent = stepLabel(i);
+    $('sfMeaning').textContent = sl.m + ' (' + MEANING_EN[sl.m] + ')';
+    $('sfRole').textContent = sl.roles.map(function (r) { return ROLE_NM[r]; }).join(' / ');
+    var first = sig(st.k, st.slots[0].id);
+    $('sfTwo').textContent = slotId === st.slots[0].id ? (st.slots.length > 1 ? '첫 서명 — 이후 ' + st.slots[1].m + ' 서명자는 본인과 달라야 함' : '단독 서명') : '수행자 ' + (first ? userNm(first.uid) : '—') + ' 와(과) 다른 사람만 서명 가능';
+    var rows = signValues(i);
+    $('grdSignValsBody').innerHTML = rows.map(function (r, j) { return '<tr><td class="col-no">' + (j + 1) + '</td><td title="' + esc(r[0]) + '">' + esc(r[0]) + '</td><td title="' + esc(r[1]) + '">' + esc(r[1]) + '</td><td>' + jcell(r[2]) + '</td></tr>'; }).join('');
+    MesUI.setTotal('grdSignVals');
+    $('signId').value = ''; $('signPw').value = ''; $('signCmt').value = ''; $('signErr').textContent = '';
+    renderUser();
+    MesUI.openDialog('dlgSign');
+    $('signId').focus();
+  }
+  function renderUser() {
+    var u = USERS[$('signId').value.trim().toUpperCase()], c = $('signUser');
+    c.innerHTML = u ? '<span class="name">' + esc(u.name) + '</span><span class="sub">' + esc(u.roleNm) + ' · 중앙 상태 활성 · ' + esc(u.note) + '</span>'
+      : '<span class="name muted">사용자 미확인</span><span class="sub">ID를 입력하면 중앙 사용자 상태 · 역할을 확인합니다</span>';
+  }
+  function doSign() {
+    if (!pending) return;
+    var uid = $('signId').value.trim().toUpperCase(), pw = $('signPw').value, u = USERS[uid], st = STEPS[pending.i], sl = pending.sl, err = $('signErr');
+    if (!uid || !pw) { err.textContent = '사용자 ID와 비밀번호를 입력하세요.'; return; }
+    if (!u) { err.textContent = '등록되지 않은 사용자 ID입니다: ' + uid; return; }
+    if (pw === '0000') { err.textContent = '인증 실패 — 비밀번호 불일치 (실패 1/5, 5회 시 계정 잠금)'; log(uid, '서명 인증 실패', stepLabel(pending.i), sl.m, ''); return; }
+    if (sl.roles.indexOf(u.role) < 0) { err.textContent = '권한 없음 — ' + sl.m + ' 서명은 ' + sl.roles.map(function (r) { return ROLE_NM[r]; }).join('/') + ' 역할만 가능합니다 (' + u.name + ': ' + ROLE_NM[u.role] + ').'; return; }
+    var dup = st.slots.some(function (x) { var g = x.id !== sl.id && sig(st.k, x.id); return g && g.uid === uid; });
+    if (dup) { err.textContent = '2인 규칙 위반 — 같은 단계의 수행자와 확인자가 같을 수 없습니다.'; return; }
+    var at = MesUI.nowStamp(), vals = signValues(pending.i), i = pending.i;
+    S.sig[st.k + '.' + sl.id] = { uid: uid, at: at, hash: hash8(JSON.stringify(vals) + uid + at + sl.id) };
+    log(uid, '전자서명(' + sl.m + ')', stepLabel(i), vals.length + '개 값 바인딩', $('signCmt').value.trim());
+    pending = null;
+    MesUI.closeDialog('dlgSign');
+    MesUI.toast(stepLabel(i) + ' — ' + sl.m + ' 서명 완료 (' + u.name + ')', 'ok');
+    if (stepDone(i) && i < STEPS.length - 1) { S.sel = i + 1; log(uid, '단계 시작', stepLabel(i + 1), '', ''); }
+    renderAll();
+  }
+
+  /* ======================= 상호작용 ======================= */
+  function scan(val) {
+    if (!editable(2)) { MesUI.toast('자재 확인 단계가 잠겨 있거나 대기 중입니다.', 'warn'); return; }
+    val = String(val || '').trim().toUpperCase();
+    if (!val) { MesUI.toast('바코드를 스캔하거나 입력하세요.', 'warn'); return; }
+    var p = val.split('/'), code = p[0], lot = p[1] || '', ver = (p[2] || '').replace(/^V/, 'v'), j = -1;
+    MATS.forEach(function (m, k) { if (m.code === code) j = k; });
+    if (j < 0) { log('OP-0101', '자재 스캔 차단', code, val, '목록 외 자재'); renderAll(); MesUI.alert('PBR 자재 목록에 없는 자재입니다: ' + code + '\n이 포장 지시에는 사용할 수 없습니다.', 'Error'); return; }
+    var m = MATS[j], awVer = m.aw === '—' ? '' : m.aw.split(' ')[1], bad = [];
+    if (lot !== m.lot) bad.push('LOT 불일치 (불출 ' + m.lot + ' / 스캔 ' + (lot || '없음') + ')');
+    if (awVer && ver && ver !== awVer) bad.push('아트워크 버전 불일치 (지시 ' + awVer + ' / 스캔 ' + ver + ')');
+    if (bad.length) {
+      S.matBad = code + ' ' + m.nm + ' — ' + bad.join(' · '); S.matScan[j] = false;
+      log('OP-0101', '자재 스캔 차단', code + ' ' + m.nm, val, '버전/LOT 불일치');
+      renderAll();
+      MesUI.alert('Absolute 인터록 — 사용 불가\n\n' + m.code + ' ' + m.nm + '\n' + bad.join('\n') + '\n\n자재를 격리하고 올바른 LOT/버전을 다시 스캔하세요.', 'Error');
+      return;
+    }
+    if (S.matScan[j]) { MesUI.toast(code + ' 은(는) 이미 확인된 자재입니다.', 'info'); return; }
+    S.matScan[j] = true;
+    if (S.matBad && S.matBad.indexOf(code) === 0) S.matBad = null;
+    log('OP-0101', '자재 스캔', code + ' ' + m.nm, val, '');
+    MesUI.toast(code + ' ' + m.nm + ' — 일치 (' + m.lot + (awVer ? ' · ' + awVer : '') + ')', 'ok');
+    renderAll();
+  }
+  var pane = $('pane');
+  pane.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-sign]');
+    if (b) { var p = b.getAttribute('data-sign').split(':'); openSign(+p[0], p[1]); return; }
+    var c = e.target.closest('[data-chal]');
+    if (c) {
+      var j = +c.getAttribute('data-chal');
+      S.lab.chal[j] = S.visionFail && j === 1 ? '통과' : '리젝트';
+      log('OP-0101', S.lab.chal[j] === '리젝트' ? '비전 챌린지' : '비전 챌린지 실패', CHALLENGES[j].nm, S.lab.chal[j], '');
+      renderAll();
+      if (S.lab.chal[j] !== '리젝트') MesUI.alert('비전 챌린지 실패 — ' + CHALLENGES[j].nm + ' 이(가) 리젝트되지 않고 통과되었습니다.\n라인 기동이 차단됩니다. 비전 레시피 · 코더 템플릿을 재셋업하세요.', 'Error');
+      return;
+    }
+    var a = e.target.closest('[data-act]'); if (!a || a.tagName === 'INPUT') return;
+    var act = a.getAttribute('data-act');
+    if (act.indexOf('allOk:') === 0) { var kd = act.split(':')[1]; S[kd] = S[kd].map(function () { return '적합'; }); log('OP-0101', '점검 일괄 입력', kd === 'clrS' ? stepLabel(1) : stepLabel(6), '전체 적합', ''); renderAll(); }
+    else if (act === 'scan') scan($('scanIn').value);
+    else if (act === 'quarantine') { log('OP-0101', '자재 격리', S.matBad, '격리 구역 Q-PK2', '버전/LOT 불일치'); S.matBad = null; renderAll(); MesUI.toast('불일치 자재를 격리 구역 Q-PK2로 옮긴 것으로 기록했습니다. 올바른 자재를 다시 스캔하세요.', 'info'); }
+    else if (act === 'printFirst') { S.lab.printed = true; log('OP-0101', '첫 시료 인쇄', '단상자 SN 100000001', 'TA0412 · 2028-10-04', ''); renderAll(); }
+    else if (act === 'labAll') { S.lab.checks = S.lab.checks.map(function () { return true; }); log('OP-0101', '가변 데이터 대조', '7 항목', '전체 일치', ''); renderAll(); }
+    else if (act === 'ipc') { if (S.exe.ipc < 9) { S.exe.ipc++; log(S.exe.ipc % 2 ? 'OP-0101' : 'OP-0102', 'IPC 기록', IPC_SLOTS[S.exe.ipc - 1], '전 항목 적합', ''); } renderAll(); }
+    else if (act === 'close') {
+      MesUI.confirm('카운트를 마감합니다.\n블리스터 49,620 시트 · 단상자 16,540 EA · 수송박스 138\n마감하면 6단계 정산으로 이관되고 라인이 정지됩니다.', function () {
+        S.exe.closed = true; while (S.exe.ipc < 9) { S.exe.ipc++; log('OP-0101', 'IPC 기록', IPC_SLOTS[S.exe.ipc - 1], '전 항목 적합', ''); }
+        log('OP-0101', '카운트 마감', stepLabel(4), '단상자 16,540 · 리젝트 52', ''); renderAll();
+      }, { title: 'Confirm', okText: '마감', cancelText: '취소' });
+    }
+    else if (act === 'dev') { createPackDeviationDraft(); }
+    else if (act === 'handoff') {
+      MesUI.confirm('포장 기록 PKR-0412 v1을 확정하고 출하 게이트(S-32)로 인계합니다.\n인계하면 포장 기록은 읽기 전용이 됩니다.', function () {
+        S.handed = true; S.handedAt = MesUI.nowStamp();
+        var bid = (uiCtx && uiCtx.batchId) || 'BR-2026-0412';
+        log('SV-0003', '출하 게이트 인계', 'PKR-0412 v1', bid + ' → S-32', '');
+        wireFlowStripLinks();
+        renderAll();
+        MesUI.toast('출하 게이트로 인계했습니다 — QA 배치 검토 큐 등록', 'ok');
+        var relUrl = './s-ebr-release-gate-ui.html' + flowQuery();
+        MesUI.confirm('출하 게이트로 이동할까요?\n' + relUrl, function () { location.href = relUrl; },
+          { title: 'Confirm', okText: '출하 게이트', cancelText: '머무르기' });
+      }, { title: 'Confirm', okText: '인계', cancelText: '취소' });
+    }
+  });
+  pane.addEventListener('change', function (e) {
+    var t = e.target, v;
+    if ((v = t.getAttribute('data-res'))) { var p = v.split(':'); S[p[0]][+p[1]] = t.value; log('OP-0101', '점검 결과 입력', (p[0] === 'clrS' ? CLR_S : CLR_E)[+p[1]].t, t.value || '취소', ''); renderAll(); return; }
+    if ((v = t.getAttribute('data-labchk'))) { S.lab.checks[+v] = t.checked; renderAll(); return; }
+    if (t.getAttribute('data-act') === 'retain') { S.lab.retain = t.checked; if (t.checked) log('OP-0101', '첫 시료 보관', 'IMG-LAB-0412-01', '첨부', ''); renderAll(); return; }
+    if ((v = t.getAttribute('data-rec'))) { var old = S.rec[v]; S.rec[v] = num(t.value); log('OP-0101', '정산 값 수정', v, old + ' → ' + S.rec[v], '재계수'); renderAll(); return; }
+    if ((v = t.getAttribute('data-pm'))) { var q = v.split(':'), o = S.rec.pm[q[0]][+q[1]]; S.rec.pm[q[0]][+q[1]] = num(t.value); log('OP-0101', '정산 값 수정', q[0], o + ' → ' + num(t.value), '재계수'); renderAll(); }
+  });
+  pane.addEventListener('keydown', function (e) { if (e.target.id === 'scanIn' && e.key === 'Enter') { e.preventDefault(); scan(e.target.value); } });  /* preventDefault: 스캐너 Enter 가 알림 OK 버튼까지 눌러 닫지 않도록 */
+  $('stepList').addEventListener('click', function (e) { var s = e.target.closest('[data-step]'); if (s) { S.sel = +s.getAttribute('data-step'); renderAll(); } });
+  if ($('btnDevDraft')) $('btnDevDraft').addEventListener('click', function () { createPackDeviationDraft(); });
+  $('btnDoSign').addEventListener('click', doSign);
+  $('signId').addEventListener('input', renderUser);
+  $('signPw').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); doSign(); } });
+  $('btnCopy').addEventListener('click', function () { MesUI.toast('화면 링크를 복사했습니다.', 'info'); });
+  $('btnPoCv').addEventListener('click', function () { MesUI.toast('포장 지시 코드뷰 팝업(연동)', 'info'); });
+  $('lnkBulk').addEventListener('click', function () { location.href = './s-ebr-production-exec-ui.html' + flowQuery(); });
+  $('btnSearch').addEventListener('click', function () { renderAll(); MesUI.toast('PO-2026-0412-P1 조회 완료', 'info'); });
+  $('btnReset').addEventListener('click', function () { $('schPo').value = 'PO-2026-0412-P1'; $('schLine').selectedIndex = 0; });
+
+  /* ======================= 데모 바 ======================= */
+  function ff(n) {
+    var who = { do: 'OP-0101', chk: 'OP-0102', qa: 'QA-0007', rev: 'SV-0003' };
+    for (var i = 0; i < n && i < STEPS.length; i++) {
+      var k = STEPS[i].k;
+      if (k === 'clrS') S.clrS = S.clrS.map(function () { return '적합'; });
+      if (k === 'mat') { S.matScan = S.matScan.map(function () { return true; }); S.matBad = null; }
+      if (k === 'lab') { S.lab.printed = true; S.lab.checks = S.lab.checks.map(function () { return true; }); S.lab.chal = S.lab.chal.map(function () { return '리젝트'; }); S.lab.retain = true; }
+      if (k === 'exe') { S.exe.closed = true; S.exe.ipc = 9; }
+      if (k === 'rec' && recCalc().pmNg.length && !S.rec.dev) S.rec.dev = 'DEV-2026-0205';
+      if (k === 'clrE') S.clrE = S.clrE.map(function () { return '적합'; });
+      STEPS[i].slots.forEach(function (sl) {
+        if (sig(k, sl.id)) return;
+        var uid = k === 'rec' && sl.id === 'chk' ? 'SV-0003' : who[sl.id], at = MesUI.nowStamp();
+        S.sig[k + '.' + sl.id] = { uid: uid, at: at, hash: hash8(JSON.stringify(signValues(i)) + uid + at + sl.id) };
+        log(uid, '전자서명(' + sl.m + ')', stepLabel(i), '데모 빠른 진행', '');
+      });
+    }
+    S.sel = Math.min(n, STEPS.length - 1);
+    renderAll();
+  }
+  $('demoFab').addEventListener('click', function () { $('demoPanel').classList.toggle('open'); });
+  $('demoPanel').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    if (b.hasAttribute('data-ff')) { ff(+b.getAttribute('data-ff')); return; }
+    var d = b.getAttribute('data-demo');
+    if (d === 'scanBad' || d === 'scanOk') { S.sel = 2; renderAll(); scan(d === 'scanBad' ? 'PM-2002/PI2607-02/v5' : 'PM-2002/PI2609-08/v6'); }
+    if (d === 'reset') { S = initial(); $('demoVisionFail').checked = false; $('demoDiff').checked = false; renderAll(); }
+  });
+  $('demoVisionFail').addEventListener('change', function (e) { S.visionFail = e.target.checked; });
+  $('demoDiff').addEventListener('change', function (e) {
+    if (locked(5)) { e.target.checked = !e.target.checked; MesUI.toast('6단계가 이미 서명되어 정산 값을 바꿀 수 없습니다.', 'warn'); return; }
+    S.rec.pm['PM-2001'][3] = e.target.checked ? 176 : 178; if (!e.target.checked) S.rec.dev = ''; renderAll();
+  });
+
+  /* 자동화 · 검증용 훅 */
+  window.__pack = { state: function () { return S; }, ff: ff, scan: scan, issues: issues, recCalc: recCalc };
+  bindIssuedFromQuery();
+  renderAll();
+  wireFlowStripLinks();
+
+  /* —— resizable split panes (2-col) —— */
+  /* localStorage shape: {"left": <px>}  key=ebr.packagingExec.split.v1 */
+  var SPLIT_KEY = 'ebr.packagingExec.split.v1';
+  var SPLIT_DEFAULT_LEFT = 330;
+  function rsLogicalPx(visualPx) {
+    var wrap = document.getElementById('shellScale');
+    var s = 1;
+    try {
+      if (wrap) s = parseFloat(getComputedStyle(wrap).getPropertyValue('--scale')) || 1;
+    } catch (err) { s = 1; }
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    return visualPx / s;
+  }
+  function applySplitWidths(left) {
+    var split = document.getElementById('execSplit');
+    if (!split) return;
+    var splitW = rsLogicalPx(split.getBoundingClientRect().width) || 1200;
+    var gutter = 6;
+    var minL = 180, minR = 280;
+    var maxL = Math.max(minL, Math.floor(splitW * 0.7));
+    maxL = Math.min(maxL, splitW - gutter - minR);
+    /* also keep right from exceeding ~55% by forcing left floor */
+    var minLByRight = Math.max(minL, Math.ceil(splitW - gutter - Math.floor(splitW * 0.55)));
+    if (minLByRight > maxL) minLByRight = minL;
+    var lo = Math.max(minLByRight, Math.min(maxL, left | 0));
+    var paneL = document.getElementById('paneExecSteps');
+    if (!paneL) return;
+    paneL.style.flex = '0 0 ' + lo + 'px';
+    paneL.style.width = lo + 'px';
+  }
+  function loadSplit() {
+    try {
+      var s = JSON.parse(localStorage.getItem(SPLIT_KEY) || 'null');
+      if (s && s.left) applySplitWidths(s.left);
+    } catch (e) {}
+  }
+  function saveSplit() {
+    var paneL = document.getElementById('paneExecSteps');
+    if (!paneL) return;
+    localStorage.setItem(SPLIT_KEY, JSON.stringify({
+      left: rsLogicalPx(paneL.getBoundingClientRect().width)
+    }));
+  }
+  function bindGutter(gutterId) {
+    var gut = document.getElementById(gutterId);
+    if (!gut) return;
+    gut.addEventListener('mousedown', function (ev) {
+      ev.preventDefault();
+      var startX = ev.clientX;
+      var startL = rsLogicalPx(document.getElementById('paneExecSteps').getBoundingClientRect().width);
+      gut.classList.add('is-drag');
+      document.body.classList.add('is-resizing');
+      function onMove(e) {
+        applySplitWidths(startL + rsLogicalPx(e.clientX - startX));
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        gut.classList.remove('is-drag');
+        document.body.classList.remove('is-resizing');
+        saveSplit();
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    gut.addEventListener('dblclick', function () {
+      applySplitWidths(SPLIT_DEFAULT_LEFT);
+      saveSplit();
+    });
+  }
+  loadSplit();
+  bindGutter('gutterMain');
+
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

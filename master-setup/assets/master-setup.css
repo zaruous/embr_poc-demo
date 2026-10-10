@@ -1,0 +1,135 @@
+/* master-setup.css — eMBR 기준정보 PoC v2 공용 배치 · 보조 표시 (mesui.css 공용 컴포넌트 치수는 건드리지 않음) */
+body { margin: 0; }
+/* 본문: 콘텐츠만 (화면별 좌측 내비 없음 — 카탈로그 메뉴가 담당) */
+.ms-layout { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.ms-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 20px; }
+.view > .grid-block, .sub > .grid-block { flex: 1 1 auto; min-height: 0; }
+.sub { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 20px; }
+/* GCM 화면: 좌 테이블 목록 + 매핑, 우 코드 데이터 */
+.gcm-split { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 2fr 3fr; gap: 30px; }
+.gcm-split > .col { min-height: 0; gap: 20px; }
+.gcm-split > .col > .grid-block { flex: 1 1 0; }
+.gcm-split > .col > .grid-block.map-block { flex: 0 0 auto; }
+.map-block .grid-wrap { flex: 0 0 auto; }
+.map-link { width: 22px; height: 22px; border: 0; border-radius: 50%; background: none; color: var(--c-primary); font-size: 14px; cursor: pointer; padding: 0; }
+.map-link:hover { background: var(--c-secondary-hover); }
+/* 그리드 제목 행 + 수명주기 범례 (batch-issue PoC 와 동일) */
+.title-row { display: flex; align-items: center; justify-content: space-between; height: 21px; gap: 12px; }
+.title-row .group-title { overflow: hidden; text-overflow: ellipsis; }
+.lc-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--c-text-sub); white-space: nowrap; }
+.badge.lc-draft      { background: var(--bc-gray); }                                   .badge.lc-draft::before      { background: var(--c-text-disabled); }
+.badge.lc-review     { background: var(--bc-plan); }                                   .badge.lc-review::before     { background: var(--c-info); }
+.badge.lc-approved   { background: var(--bc-quality); }                                .badge.lc-approved::before   { background: #8a63c9; }
+.badge.lc-pending    { background: var(--bc-plan); border: 1px solid var(--c-info); }  .badge.lc-pending::before    { background: var(--c-info); }
+.badge.lc-effective  { background: var(--bc-good); }                                   .badge.lc-effective::before  { background: var(--c-ok); }
+.badge.lc-superseded { background: var(--bc-gray); color: var(--c-text-disabled); }    .badge.lc-superseded::before { background: var(--c-text-disabled); }
+.badge.lc-retired    { background: var(--bc-faulty); }                                 .badge.lc-retired::before    { background: var(--c-error); }
+/* 탭 헤더 (batch-issue PoC 와 동일) */
+.tabs { flex: 0 0 auto; display: flex; align-items: flex-end; gap: 20px; height: 28px; border-bottom: 1px solid var(--c-border-05); }
+.tabs .tab { font: bold var(--fs-group)/21px var(--font); letter-spacing: inherit; color: var(--c-text-disabled); background: none; border: 0; border-bottom: 2px solid transparent; padding: 0 2px 4px; cursor: pointer; }
+.tabs .tab.active { color: var(--c-text); border-bottom-color: var(--c-primary); }
+/* GCM 사용 안내 배너 */
+.plan-banner { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 4px 12px; border: 1px solid var(--c-info); border-left-width: 4px; font-size: 13px; flex-wrap: wrap; }
+.plan-banner.warn { border-color: var(--c-warn); }
+.gcm-chip { display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border: 1px solid var(--c-primary); border-radius: 2px; background: var(--c-bg); color: var(--c-primary); font: 12px Consolas, 'Courier New', monospace; cursor: pointer; letter-spacing: 0; }
+.gcm-chip:hover { background: var(--c-secondary-hover); }
+.gcm-chip small { font-family: var(--font); color: var(--c-text-sub); margin-left: 4px; }
+/* 보조 표시 */
+.hash { font-family: Consolas, 'Courier New', monospace; letter-spacing: 0; }
+.swatch { display: inline-block; width: 14px; height: 14px; border-radius: 2px; border: 1px solid rgba(0,0,0,.15); vertical-align: -3px; margin-right: 6px; }
+.code-key { font-family: Consolas, 'Courier New', monospace; letter-spacing: 0; }
+.muted-text { color: var(--c-text-sub); }
+.sel-info { margin-left: 4px; }
+.ic-lock { display: inline-block; width: 14px; height: 14px; vertical-align: -2px; margin-left: 4px;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='3.5' y='7' width='9' height='7' rx='1' fill='none' stroke='%235c5c5c' stroke-width='1.2'/><path d='M5.5 7V5a2.5 2.5 0 0 1 5 0v2' fill='none' stroke='%235c5c5c' stroke-width='1.2'/></svg>") center / 14px no-repeat; }
+.ic-info { display: inline-block; width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6.5' fill='none' stroke='%235c5c5c' stroke-width='1.2'/><path d='M8 7v4.5' stroke='%235c5c5c' stroke-width='1.4' stroke-linecap='round'/><circle cx='8' cy='4.8' r='.9' fill='%235c5c5c'/></svg>") center / 14px no-repeat; }
+.shell .paging input.pg-input { height: var(--paging-btn); }
+/* 팝업 */
+.dlg-meta { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; min-height: 24px; font-size: 12px; color: var(--c-text-sub); flex-wrap: wrap; }
+.dlg-meta b { color: var(--c-text); }
+.dlg-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 16px; }
+/* textarea 60 = 키인 입력 2줄(--ctrl-h-form × 2) + 상하 6 (S-41 #dlgUser · 고객 설정 .field.multi 선례, §13-7) */
+.form-grid > .field > textarea.input { height: auto; min-height: calc(var(--ctrl-h-form) * 2 + 12px); margin: 6px 0; padding: 4px 8px; resize: vertical; }
+.form-grid > .field > textarea.body-text { min-height: 220px; font: 12px/1.6 Consolas, 'Courier New', monospace; letter-spacing: 0; }
+.form-grid > .field > .input.w-80, .form-grid > .field > .input.w-120 { flex: 0 0 auto; }
+.form-grid > .field > .unit { color: var(--c-text-sub); white-space: nowrap; font-size: 12px; }
+.form-grid > .field > .checkbox-group .checkbox { margin-right: 16px; }
+.grid.edit td { padding: 0 6px; }
+.grid.edit td.center input[type=checkbox] { vertical-align: middle; }
+.grid tr.locked td { background: var(--bc-gray-light); }
+.sub-grid .grid-wrap { flex: 0 0 auto; min-height: 0; }
+.cond-title { font-size: 13px; font-weight: bold; }
+.dialog .grid-toolbar .sub-info { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lc-legend .gcm-chip { height: 20px; }
+
+.breadcrumb a { color: inherit; text-decoration: none; }
+.breadcrumb a:hover { text-decoration: underline; }
+.mod-tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; margin-right: 8px; border-radius: 2px; background: var(--c-navy); color: #fff; font: bold 11px Consolas, monospace; vertical-align: 3px; letter-spacing: 0; }
+.mod-tag.adm { background: #6952db; }
+
+/* 판단 콜아웃 (장비 클래스 · GCM) */
+.callout { flex: 0 0 auto; display: flex; align-items: center; gap: 14px; min-height: 40px; padding: 6px 14px; border: 1px solid #8a63c9; border-left-width: 4px; background: #faf7fe; font-size: 13px; flex-wrap: wrap; }
+.callout .c-title { font-weight: bold; color: #4b2a8a; white-space: nowrap; }
+.callout .rule { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.callout .rule b { color: var(--c-text); }
+.callout .ne { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--c-error); color: #fff; font-weight: bold; font-size: 12px; }
+.callout .eq { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; background: var(--c-ok); color: #fff; font-weight: bold; font-size: 12px; }
+.callout .sub-info { margin-left: auto; }
+
+/* 연계 뱃지 — .src-tag 기본(inline-flex · 가운데 정렬 · 모서리 2px · 줄바꿈 없음)은 mesui.css 공용 정의를 따르고, 여기서는 기준정보 화면 치수 · 테두리 · 글꼴만 다시 정한다 (칭량 설계 §11 C7) */
+.src-tag { height: 18px; padding: 0 6px; border: 1px solid; font: bold 10.5px Consolas, monospace; letter-spacing: 0; vertical-align: middle; }
+.src-tag.ras { color: #1f4fb8; border-color: #9bb3ec; background: #eef3fd; }
+.src-tag.cmms { color: #1d7a55; border-color: #8fd3b6; background: #ebf8f2; }
+.src-tag.cfms { color: #7a4fc1; border-color: #c8b3ec; background: #f5f0fd; }
+.src-tag + .src-tag { margin-left: 4px; }
+.drift { display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; margin-left: 4px; border-radius: 8px; background: var(--c-warn); color: #fff; font-size: 10px; font-weight: bold; cursor: help; vertical-align: 1px; }
+.snap-cell { font-size: 11px; color: var(--c-text-sub); }
+.frozen-tag { display: inline-flex; align-items: center; gap: 4px; }
+.ref-cell .hash { color: var(--c-text-sub); margin-left: 4px; }
+
+/* 장비 클래스 상세: 요구 능력 + 적격 설비 */
+.eq-detail { display: grid; grid-template-columns: 380px minmax(0, 1fr); gap: 20px; min-height: 0; }
+.eq-detail .grid-block { min-height: 0; }
+.grid.edit select.input, .grid.edit input.input { width: 100%; }
+.member-empty { padding: 18px; text-align: center; color: var(--c-text-sub); border: 1px dashed var(--c-border-04); }
+.pick-filter { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; background: var(--c-bg-light); }
+.pick-filter .input { width: 170px; }
+.pick-filter .lbl { font-size: 12px; color: var(--c-text-sub); }
+.grid tr.pick-disabled td { color: var(--c-text-disabled); background: var(--bc-gray-light); }
+.grid tr.pick-already td { background: var(--c-row-editing); }
+.ref-col { color: var(--c-text-sub); font-size: 11px; font-family: Consolas, monospace; letter-spacing: 0; }
+th .th-note { display: block; font-weight: normal; font-size: 10px; color: var(--c-text-disabled); }
+
+/* 허브 */
+.hub-body { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 520px; gap: 24px; }
+.hub-col { min-height: 0; display: flex; flex-direction: column; gap: 16px; }
+.hub-mod { display: flex; flex-direction: column; gap: 10px; }
+.hub-mod-head { display: flex; align-items: center; gap: 10px; height: 28px; border-bottom: 2px solid var(--c-navy); }
+.hub-mod-head.adm { border-bottom-color: #6952db; }
+.hub-mod-head.ras { border-bottom-color: #9a9a9a; }
+.hub-mod-head .group-title { font-size: 16px; }
+.hub-mod-head .path { margin-left: auto; font: 12px Consolas, monospace; color: var(--c-text-sub); letter-spacing: 0; }
+.hub-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.hub-card { display: flex; flex-direction: column; gap: 6px; min-height: 118px; padding: 12px 14px; border: 1px solid var(--c-border-04); border-top: 3px solid var(--c-navy); background: #fff; color: var(--c-text); text-decoration: none; transition: box-shadow .12s, transform .12s; }
+.hub-card:hover { box-shadow: 0 4px 14px rgba(6,36,112,.14); transform: translateY(-1px); }
+.hub-card.adm { border-top-color: #6952db; }
+.hub-card.ras { border-top-color: #9a9a9a; background: var(--bc-gray-light); }
+.hub-card .hc-top { display: flex; align-items: center; gap: 8px; }
+.hub-card .hc-nm { font-size: 15px; font-weight: bold; }
+.hub-card .hc-cnt { margin-left: auto; min-width: 26px; height: 20px; padding: 0 7px; border-radius: 10px; background: var(--c-primary); color: #fff; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
+.hub-card .hc-sid { font-size: 11px; color: var(--c-text-sub); }
+.hub-card .hc-purpose { font-size: 12px; line-height: 1.5; color: var(--c-text); }
+.hub-card .hc-file { margin-top: auto; font: 11px Consolas, monospace; color: var(--c-primary); letter-spacing: 0; }
+.judge { display: flex; flex-direction: column; gap: 0; border: 1px solid var(--c-border-04); }
+.judge .j-head { display: flex; align-items: center; height: 36px; padding: 0 12px; background: var(--c-bg-light); font-weight: bold; }
+.judge table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.judge td { padding: 7px 10px; border-top: 1px solid var(--c-border-05); vertical-align: top; line-height: 1.45; }
+.judge td:first-child { width: 112px; font-weight: bold; white-space: nowrap; }
+.judge .ok-t { color: #1d7a55; font-weight: bold; }
+.judge .no-t { color: #c0392b; font-weight: bold; }
+.flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.flow .node { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border: 1px solid var(--c-border-04); border-radius: 12px; background: #fff; white-space: nowrap; }
+.flow .arr { color: var(--c-text-disabled); }
+.hub-foot { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--c-text-sub); }

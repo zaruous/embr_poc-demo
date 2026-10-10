@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-adm-gcm-code-ui  (ADM 모듈 · GCM 공통 코드 — eMBR 코드 테이블 · 코드 데이터)
+  모드         : ★ 조회 전용 (v2b) — GCM 은 제품 ADM AdmSetupCodeTable/CodeData 화면에서 관리. 이 PoC 화면은 테이블 · 코드 · 소비처 매핑을 보여 주기만 함
+                 (New / Detail 팝업 · Save · Delete · Excel · Import Excel 없음, 그리드 체크박스 · 편집 없음)
+  레퍼런스 .clx : AdmSetupCodeTableMain.clx (코드 테이블 목록)
+                 AdmSetupCodeDataMain.clx  (테이블 정의 기준 동적 컬럼: key* → DISABLE FLAG → SEQ → DESCRIPTION → data*)
+  모듈 폴더    : adm/  (GCM 은 ADM 제품 기능)
+  전체 판단 설명: ../guide/s-master-setup-overview-ui.html (이 화면에는 요약 배너만)
+  판단 기준    :
+    - 제품 패턴 AdmSetupCodeTable / AdmSetupCodeData 그대로 사용
+    - EBR_* 11개 테이블은 모두 '신규 시드' (제품에 아직 없음)
+    - 제품 CodeTable 에 module 필드 없음 → EBR_ 접두 명명 + ADM 폴더로 구분 (모듈 콤보 제거)
+    - Phase · 설정 객체 · 장비 클래스는 여기서 관리하지 않음 → ebr/ 도메인 마스터 화면 (매핑 매트릭스에서 링크)
+  저장         : ../assets/shared-store.js  localStorage 'ebmr.masterSetup.v2' — GCM 시드는 EBR 화면 콤보 · 뱃지 소스로 계속 제공 (이 화면은 읽기만)
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>GCM 공통 코드 (ADM · 조회) — eMBR 기준정보 PoC</title>
+<link rel="stylesheet" href="../assets/mesui.css">
+<link rel="stylesheet" href="../assets/master-setup.css">
+<style>
+  .callout.adm { border-color: #6952db; background: #f7f5fe; }
+  .callout.adm .c-title { color: #4433a8; }
+  .seed-badge { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 9px; background: #fff4d6; color: #8a5a00; border: 1px solid #f0c75e; font-size: 11px; white-space: nowrap; }
+  .callout.ro { border-color: #6952db; background: #f7f5fe; gap: 12px; }
+  .ro-tag { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 11px; background: #6952db; color: #fff; font-weight: bold; font-size: 12px; white-space: nowrap; }
+  .callout.ro .ro-msg { font-weight: bold; color: #4433a8; white-space: nowrap; }
+  .callout.ro a { white-space: nowrap; }
+  #grdData td.uses, #grdData th.uses { text-align: right; }
+  #grdMap a.map-link { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+
+  /* 카탈로그/iframe 맞춤: mesui .shell-scale — 1920×1080 미만 뷰포트면 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+  /* ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 (공통 블록 — 기준정보 화면 + 배치 발행 동일) ====
+     위치: .title-bar 안 .breadcrumb 바로 앞, margin-left:auto (DESIGN §11-3 grpTitle: title │ 1fr │ 브레드크럼)
+     역할 배지 매핑: ui-items UI-04 (PM 승인 P5) — 기존 .badge 변형 + --bc-* 토큰만, 라벨 항상 표시 */
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }   /* UI-04: 24 (--title-h 29 안) — 키인 폼 컨트롤 높이 토큰 */
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  /* 선택 없음: 편집·서명 버튼 비활성 표시 (opacity = §13-1 disabled) + 툴팁 "사용자를 선택하세요" (클릭은 스크립트가 차단) */
+  body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
+</style>
+</head>
+<body data-root="../">
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="main-title"><span class="mod-tag adm">ADM</span>GCM 공통 코드 <span class="ro-tag" style="margin-left:8px">조회 전용</span></span>
+    <span class="user-switch" id="userSwitch"></span>
+    <span class="breadcrumb">
+      <span>ADM</span><span class="sep">&rsaquo;</span><span>설정</span><span class="sep">&rsaquo;</span><a href="../index.html">기준정보</a><span class="sep">&rsaquo;</span><span class="current">공통 코드 (EBR_*)</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+  <div class="shell-body">
+    <div class="ms-layout">
+      <div class="ms-main">
+        <section class="view" id="view-gcm">
+          <div class="callout ro" id="roBanner" role="note">
+            <span class="ro-tag">조회 전용</span>
+            <span class="ro-msg">PoC: GCM은 제품 AdmSetupCode*에서 관리 · 여기선 조회만</span>
+            <span class="rule"><span class="eq">✓</span>EBR_* 11종 = 신규 시드 · EBR_ 접두 (module 필드 없음)</span>
+            <span class="rule"><span class="ne">✕</span>Phase · 설정 객체 · 장비 클래스는 GCM 아님 → <a href="../ebr/s-ebr-phase-library-ui.html">ebr/</a></span>
+            <span class="sub-info"><a href="../guide/s-master-setup-overview-ui.html">전체 판단 · 구조 설명 → 개요 화면</a></span>
+          </div>
+          <div class="search-box cols-3" id="sbGcm">
+            <div class="search-control"><span class="label">테이블명</span>
+              <span class="input-clear"><input class="input" type="text" id="gSchName" placeholder="EBR_" aria-label="테이블명"><button class="clear" type="button" data-clear="gSchName" title="지우기"></button></span></div>
+            <div class="search-control"><span class="label">설명</span>
+              <input class="input" type="text" id="gSchDesc" aria-label="설명"></div>
+            <div class="search-control"><span class="label">소비 화면 (EBR)</span>
+              <select class="input" id="gSchUse" aria-label="소비 화면">
+                <option value="">전체</option><option value="phase">S-03 Phase 라이브러리</option><option value="config">S-07 설정 객체</option>
+                <option value="sign">S-39 서명 의미 · 인증 수단</option><option value="terminal">S-40 단말 레지스트리</option><option value="eqclass">MBR-02 장비 클래스</option><option value="order">s-ebr-order-ui 오더 생성 · 조회</option>
+              </select></div>
+            <div class="search-control"><span class="label">코드 검색</span>
+              <span class="field"><select class="input w-120" id="gSchCodeCol" aria-label="검색 컬럼"><option value="key1">코드</option><option value="keyDesc">설명</option><option value="data">데이터 전체</option></select>
+              <input class="input" type="text" id="gSchCode" placeholder="선택 테이블 안에서 검색" aria-label="코드 값"></span></div>
+            <div class="search-actions">
+              <button class="btn search" type="button" id="gBtnReset">Reset</button>
+              <button class="btn search secondary" type="button" id="gBtnSearch">Search</button>
+            </div>
+          </div>
+          <div class="gcm-split">
+            <div class="col">
+              <div class="grid-block">
+                <div class="grid-title-area">
+                  <div class="title-row"><span class="group-title">코드 테이블</span><span class="sub-info">AdmSetupCodeTableMain · 접두 EBR_ (module 컬럼 없음)</span></div>
+                  <div class="grid-toolbar">
+                    <span class="total-text" data-total-for="grdTable"></span>
+                    <span class="spacer"></span>
+                    <span class="sub-info">행을 누르면 오른쪽에 코드 데이터 표시</span>
+                  </div>
+                </div>
+                <div class="grid-wrap">
+                  <table class="grid selectable" id="grdTable">
+                    <colgroup><col class="col-no"><col style="width:180px"><col><col style="width:62px"><col style="width:40px"><col style="width:44px"><col style="width:72px"></colgroup>
+                    <thead><tr><th class="col-no">No.</th>
+                      <th>테이블명</th><th>설명</th><th class="center" title="key 컬럼 수 / data 컬럼 수">Key/Data</th><th class="center" title="Display Seq No 사용">Seq</th><th class="num">코드</th><th class="center" title="제품 GCM 에 없는 eMBR 신규 시드">구분</th></tr></thead>
+                    <tbody id="grdTableBody"></tbody>
+                  </table>
+                </div>
+                <div class="paging" data-paging></div>
+              </div>
+              <div class="grid-block map-block">
+                <div class="grid-toolbar">
+                  <span class="group-title">GCM → EBR 소비처 매핑</span>
+                  <span class="spacer"></span>
+                  <span class="sub-info">● 해당 EBR 화면의 콤보 · 뱃지 소스 (클릭 시 ebr/ 화면 열기)</span>
+                </div>
+                <div class="grid-wrap">
+                  <table class="grid" id="grdMap">
+                    <colgroup><col style="width:186px"><col style="width:52px"><col style="width:52px"><col style="width:52px"><col style="width:52px"><col style="width:52px"><col></colgroup>
+                    <thead><tr><th>GCM 테이블</th><th class="center" title="S-03 Phase 라이브러리">S-03</th><th class="center" title="S-07 설정 객체 · S-08 편집">S-07</th>
+                      <th class="center" title="S-39 서명 의미 · 인증 수단">S-39</th><th class="center" title="S-40 단말 레지스트리">S-40</th><th class="center" title="MBR-02 장비 클래스">장비</th><th>기타 소비처</th></tr></thead>
+                    <tbody id="grdMapBody"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="grid-block">
+              <div class="grid-title-area">
+                <div class="title-row"><span class="group-title" id="gDataTitle">코드 데이터</span><span class="sub-info" id="gColDef"></span></div>
+                <div class="grid-toolbar">
+                  <span class="total-text" data-total-for="grdData"></span>
+                  <span class="vbar"></span>
+                  <select class="input page-size" data-pagesize><option>Views 20</option><option>Views 50</option><option>Views 100</option></select>
+                  <span class="spacer"></span>
+                  <span class="sub-info">읽기 전용 · 등록/수정은 제품 ADM 코드 데이터 화면</span>
+                </div>
+              </div>
+              <div class="grid-wrap">
+                <table class="grid" id="grdData">
+                  <colgroup id="grdDataCols"></colgroup>
+                  <thead><tr id="grdDataHead"></tr></thead>
+                  <tbody id="grdDataBody"></tbody>
+                </table>
+                <div class="nodata hidden" id="gDataNodata">코드 테이블을 선택하세요</div>
+              </div>
+              <div class="paging" data-paging></div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+
+
+<script src="../assets/mesui.js"></script>
+<script src="../assets/shared-store.js"></script>
+<script src="../assets/ebr-user-session.js"></script>   <!-- UI-09 DEVELOPER1 헬퍼 (window.EbrUserSession) -->
+<!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 + 배치 발행 동일) ==== -->
+<script>
+/* DEVELOPER1 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+ *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
+ *   hasSodConflict(roles) · onChange(fn) → unsub
+ * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
+ * 헬퍼가 없으면(파일 미배포) 선택기는 「사용자 API 미연결」로 비활성 표시만 하고 화면 기존 동작은 그대로 둔다(게이트 미적용, 오류 없음). */
+(function (global) {
+  'use strict';
+  var WATCH_KEYS = ['ebmr.currentUser.v1', 'ebmr.userRole.v1'];   /* onChange 가 없을 때만: 다른 탭 변경 감지용 키 이름 (값은 헬퍼로만 읽음) */
+  var ROLE = { QP: ['QP', 'role-qp'], QA: ['QA', 'role-qa'], SV: ['감독자', 'ok'], OP: ['작업자', 'info'], ADMIN: ['관리자', ''] };
+  var ROLE_ORDER = ['QP', 'QA', 'SV', 'OP', 'ADMIN'];   /* 배지 우선순위 QP>QA>SV>OP>ADMIN (기획 마스터 §3.1) */
+  var GATE_SEL = '[data-p0-edit],[data-act="new"],[data-act="delete"],[data-act="submit"],[data-act="approve"],[data-act="activate"],[data-act="reject"],[data-act="retire"],#dmSave,#dmNewVer';
+  var GATE_TIP = '사용자를 선택하세요';
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var listeners = [], readyQ = [], isReady = false;
+
+  function api() { return global.EbrUserSession || null; }
+  function call(fn) {
+    var a = api(); if (!a || typeof a[fn] !== 'function') return undefined;
+    try { return a[fn].apply(a, Array.prototype.slice.call(arguments, 1)); } catch (e) { if (global.console) console.error('[EbrUserSession] ' + fn, e); return undefined; }
+  }
+  function sortRoles(roles) { return (roles || []).slice().sort(function (a, b) { return ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b); }); }
+  function roleBadge(code) { var r = ROLE[code] || [code, 'muted']; return '<span class="badge' + (r[1] ? ' ' + r[1] : '') + '" title="' + esc(code) + '">' + esc(r[0]) + '</span>'; }
+  function roleBadges(roles) { return sortRoles(roles).map(roleBadge).join(''); }
+  function statusBadge(st) { return st === 'locked' ? '<span class="badge error">잠김</span>' : st === 'inactive' ? '<span class="badge muted">비활성</span>' : ''; }
+  function rolesOfUser(u) { return !u ? [] : (Array.isArray(u.roles) ? u.roles : (call('rolesOf', u.userId) || [])); }
+  function users(filter) { var l = call('listUsers', filter || {}); return Array.isArray(l) ? l : []; }
+  function current() { return call('getCurrentUser') || null; }
+  function connected() { var a = api(); return !!(a && typeof a.getCurrentUser === 'function' && typeof a.listUsers === 'function'); }
+  function hasRole(u, code) { return rolesOfUser(u).indexOf(code) >= 0; }
+  function sod(roles) { var v = call('hasSodConflict', roles || []); return typeof v === 'boolean' ? v : false; }
+  function gateOn() { return connected() && !current(); }
+  function userLabel(u) { return u ? u.name + ' (' + u.userId + ')' : '—'; }
+
+  function render() {
+    var host = document.getElementById('userSwitch');
+    if (host) {
+      if (!connected()) {
+        host.innerHTML = '<span class="tip" title="ebr-user-session.js (DEVELOPER1) 가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+      } else {
+        var cur = current(), list = users();
+        var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
+          var bad = u.status === 'locked' ? ' — 잠김' : u.status === 'inactive' ? ' — 비활성' : '';
+          return '<option value="' + esc(u.userId) + '"' + (bad ? ' disabled' : '') + (cur && cur.userId === u.userId ? ' selected' : '') + '>' + esc(userLabel(u) + bad) + '</option>';
+        }).join('');
+        host.innerHTML = '<select class="input w-200" id="userSwitchSel" aria-label="현재 사용자" title="현재 사용자 (인증 아님 — 서명 시 ID · 비밀번호 재입력)">' + opts + '</select>' +
+          '<span class="us-roles">' + (cur ? roleBadges(rolesOfUser(cur)) + statusBadge(cur.status) : '<span class="badge warn">' + GATE_TIP + '</span>') + '</span>';
+        var sel = document.getElementById('userSwitchSel');
+        sel.addEventListener('change', function () {
+          var r = call('setCurrentUser', sel.value || null);
+          if (r && r.ok === false && global.MesUI) {
+            MesUI.toast(r.message || (r.code === 'LOCKED' ? '잠긴 계정은 선택할 수 없습니다 — 관리자(ADMIN)에게 해제를 요청하세요.'
+              : r.code === 'INACTIVE' ? '비활성 계정은 선택할 수 없습니다.' : r.code === 'SAVE_ERROR' ? '감사 기록을 저장하지 못해 사용자를 전환하지 못했습니다.' : '사용자를 찾을 수 없습니다.'),
+              r.code === 'SAVE_ERROR' ? 'error' : 'warn', 2600);   /* SAVE_ERROR: 헬퍼가 변경을 되돌림 → 선택값도 아래 refresh 로 되돌림 */
+          }
+          if (!hasOnChange || (r && r.ok === false)) refresh();   /* onChange 는 성공 시 헬퍼가 발생 — 거부(LOCKED 등)면 선택 되돌림 */
+        });
+      }
+    }
+    applyGate();
+  }
+  function applyGate() {
+    var on = gateOn();
+    document.body.classList.toggle('p0-no-user', on);
+    Array.prototype.forEach.call(document.querySelectorAll(GATE_SEL), function (b) { b.classList.toggle('p0-gated', on); });
+  }
+  function refresh() { render(); listeners.forEach(function (fn) { try { fn(current()); } catch (e) { if (global.console) console.error(e); } }); }
+
+  /* 선택 없음 게이트: 편집 버튼 클릭 차단 + 툴팁 (동적으로 그려지는 T-02 버튼 포함) */
+  document.addEventListener('click', function (e) {
+    if (!gateOn()) return;
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    if (global.MesUI) MesUI.toast(GATE_TIP + ' — 상단 사용자 선택기에서 현재 사용자를 고른 뒤 다시 시도하세요.', 'warn', 2200);
+  }, true);
+  document.addEventListener('mouseover', function (e) {
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    if (gateOn()) { if (!b.hasAttribute('data-p0-tip')) b.setAttribute('data-p0-tip', b.getAttribute('title') || ''); b.setAttribute('title', GATE_TIP); b.classList.add('p0-gated'); }
+    else if (b.hasAttribute('data-p0-tip')) { b.setAttribute('title', b.getAttribute('data-p0-tip')); b.removeAttribute('data-p0-tip'); b.classList.remove('p0-gated'); }
+  }, true);
+
+  var hasOnChange = false;
+  function start() {
+    isReady = true;
+    var a = api();
+    if (a && typeof a.onChange === 'function') { hasOnChange = true; call('onChange', function () { refresh(); }); }
+    else global.addEventListener('storage', function (e) { if (WATCH_KEYS.indexOf(e.key) >= 0) refresh(); });
+    render();
+    readyQ.splice(0).forEach(function (fn) { try { fn(); } catch (e) { if (global.console) console.error(e); } });
+  }
+
+  global.P0Ui = {
+    api: api, call: call, connected: connected, users: users, current: current, hasRole: hasRole, rolesOf: rolesOfUser, sod: sod, userLabel: userLabel,
+    roleBadge: roleBadge, roleBadges: roleBadges, statusBadge: statusBadge, sortRoles: sortRoles, ROLE: ROLE, ROLE_ORDER: ROLE_ORDER,
+    gateOn: gateOn, refresh: refresh, applyGate: applyGate, esc: esc, GATE_TIP: GATE_TIP,
+    onUserChange: function (fn) { listeners.push(fn); },
+    ready: function (fn) { if (isReady) fn(); else readyQ.push(fn); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})(window);
+</script>
+<script src="../assets/master-t02.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = MS.$, $$ = MS.$$, esc = MS.esc;
+  MS.load();
+  MT.shell('gcm');
+  var DB = function () { return MS.DB; };
+  var USE_COLS = ['phase', 'config', 'sign', 'terminal', 'eqclass'];
+  var G = { sel: 'EBR_SIGN_MEANING', q: { name: '', desc: '', use: '' }, cq: { col: 'key1', v: '' } };
+
+  function tablesFiltered() {
+    return DB().gcmTables.filter(function (t) {
+      if (G.q.name && t.tableName.indexOf(G.q.name) < 0) return false;
+      if (G.q.desc && t.tableDesc.indexOf(G.q.desc) < 0) return false;
+      if (G.q.use && !(t.use && t.use[G.q.use])) return false;
+      return true;
+    });
+  }
+  function renderTables() {
+    var list = tablesFiltered();
+    if (!list.some(function (t) { return t.tableName === G.sel; })) G.sel = list.length ? list[0].tableName : '';
+    $('#grdTableBody').innerHTML = list.map(function (t, i) {
+      var kc = t.cols.filter(function (c) { return /^key\d/.test(c.colKey); }).length, dc = t.cols.length - kc;
+      return '<tr data-t="' + esc(t.tableName) + '"' + (t.tableName === G.sel ? ' class="selected"' : '') + '><td class="col-no">' + (i + 1) + '</td>' +
+        '<td class="code-key" title="' + esc(t.tableName) + '">' + esc(t.tableName) + '</td>' +
+        '<td title="' + esc(t.tableDesc) + '">' + esc(t.tableDesc) + '</td><td class="center">' + kc + ' / ' + dc + '</td><td class="center">' + (t.seqNoFlag ? 'Y' : 'N') + '</td>' +
+        '<td class="num">' + (DB().gcmData[t.tableName] || []).length + '</td><td class="center">' + (t.newSeed ? '<span class="seed-badge" title="제품 GCM 에 없는 eMBR 신규 시드">신규 시드</span>' : '<span class="muted">추가</span>') + '</td></tr>';
+    }).join('');
+    MesUI.setTotal('grdTable', list.length);
+    renderData(); renderMap();
+  }
+  function cellGcm(c, v) {
+    if (c.colType === 'CHECKBOX') return '<input type="checkbox" disabled' + (v === true || v === 'Y' ? ' checked' : '') + ' aria-label="' + esc(c.colName) + '">';
+    if (v == null || v === '') return '';
+    if (/COLOR/.test(c.colName) && /^#[0-9a-f]{3,6}$/i.test(v)) return '<span class="swatch" style="background:' + esc(v) + '"></span><span class="hash">' + esc(v) + '</span>';
+    if (c.colName === 'BADGE_CLASS') return '<span class="badge ' + esc(v) + '">' + esc(v) + '</span>';
+    if (c.colName === 'DOT_COLOR') return '<span class="status-dot ' + esc(v) + '"></span> ' + esc(v);
+    return esc(v);
+  }
+  function dataCols(t) {   /* AdmSetupCodeDataMain.addColumn 순서: key* → DISABLE FLAG → (SEQ) → DESCRIPTION → data* */
+    var keys = t.cols.filter(function (c) { return /^key\d/.test(c.colKey); }), datas = t.cols.filter(function (c) { return /^data/.test(c.colKey); });
+    var fixed = [{ colKey: 'disableFlag', colName: 'DISABLE_FLAG', colDesc: '사용안함', colType: 'CHECKBOX', w: 70 }];
+    if (t.seqNoFlag) fixed.push({ colKey: 'seqNo', colName: 'SEQ_NO', colDesc: 'Seq', colType: 'NUMBER', w: 50 });
+    fixed.push({ colKey: 'keyDesc', colName: 'DESCRIPTION', colDesc: '설명', colType: 'STRING', w: 130 });
+    return keys.map(function (c) { return Object.assign({ w: 140 }, c); }).concat(fixed, datas.map(function (c) { return Object.assign({ w: c.colType === 'STRING' ? null : 90 }, c); }));
+  }
+  function renderData() {
+    var t = MS.gTable(G.sel);
+    $('#gDataNodata').classList.toggle('hidden', !!t);
+    if (!t) { $('#grdDataHead').innerHTML = ''; $('#grdDataBody').innerHTML = ''; $('#grdDataCols').innerHTML = ''; $('#gDataTitle').textContent = '코드 데이터'; $('#gColDef').textContent = ''; MesUI.setTotal('grdData', 0); return; }
+    var cols = dataCols(t);
+    $('#gDataTitle').innerHTML = '코드 데이터 — <span class="code-key">' + esc(t.tableName) + '</span> ' + esc(t.tableDesc);
+    $('#gColDef').textContent = t.cols.map(function (c) { return c.colKey + ' ' + c.colName + (c.colType !== 'STRING' ? '(' + c.colType + ')' : ''); }).join(' · ');
+    $('#grdDataCols').innerHTML = '<col class="col-no">' + cols.map(function (c) { return '<col' + (c.w ? ' style="width:' + c.w + 'px"' : '') + '>'; }).join('') + '<col style="width:150px">';
+    $('#grdDataHead').innerHTML = '<th class="col-no">No.</th>' + cols.map(function (c) {
+      return '<th class="' + (c.colType === 'NUMBER' ? 'num' : c.colType === 'CHECKBOX' ? 'center' : '') + '" title="' + esc(c.colKey + ' · ' + c.colName) + '">' + esc(c.colDesc || c.colName) + '</th>'; }).join('') +
+      '<th class="uses" title="이 코드를 참조하는 EBR 도메인 마스터 행 수 (실시간 계산)">EBR 사용처</th>';
+    var cv = G.cq.v.toLowerCase();
+    var rows = MS.gRows(t.tableName).filter(function (r) {
+      if (!cv) return true;
+      if (G.cq.col === 'data') return Object.keys(r).some(function (k) { return /^data/.test(k) && String(r[k]).toLowerCase().indexOf(cv) >= 0; });
+      return String(r[G.cq.col] || '').toLowerCase().indexOf(cv) >= 0;
+    });
+    $('#grdDataBody').innerHTML = rows.map(function (r, i) {
+      return '<tr data-k="' + esc(r.key1) + '"' + (r.disableFlag ? ' class="disabled" title="사용안함 — 신규 콤보에서 제외"' : '') + '><td class="col-no">' + (i + 1) + '</td>' + cols.map(function (c) {
+          var v = r[c.colKey];
+          return '<td class="' + (c.colType === 'NUMBER' ? 'num' : c.colType === 'CHECKBOX' ? 'center' : '') + (/^key\d/.test(c.colKey) ? ' code-key' : '') + '" title="' + esc(c.colType === 'CHECKBOX' ? '' : v) + '">' + cellGcm(c, v) + '</td>';
+        }).join('') + (function () { var rc = MS.refCount(t.tableName, r.key1); return '<td class="uses" title="' + esc(rc.by.join(', ')) + '">' + (rc.total ? rc.total + '건' : '<span class="muted">-</span>') + '</td>'; })() + '</tr>';
+    }).join('');
+    MesUI.setTotal('grdData', rows.length);
+  }
+  function renderMap() {
+    $('#grdMapBody').innerHTML = DB().gcmTables.map(function (t) {
+      var u = t.use || {};
+      return '<tr' + (t.tableName === G.sel ? ' class="selected"' : '') + '><td class="code-key" title="' + esc(t.tableDesc) + '">' + esc(t.tableName) + '</td>' + USE_COLS.map(function (k) {
+        var s = MS.screen(k);
+        return '<td class="center">' + (u[k] ? '<a class="map-link" href="' + esc(MT.href(s.file)) + '" data-goto="' + k + '" title="' + esc(s.sid + ' ' + s.nm + ' — ' + u[k]) + '">●</a>' : '') + '</td>';
+      }).join('') + '<td title="' + esc(u.etc || '') + '">' + esc(u.etc || '') + '</td></tr>';
+    }).join('');
+  }
+
+  /* GCM 이벤트 — 조회 전용: 테이블 행 선택 · 검색만 (생성 · 수정 · 삭제 · Import 없음) */
+  $('#grdTableBody').addEventListener('click', function (e) {
+    var tr = e.target.closest('tr'); if (!tr) return;
+    if (G.sel !== tr.dataset.t) { G.sel = tr.dataset.t; G.cq.v = ''; $('#gSchCode').value = ''; renderData(); renderMap(); if (history.replaceState) history.replaceState(null, '', '#' + G.sel); }
+  });
+  function gcmSearch(notify) {
+    G.q.name = $('#gSchName').value.trim(); G.q.desc = $('#gSchDesc').value.trim(); G.q.use = $('#gSchUse').value;
+    G.cq.col = $('#gSchCodeCol').value; G.cq.v = $('#gSchCode').value.trim();
+    renderTables();
+    if (notify) MesUI.toast('조회 완료 — 테이블 ' + tablesFiltered().length + '건 · 코드 ' + $$('#grdDataBody tr').length + '건', 'info', 1500);
+  }
+  $('#gSchName').addEventListener('input', function () {   /* regxUpperNumberUnderscore 대응 */
+    var v = this.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''); if (v !== this.value) this.value = v;
+  });
+  ['gSchName', 'gSchDesc', 'gSchCode'].forEach(function (id) { $('#' + id).addEventListener('keydown', function (e) { if (e.key === 'Enter') gcmSearch(true); }); });
+  $('#gBtnSearch').addEventListener('click', function () { gcmSearch(true); });
+  $('#gBtnReset').addEventListener('click', function () {
+    ['gSchName', 'gSchDesc', 'gSchCode'].forEach(function (id) { $('#' + id).value = ''; }); $('#gSchUse').value = ''; $('#gSchCodeCol').value = 'key1';
+    gcmSearch(); MesUI.toast('조회 조건을 초기화했습니다.', 'info', 1500);
+  });
+  $('[data-clear="gSchName"]').addEventListener('click', function () { $('#gSchName').value = ''; $('#gSchName').focus(); });
+
+  /* 초기화 */
+  $$('[data-paging]').forEach(function (p) { p.innerHTML = MT.PAGING_HTML; });
+  document.addEventListener('click', function (e) { if (e.target.closest('#view-gcm [data-pg-go]')) MesUI.toast('1 / 1 페이지', 'info', 1200); });
+  $('#view-gcm [data-pagesize]').addEventListener('change', function () { MesUI.toast(this.value + ' — 페이지 크기 변경 (데모: 단일 페이지)', 'info', 1500); });
+  var h = decodeURIComponent((location.hash || '').slice(1));
+  if (h && MS.gTable(h)) G.sel = h;
+  renderTables();
+  var tr0 = $('#grdTableBody tr[data-t="' + G.sel + '"]'); if (tr0) tr0.scrollIntoView({ block: 'nearest' });
+  MT.onRerender(function () { renderTables(); });
+  window.addEventListener('hashchange', function () { var x = decodeURIComponent(location.hash.slice(1)); if (MS.gTable(x)) { G.sel = x; renderTables(); } });
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

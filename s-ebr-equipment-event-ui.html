@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-ebr-equipment-event-ui  (EBR · 설비 이벤트 마스터)
+  역할         : fromState → toState 전이 + 액션(log · ESIG · interlock grade)
+  시드         : CLEAN_START/END · USE_START/END · CAL_DUE
+  공용 자산     : ./assets/mesui.css · ./assets/mesui.js · ./eq-state-event-store.js
+  저장         : localStorage 'ebr.equipmentEvent.v1' (상태는 ebr.equipmentState.v1 참조)
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>설비 이벤트 마스터 — eBR 기준정보 PoC</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  body { margin: 0; }
+  .callout {
+    display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+    padding: 8px 14px; border: 1px solid #6952db; background: #f7f5fe; border-radius: 4px;
+    font-size: 12px; color: #4433a8;
+  }
+  .callout .tag {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+    border-radius: 11px; background: #6952db; color: #fff; font-weight: bold; white-space: nowrap;
+  }
+  .callout a { color: #4433a8; font-weight: bold; }
+  .split-eq {
+    display: flex; flex-direction: row; gap: 0;
+    flex: 1 1 auto; min-height: 0; width: 100%; max-width: 100%; overflow: hidden;
+  }
+  .split-eq > .col.rs-pane {
+    display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 160px; overflow: hidden;
+  }
+  #paneEqList { flex: 0 0 760px; width: 760px; }
+  #paneEqDetail { flex: 1 1 auto; min-width: 200px; }
+  /* ---- resizable split gutters (rs-*) — do not collide with mesui .split ---- */
+  .rs-gutter {
+    flex: 0 0 6px; width: 6px; min-width: 6px; cursor: col-resize; /* R-S4: col-resize gutter 6px (order/customer-setup와 동일) */
+    background: #e8edf5; border: none; padding: 0; margin: 0;
+    align-self: stretch; position: relative;
+  }
+  .rs-gutter:hover, .rs-gutter.is-drag { background: #2C59D9; }
+  .rs-gutter::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px;
+  }
+  body.is-resizing { cursor: col-resize; user-select: none; }
+  body.is-resizing .rs-pane { pointer-events: none; }
+
+  #grdEvent tbody tr.is-selected td { background: #eef2ff; }
+  #grdEvent tbody tr.is-disabled td { color: #94a3b8; }
+  .editor-title { display: flex; align-items: center; gap: 8px; }
+  .editor-title .mode { font-size: 11px; padding: 1px 7px; border-radius: 8px; background: #fff4d6; color: #8a5a00; border: 1px solid #f0c75e; }
+  .form-grid .hint { font-size: 11px; color: var(--c-text-disabled); margin-left: 6px; }
+  .form-grid > .field.multi { align-items: flex-start; min-height: auto; }
+  .form-grid > .field > textarea.input {
+    height: auto;
+    min-height: calc(var(--ctrl-h-form) * 2 + 12px);
+  }
+  .from-box {
+    display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px; border: 1px solid var(--c-border-03);
+    border-radius: 4px; background: #fafafa; max-height: 140px; overflow: auto;
+  }
+  .act-chips span {
+    display: inline-flex; align-items: center; height: 20px; padding: 0 8px; margin: 1px 2px;
+    border-radius: 10px; font-size: 11px; font-weight: bold; border: 1px solid #cbd5e1; background: #f8fafc;
+  }
+  .act-chips .log { background: #e2e8f0; color: #334155; }
+  .act-chips .esig { background: #fff8e1; border-color: #e6a817; color: #8a6d00; }
+  .act-chips .ilk { background: #fce7f3; border-color: #f9a8d4; color: #9d174d; }
+  .grade-Absolute { color: #991b1b; font-weight: bold; }
+  .grade-Hard-QA { color: #9a3412; font-weight: bold; }
+  .grade-Controlled { color: #1e40af; font-weight: bold; }
+  .grade-Warning { color: #854d0e; }
+  .arrow { color: #6952db; font-weight: bold; margin: 0 4px; }
+  .flag-on { color: #0a7a3e; font-weight: bold; }
+  .flag-off { color: #a33; }
+  .trans-preview {
+    padding: 10px 12px; border: 1px dashed #a78bfa; background: #f5f3ff; border-radius: 4px;
+    font-size: 13px; color: #4433a8;
+  }
+  .trans-preview .mono { font-family: Consolas, 'Courier New', monospace; }
+
+  /* 카탈로그/iframe 맞춤: mesui .shell-scale — 1920×1080 미만 뷰포트면 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+</style>
+</head>
+<body>
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="title-left">
+      <span class="main-title"><span class="mod-tag">EBR</span>설비 이벤트 마스터</span>
+      <span class="sub-info"><i class="ic-info"></i>fromState → toState + log · ESIG · interlock grade</span>
+    </span>
+    <span class="breadcrumb">
+      <span>eBR</span><span class="sep">&rsaquo;</span><span>기준정보</span><span class="sep">&rsaquo;</span><span class="current">설비 이벤트</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+
+  <div class="shell-body">
+    <div class="callout" role="note">
+      <span class="tag">EVENT</span>
+      <span>시드: <b>CLEAN_START/END · USE_START/END · CAL_DUE</b> — 상태 마스터 코드를 전이 양끝으로 참조</span>
+      <span class="vbar"></span>
+      <span>localStorage <code>ebr.equipmentEvent.v1</code></span>
+      <span class="spacer"></span>
+      <a href="./s-ebr-equipment-state-ui.html">설비 상태 마스터 ↗</a>
+      <a href="./s-ebmr-process-tree-designer-ui.html">트리 디자이너 ↗</a>
+    </div>
+
+    <div class="search-box cols-3" id="sbEvent">
+      <div class="search-control"><span class="label">이벤트 코드</span>
+        <span class="input-clear"><input class="input" type="text" id="schCode" placeholder="CLEAN" aria-label="이벤트 코드"><button class="clear" type="button" data-clear="schCode" title="지우기"></button></span></div>
+      <div class="search-control"><span class="label">이벤트명</span>
+        <span class="input-clear"><input class="input" type="text" id="schName" placeholder="세척" aria-label="이벤트명"><button class="clear" type="button" data-clear="schName" title="지우기"></button></span></div>
+      <div class="search-control"><span class="label">toState</span>
+        <select class="input" id="schTo" aria-label="toState"></select></div>
+      <div class="search-control"><span class="label">인터록</span>
+        <select class="input" id="schGrade" aria-label="인터록 등급"></select></div>
+      <div class="search-control"><span class="label">활성</span>
+        <select class="input" id="schEnabled" aria-label="활성">
+          <option value="">전체</option>
+          <option value="1" selected>활성</option>
+          <option value="0">비활성</option>
+        </select></div>
+      <div class="search-actions">
+        <button class="btn search" type="button" id="btnReset">Reset</button>
+        <button class="btn search secondary" type="button" id="btnSearch">Search</button>
+      </div>
+    </div>
+
+    <div class="split-eq" id="eqSplit">
+      <div class="col rs-pane" id="paneEqList">
+        <div class="grid-block fill">
+          <div class="grid-title-area">
+            <div class="title-row">
+              <span class="group-title">이벤트 목록</span>
+              <span class="sub-info">전이 + 액션 · 트리 노드에서 호출 가능</span>
+            </div>
+            <div class="grid-toolbar">
+              <span class="total-text" data-total-for="grdEvent"></span>
+              <span class="spacer"></span>
+              <button class="btn search secondary" type="button" id="btnSeed">시드 복원</button>
+              <button class="btn search" type="button" id="btnNew">New</button>
+              <button class="btn search secondary" type="button" id="btnDisable" disabled>비활성</button>
+            </div>
+          </div>
+          <div class="grid-wrap">
+            <table class="grid selectable" id="grdEvent">
+              <colgroup>
+                <col class="col-no"><col style="width:118px"><col style="width:110px">
+                <col style="width:200px"><col><col style="width:64px">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th class="col-no">No.</th>
+                  <th>코드<span class="th-note">code</span></th>
+                  <th>명칭</th>
+                  <th>전이<span class="th-note">from → to</span></th>
+                  <th>액션<span class="th-note">log · ESIG · grade</span></th>
+                  <th class="center">활성</th>
+                </tr>
+              </thead>
+              <tbody id="grdEventBody"></tbody>
+            </table>
+            <div class="nodata hidden" id="eventNodata">조건에 맞는 이벤트가 없습니다</div>
+          </div>
+        </div>
+      </div>
+
+      <button type="button" class="rs-gutter" id="gutterMain" aria-label="패널 너비 조절" title="드래그하여 너비 조절"></button>
+
+      <div class="col rs-pane" id="paneEqDetail">
+        <div class="grid-block auto">
+          <div class="grid-toolbar">
+            <span class="editor-title">
+              <span class="group-title" id="edTitle">이벤트 상세</span>
+              <span class="mode" id="edMode">신규</span>
+            </span>
+            <span class="spacer"></span>
+            <button class="btn search secondary" type="button" id="btnCancel">취소</button>
+            <button class="btn search primary" type="button" id="btnSave">Save</button>
+          </div>
+          <form id="eventForm">
+            <div class="form-grid cols-2" id="eventFields">
+              <label class="label required" for="code">이벤트 코드</label>
+              <span class="field"><input class="input" id="code" required maxlength="24" pattern="[A-Za-z][A-Za-z0-9_]{0,23}" placeholder="CLEAN_START"><span class="hint">저장 후 변경 불가</span></span>
+
+              <label class="label required" for="name">이벤트명</label>
+              <span class="field"><input class="input" id="name" required maxlength="40" placeholder="세척 시작"></span>
+
+              <label class="label" for="sortOrder">정렬</label>
+              <span class="field"><input class="input" id="sortOrder" type="number" min="0" max="9999" value="100" style="width:100px"></span>
+
+              <label class="label" for="enabled">활성</label>
+              <span class="field"><label class="checkbox"><input type="checkbox" id="enabled" checked> 사용</label></span>
+
+              <label class="label required">fromState</label>
+              <span class="field span-2">
+                <div class="from-box" id="fromBox"></div>
+                <span class="hint">* ANY = 모든 현재 상태에서 전이 허용 (CAL_DUE 등)</span>
+              </span>
+
+              <label class="label required" for="toState">toState</label>
+              <span class="field span-2"><select class="input" id="toState" aria-label="toState"></select></span>
+
+              <label class="label">미리보기</label>
+              <span class="field span-2"><div class="trans-preview" id="transPreview">—</div></span>
+
+              <label class="label">액션 · log</label>
+              <span class="field"><label class="checkbox"><input type="checkbox" id="actLog" checked> ExecEvent / 감사 로그</label></span>
+
+              <label class="label">액션 · ESIG</label>
+              <span class="field">
+                <label class="checkbox"><input type="checkbox" id="actEsig"> 전자서명 필요</label>
+                <label class="checkbox"><input type="checkbox" id="actEsigP"> Perform</label>
+                <label class="checkbox"><input type="checkbox" id="actEsigV"> Verify</label>
+              </span>
+
+              <label class="label" for="esigMeaning">서명 의미</label>
+              <span class="field span-2"><input class="input" id="esigMeaning" maxlength="80" placeholder="세척 완료 검증"></span>
+
+              <label class="label" for="interlockGrade">인터록 등급</label>
+              <span class="field"><select class="input" id="interlockGrade" aria-label="인터록 등급"></select>
+                <span class="hint">EBR_INTERLOCK_GRADE</span></span>
+
+              <label class="label" for="holdHours">clean hold (h)</label>
+              <span class="field"><input class="input" id="holdHours" type="number" min="1" max="720" value="24" style="width:100px"><span class="hint">CLEAN_END 시 now+hours · 기본 24</span></span>
+
+              <label class="label" for="demoEqId">적용 설비(데모)</label>
+              <span class="field span-2">
+                <select class="input" id="demoEqId" aria-label="설비">
+                  <option value="MX-01">MX-01</option>
+                  <option value="BAL-205">BAL-205</option>
+                  <option value="ML-03">ML-03</option>
+                </select>
+                <span class="hint">Save 시 CLEAN_START/END → Equip hold</span>
+              </span>
+
+              <label class="label" for="note">비고</label>
+              <span class="field span-2 multi"><textarea class="input" id="note" rows="3" maxlength="200"></textarea></span>
+            </div>
+          </form>
+          <div class="grid-toolbar">
+            <span class="sub-info">P0-3: CLEAN_END → setCleanHold · CLEAN_START → clearCleanHold</span>
+            <span class="spacer"></span>
+            <button class="btn search secondary" type="button" id="btnApplyCleanStart">CLEAN_START 적용</button>
+            <button class="btn search primary" type="button" id="btnApplyCleanEnd">CLEAN_END 적용</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+
+<script src="./assets/mesui.js"></script>
+<script src="./eq-state-event-store.js"></script>
+<script src="./assets/ebr-p0-stores.js"></script>
+<script>
+(function () {
+  'use strict';
+  var EQ = window.EqStateEvent;
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = EQ.esc;
+  var state = { rows: [], selected: null, mode: 'new' };
+
+  function load() {
+    /* ensure state seed exists for from/to options */
+    EQ.loadStates();
+    state.rows = EQ.loadEvents();
+  }
+
+  function persist() {
+    EQ.saveEvents(state.rows);
+  }
+
+  function actionChips(act) {
+    act = act || {};
+    var bits = [];
+    if (act.log) bits.push('<span class="log">LOG</span>');
+    if (act.esig) {
+      var pv = [];
+      if (act.esigPerform) pv.push('P');
+      if (act.esigVerify) pv.push('V');
+      bits.push('<span class="esig">ESIG' + (pv.length ? ' ' + pv.join('+') : '') + '</span>');
+    }
+    if (act.interlockGrade) bits.push('<span class="ilk">' + esc(act.interlockGrade) + '</span>');
+    return bits.length ? '<span class="act-chips">' + bits.join('') + '</span>' : '<span class="unit">—</span>';
+  }
+
+  function filtered() {
+    var code = ($('schCode').value || '').trim().toUpperCase();
+    var name = ($('schName').value || '').trim();
+    var to = $('schTo').value;
+    var grade = $('schGrade').value;
+    var en = $('schEnabled').value;
+    return state.rows.filter(function (r) {
+      if (code && String(r.code || '').toUpperCase().indexOf(code) < 0) return false;
+      if (name && String(r.name || '').indexOf(name) < 0) return false;
+      if (to && r.toState !== to) return false;
+      if (grade && !(r.actions && r.actions.interlockGrade === grade)) return false;
+      if (en === '1' && r.enabled === false) return false;
+      if (en === '0' && r.enabled !== false) return false;
+      return true;
+    }).slice().sort(function (a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+  }
+
+  function renderGrid() {
+    var list = filtered();
+    var body = $('grdEventBody');
+    body.innerHTML = list.map(function (r, i) {
+      var sel = state.selected && state.selected.code === r.code ? ' is-selected' : '';
+      var dis = r.enabled === false ? ' is-disabled' : '';
+      var from = (r.fromStates || []).join(', ');
+      return '<tr data-code="' + esc(r.code) + '" class="' + (sel + dis).trim() + '">' +
+        '<td class="col-no">' + (i + 1) + '</td>' +
+        '<td><b>' + esc(r.code) + '</b></td>' +
+        '<td>' + esc(r.name) + '</td>' +
+        '<td class="mono">' + esc(from) + '<span class="arrow">→</span>' + esc(r.toState) + '</td>' +
+        '<td>' + actionChips(r.actions) + '</td>' +
+        '<td class="center ' + (r.enabled !== false ? 'flag-on' : 'flag-off') + '">' + (r.enabled !== false ? 'Y' : 'N') + '</td>' +
+        '</tr>';
+    }).join('');
+    $('eventNodata').classList.toggle('hidden', list.length > 0);
+    MesUI.setTotal('grdEvent', list.length);
+    $('btnDisable').disabled = !state.selected;
+    $('btnDisable').textContent = state.selected && state.selected.enabled === false ? '활성' : '비활성';
+  }
+
+  function fillFromBox(selected) {
+    selected = selected || [];
+    var states = EQ.loadStates().slice().sort(function (a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+    var html = '<label class="checkbox"><input type="checkbox" data-from="*"' +
+      (selected.indexOf('*') >= 0 ? ' checked' : '') + '> <b>ANY (*)</b></label>';
+    states.forEach(function (s) {
+      var dis = s.enabled === false ? ' <span class="hint">(비활성)</span>' : '';
+      html += '<label class="checkbox"><input type="checkbox" data-from="' + esc(s.code) + '"' +
+        (selected.indexOf(s.code) >= 0 ? ' checked' : '') + '> ' + esc(s.code) + ' · ' + esc(s.name) + dis + '</label>';
+    });
+    $('fromBox').innerHTML = html;
+    $('fromBox').querySelectorAll('input[data-from]').forEach(function (el) {
+      el.addEventListener('change', updatePreview);
+    });
+  }
+
+  function fillToSelect(selected) {
+    $('toState').innerHTML = EQ.stateOptionsHtml(selected || '', { blankLabel: '(toState 선택)', any: false });
+  }
+
+  function fillFilters() {
+    $('schTo').innerHTML = EQ.stateOptionsHtml('', { blankLabel: '전체', any: false });
+    $('schGrade').innerHTML = EQ.INTERLOCK_GRADES.map(function (g) {
+      return '<option value="' + esc(g.value) + '">' + esc(g.label) + '</option>';
+    }).join('');
+    $('interlockGrade').innerHTML = EQ.INTERLOCK_GRADES.map(function (g) {
+      return '<option value="' + esc(g.value) + '">' + esc(g.label) + '</option>';
+    }).join('');
+  }
+
+  function selectedFrom() {
+    var out = [];
+    $('fromBox').querySelectorAll('input[data-from]:checked').forEach(function (el) {
+      out.push(el.getAttribute('data-from'));
+    });
+    if (out.indexOf('*') >= 0) return ['*'];
+    return out;
+  }
+
+  function updatePreview() {
+    var from = selectedFrom();
+    var to = $('toState').value;
+    var grade = $('interlockGrade').value;
+    var esig = $('actEsig').checked;
+    var bits = [];
+    bits.push('<span class="mono">' + esc(from.join(', ') || '?') + '</span>');
+    bits.push('<span class="arrow">→</span>');
+    bits.push('<span class="mono">' + esc(to || '?') + '</span>');
+    if ($('actLog').checked) bits.push(' · LOG');
+    if (esig) {
+      var pv = [];
+      if ($('actEsigP').checked) pv.push('P');
+      if ($('actEsigV').checked) pv.push('V');
+      bits.push(' · ESIG' + (pv.length ? '(' + pv.join('+') + ')' : ''));
+    }
+    if (grade) bits.push(' · <span class="grade-' + esc(grade) + '">' + esc(grade) + '</span>');
+    $('transPreview').innerHTML = bits.join('');
+  }
+
+  function emptyForm() {
+    $('code').value = '';
+    $('code').readOnly = false;
+    $('name').value = '';
+    $('sortOrder').value = '100';
+    $('enabled').checked = true;
+    $('actLog').checked = true;
+    $('actEsig').checked = false;
+    $('actEsigP').checked = false;
+    $('actEsigV').checked = false;
+    $('esigMeaning').value = '';
+    $('interlockGrade').value = '';
+    $('note').value = '';
+    fillFromBox([]);
+    fillToSelect('');
+    updatePreview();
+  }
+
+  function fillForm(r) {
+    $('code').value = r.code || '';
+    $('code').readOnly = state.mode === 'edit';
+    $('name').value = r.name || '';
+    $('sortOrder').value = r.sortOrder != null ? r.sortOrder : 100;
+    $('enabled').checked = r.enabled !== false;
+    var act = r.actions || {};
+    $('actLog').checked = !!act.log;
+    $('actEsig').checked = !!act.esig;
+    $('actEsigP').checked = !!act.esigPerform;
+    $('actEsigV').checked = !!act.esigVerify;
+    $('esigMeaning').value = act.esigMeaning || '';
+    $('interlockGrade').value = act.interlockGrade || '';
+    $('note').value = r.note || '';
+    fillFromBox(r.fromStates || []);
+    fillToSelect(r.toState || '');
+    updatePreview();
+  }
+
+  function formToRow() {
+    return {
+      code: ($('code').value || '').trim().toUpperCase(),
+      name: ($('name').value || '').trim(),
+      sortOrder: parseInt($('sortOrder').value, 10) || 0,
+      enabled: $('enabled').checked,
+      fromStates: selectedFrom(),
+      toState: $('toState').value,
+      actions: {
+        log: $('actLog').checked,
+        esig: $('actEsig').checked,
+        esigPerform: $('actEsigP').checked,
+        esigVerify: $('actEsigV').checked,
+        esigMeaning: ($('esigMeaning').value || '').trim(),
+        interlockGrade: $('interlockGrade').value || ''
+      },
+      note: ($('note').value || '').trim()
+    };
+  }
+
+  function setMode(mode, row) {
+    state.mode = mode;
+    state.selected = row || null;
+    $('edMode').textContent = mode === 'edit' ? '수정' : '신규';
+    $('edTitle').textContent = mode === 'edit' ? '이벤트 상세 · ' + row.code : '이벤트 상세 · 신규';
+    if (mode === 'edit' && row) fillForm(row); else emptyForm();
+    renderGrid();
+  }
+
+  function onSave() {
+    var row = formToRow();
+    if (!row.code || !/^[A-Z][A-Z0-9_]*$/.test(row.code)) {
+      MesUI.alert('이벤트 코드는 영문 대문자로 시작하고 영문·숫자·밑줄만 허용합니다.', 'Warning');
+      return;
+    }
+    if (!row.name) { MesUI.alert('이벤트명을 입력하세요.', 'Warning'); return; }
+    if (!row.fromStates.length) { MesUI.alert('fromState를 하나 이상 선택하세요 (또는 ANY).', 'Warning'); return; }
+    if (!row.toState) { MesUI.alert('toState를 선택하세요.', 'Warning'); return; }
+    if (row.actions.esig && !row.actions.esigPerform && !row.actions.esigVerify) {
+      MesUI.alert('ESIG 사용 시 Perform 또는 Verify를 선택하세요.', 'Warning');
+      return;
+    }
+    if (state.mode === 'new') {
+      if (state.rows.some(function (r) { return r.code === row.code; })) {
+        MesUI.alert('이미 존재하는 코드입니다: ' + row.code, 'Warning');
+        return;
+      }
+      state.rows.push(row);
+    } else {
+      var idx = -1;
+      for (var i = 0; i < state.rows.length; i++) if (state.rows[i].code === row.code) { idx = i; break; }
+      if (idx < 0) { MesUI.alert('대상 이벤트를 찾을 수 없습니다.', 'Error'); return; }
+      state.rows[idx] = row;
+    }
+    persist();
+    applyCleanHoldForCode(row.code);
+    MesUI.toast('저장됨: ' + row.code, 'ok', 1600);
+    setMode('edit', row);
+  }
+
+  function onDisable() {
+    if (!state.selected) return;
+    var r = state.selected;
+    r.enabled = r.enabled === false;
+    persist();
+    MesUI.toast((r.enabled ? '활성' : '비활성') + ': ' + r.code, 'info', 1400);
+    setMode('edit', r);
+  }
+
+  function bind() {
+    fillFilters();
+    $('btnSearch').onclick = renderGrid;
+    $('btnReset').onclick = function () {
+      $('schCode').value = ''; $('schName').value = ''; $('schTo').value = '';
+      $('schGrade').value = ''; $('schEnabled').value = '1';
+      renderGrid();
+    };
+    $('btnNew').onclick = function () { setMode('new', null); };
+    $('btnSave').onclick = onSave;
+    $('btnCancel').onclick = function () {
+      if (state.selected) setMode('edit', state.selected); else setMode('new', null);
+    };
+    $('btnDisable').onclick = onDisable;
+    $('btnSeed').onclick = function () {
+      MesUI.confirm('시드 이벤트·상태로 복원하시겠습니까?', function () {
+        var pack = EQ.restoreSeeds();
+        state.rows = pack.events;
+        fillFilters();
+        MesUI.toast('시드 복원 · 이벤트 ' + pack.events.length + ' · 상태 ' + pack.states.length, 'ok', 1800);
+        setMode('new', null);
+      });
+    };
+    $('grdEventBody').onclick = function (e) {
+      var tr = e.target.closest('tr[data-code]');
+      if (!tr) return;
+      var code = tr.getAttribute('data-code');
+      var row = null;
+      for (var i = 0; i < state.rows.length; i++) if (state.rows[i].code === code) { row = state.rows[i]; break; }
+      if (row) setMode('edit', row);
+    };
+    ['toState', 'interlockGrade', 'actLog', 'actEsig', 'actEsigP', 'actEsigV'].forEach(function (id) {
+      $(id).addEventListener('change', updatePreview);
+    });
+    document.querySelectorAll('[data-clear]').forEach(function (btn) {
+      btn.onclick = function () { var id = btn.getAttribute('data-clear'); if ($(id)) { $(id).value = ''; $(id).focus(); } };
+    });
+    $('btnCopyLink').onclick = function () {
+      try { navigator.clipboard.writeText(location.href); MesUI.toast('링크 복사', 'ok', 1200); } catch (e) { /* ignore */ }
+    };
+    ['schCode', 'schName'].forEach(function (id) {
+      $(id).addEventListener('keydown', function (e) { if (e.key === 'Enter') renderGrid(); });
+    });
+  }
+
+  load();
+  bind();
+  setMode('new', null);
+  if (state.rows.length) {
+    var first = filtered()[0] || state.rows[0];
+    if (first) setMode('edit', first);
+  }
+
+  /* —— resizable split panes (2-col) —— */
+  /* localStorage shape: {"left": <px>}  key=ebr.equipmentEvent.split.v1 */
+  var SPLIT_KEY = 'ebr.equipmentEvent.split.v1';
+  var SPLIT_DEFAULT_LEFT = 760;
+  function rsLogicalPx(visualPx) {
+    var wrap = document.getElementById('shellScale');
+    var s = 1;
+    try {
+      if (wrap) s = parseFloat(getComputedStyle(wrap).getPropertyValue('--scale')) || 1;
+    } catch (err) { s = 1; }
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    return visualPx / s;
+  }
+  function applySplitWidths(left) {
+    var split = document.getElementById('eqSplit');
+    if (!split) return;
+    var splitW = rsLogicalPx(split.getBoundingClientRect().width) || 1200;
+    var gutter = 6;
+    var minL = 160, minR = 200;
+    var maxL = Math.max(minL, Math.floor(splitW * 0.7));
+    maxL = Math.min(maxL, splitW - gutter - minR);
+    /* also keep right from exceeding ~55% by forcing left floor */
+    var minLByRight = Math.max(minL, Math.ceil(splitW - gutter - Math.floor(splitW * 0.55)));
+    if (minLByRight > maxL) minLByRight = minL;
+    var lo = Math.max(minLByRight, Math.min(maxL, left | 0));
+    var paneL = document.getElementById('paneEqList');
+    if (!paneL) return;
+    paneL.style.flex = '0 0 ' + lo + 'px';
+    paneL.style.width = lo + 'px';
+  }
+  function loadSplit() {
+    try {
+      var s = JSON.parse(localStorage.getItem(SPLIT_KEY) || 'null');
+      if (s && s.left) applySplitWidths(s.left);
+    } catch (e) {}
+  }
+  function saveSplit() {
+    var paneL = document.getElementById('paneEqList');
+    if (!paneL) return;
+    localStorage.setItem(SPLIT_KEY, JSON.stringify({
+      left: rsLogicalPx(paneL.getBoundingClientRect().width)
+    }));
+  }
+  function bindGutter(gutterId) {
+    var gut = document.getElementById(gutterId);
+    if (!gut) return;
+    gut.addEventListener('mousedown', function (ev) {
+      ev.preventDefault();
+      var startX = ev.clientX;
+      var startL = rsLogicalPx(document.getElementById('paneEqList').getBoundingClientRect().width);
+      gut.classList.add('is-drag');
+      document.body.classList.add('is-resizing');
+      function onMove(e) {
+        applySplitWidths(startL + rsLogicalPx(e.clientX - startX));
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        gut.classList.remove('is-drag');
+        document.body.classList.remove('is-resizing');
+        saveSplit();
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    gut.addEventListener('dblclick', function () {
+      applySplitWidths(SPLIT_DEFAULT_LEFT);
+      saveSplit();
+    });
+  }
+  loadSplit();
+  bindGutter('gutterMain');
+
+  /* ---- P0-3 Equip clean hold on CLEAN_START / CLEAN_END ---- */
+  var Equip = (window.EbrP0 && window.EbrP0.Equip) || null;
+  function holdUntilFromHours() {
+    var h = Number(($('holdHours') && $('holdHours').value) || 24);
+    if (!(h > 0)) h = 24;
+    var d = new Date(Date.now() + h * 3600 * 1000);
+    try { return d.toISOString().replace('Z', '+00:00'); } catch (e) { return d.toISOString(); }
+  }
+  function demoEq() {
+    return (($('demoEqId') && $('demoEqId').value) || 'MX-01');
+  }
+  function applyCleanHoldForCode(code) {
+    if (!Equip) return;
+    code = String(code || '').toUpperCase();
+    var id = demoEq();
+    if (code === 'CLEAN_END') {
+      var until = holdUntilFromHours();
+      Equip.setCleanHold(id, until, 'CLEANED');
+      MesUI.toast('Equip.setCleanHold(' + id + ', ' + until + ', CLEANED)', 'ok', 2000);
+    } else if (code === 'CLEAN_START') {
+      Equip.clearCleanHold(id, 'CLEANING');
+      MesUI.toast('Equip.clearCleanHold(' + id + ', CLEANING)', 'info', 2000);
+    }
+  }
+  if ($('btnApplyCleanEnd')) {
+    $('btnApplyCleanEnd').onclick = function () {
+      if (!Equip) return MesUI.alert('EbrP0.Equip 미로드', 'Error');
+      var id = demoEq();
+      var until = holdUntilFromHours();
+      Equip.setCleanHold(id, until, 'CLEANED');
+      MesUI.toast('CLEAN_END 적용 · ' + id + ' holdUntil=' + until, 'ok');
+    };
+  }
+  if ($('btnApplyCleanStart')) {
+    $('btnApplyCleanStart').onclick = function () {
+      if (!Equip) return MesUI.alert('EbrP0.Equip 미로드', 'Error');
+      var id = demoEq();
+      Equip.clearCleanHold(id, 'CLEANING');
+      MesUI.toast('CLEAN_START 적용 · ' + id + ' CLEANING · hold 클리어', 'info');
+    };
+  }
+
+  
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

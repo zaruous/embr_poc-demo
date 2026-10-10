@@ -1,0 +1,1796 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-ebr-production-exec-ui  (P-02b · 생산 실행 보드 — BR 발행 이후 · 포장/출하 이전)
+  템플릿       : T-01 조회+진행 보드 변형 + T-06/T-07 개념 요소(단계·칭량·인터록·서명)를 UI 셸에 압축
+  CLIENT_TYPE  : UI (shell-ui 1920×1080)
+  위치         : batch-issue → ★생산 실행★ → packing → lot-trace → release-gate
+  공용 자산     : ./assets/mesui.css, ./assets/mesui.js
+  레이아웃     : 1920×1080 셸 + 뷰포트/iframe 축소 맞춤(shell-scale · fitShellToViewport)
+  PoC 범위     :
+    - Phase/Step 보드(ISA-88 UP › OP › Phase) + 단계 순서 인터록(선행 미완료 시 건너뛰기 불가)
+    - 칭량: 칭량 화면(s-ebr-dispense-ui) 줄 결과(ebr.dispense.v1)만 소비 — 칭량 진행 요약(읽기 전용) · 칭량 OP 자동 완료(OP 서명 없음, 줄 2인 서명)
+    - localStorage 상태 유지(새로고침 생존) · Reset으로 초기화
+    - 장비 클래스 적격성 · 인터록 4단계 · 서명 플레이스홀더
+  칭량 판정   : EbrDispense.weighingGate / opSummary / markOpAutoComplete (진입 · focus · storage · 단계 완료 때 평가)
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<link rel="icon" href="data:,">
+<title>생산 실행 — eMBR/eBR PoC</title>
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  body { margin: 0; background: #fff; }
+  .lnk { color: var(--c-primary); cursor: pointer; text-decoration: none; }
+  .lnk:hover { color: var(--c-primary-active); }
+  .lnk.disabled { color: var(--c-text-disabled); cursor: default; pointer-events: none; }
+
+  .flow-strip {
+    flex: 0 0 36px; display: flex; align-items: center; gap: 0; padding: 0 4px;
+    border: 1px solid var(--c-border-03); background: var(--bc-gray-light);
+  }
+  .flow-strip .fl {
+    display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 14px;
+    font-size: 12px; color: var(--c-text-sub); border-radius: 2px; white-space: nowrap;
+  }
+  .flow-strip .fl .n {
+    width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: bold; background: var(--bc-gray); color: var(--c-text-sub);
+  }
+  .flow-strip .fl.done { color: var(--c-text); }
+  .flow-strip .fl.done .n { background: var(--c-ok); color: #fff; }
+  .flow-strip .fl.active { color: var(--c-primary); font-weight: bold; background: #fff; box-shadow: inset 0 -2px 0 var(--c-primary); }
+  .flow-strip .fl.active .n { background: var(--c-primary); color: #fff; }
+  .flow-strip .fl.wait .n { background: var(--bc-gray); color: var(--c-text-disabled); }
+  .flow-strip .arrow { color: var(--c-border-03); padding: 0 4px; font-size: 14px; }
+  .flow-strip .hint { margin-left: auto; font-size: 11px; color: var(--c-text-disabled); padding-right: 8px; }
+
+  .il-banner {
+    flex: 0 0 auto; display: none; align-items: center; gap: 10px; min-height: 40px;
+    padding: 6px 12px; border: 1px solid transparent; border-left-width: 5px; font-size: 13px;
+  }
+  .il-banner.open { display: flex; }
+  .il-banner .il-grade { font-weight: bold; white-space: nowrap; min-width: 72px; }
+  .il-banner .il-msg { flex: 1 1 auto; line-height: 1.4; }
+  .il-banner .il-actions { display: inline-flex; gap: 6px; flex: 0 0 auto; }
+  .il-banner.absolute { background: var(--bc-faulty); border-color: var(--c-error); }
+  .il-banner.absolute .il-grade { color: var(--c-error); }
+  .il-banner.hardqa { background: var(--bc-quality); border-color: #6952db; }
+  .il-banner.hardqa .il-grade { color: #6952db; }
+  .il-banner.controlled { background: var(--bc-alam); border-color: #f56813; }
+  .il-banner.controlled .il-grade { color: #f56813; }
+  .il-banner.warning { background: #FFF6D6; border-color: #b37c00; }
+  .il-banner.warning .il-grade { color: #b37c00; }
+
+  .phase-board { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+  .phase-board .up-block { border-bottom: 1px solid var(--c-border-03); }
+  .phase-board .up-head {
+    display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px;
+    background: var(--bc-gray-light); font-size: 12px; font-weight: bold; color: var(--c-text-sub);
+  }
+  .phase-board .up-head .up-id { color: var(--c-primary); }
+  .phase-board .step { cursor: pointer; }
+  .phase-board .step.indent { padding-left: 28px; grid-template-columns: 28px minmax(0, 1fr) auto; }
+  .phase-board .step .eq-tag {
+    display: inline-flex; align-items: center; height: 16px; padding: 0 5px; margin-left: 6px;
+    border-radius: 2px; font-size: 10px; font-weight: bold; background: var(--bc-plan); color: var(--c-info);
+  }
+  .phase-board .step.selected { outline: 2px solid var(--c-primary); outline-offset: -2px; }
+  .phase-board .step.locked-skip { opacity: .85; }
+
+  .elig-row {
+    display: grid; grid-template-columns: 110px 1fr 90px 90px 90px; gap: 0;
+    align-items: center; min-height: 36px; padding: 0 10px;
+    border-top: 1px solid var(--c-border-05); font-size: 12px;
+  }
+  .elig-row:first-child { border-top: none; }
+  .elig-row .ec { font-weight: bold; color: var(--c-primary); }
+  .elig-row.fail { background: rgba(249, 213, 209, 0.45); }
+  .elig-row.warn { background: rgba(255, 238, 218, 0.55); }
+  .elig-sum {
+    display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 10px;
+    font-size: 12px; border-top: 1px solid var(--c-border-03); background: var(--bc-gray-light);
+  }
+
+  .wl-row {
+    display: grid; grid-template-columns: 64px minmax(0, 1.4fr) 90px 90px 90px 90px; gap: 0;
+    align-items: center; min-height: 34px; padding: 0 10px;
+    border-top: 1px solid var(--c-border-05); font-size: 12px;
+  }
+  .wl-row.head { font-weight: bold; background: var(--bc-gray-light); color: var(--c-text-sub); border-top: none; }
+  .wl-row .wl-id { font-family: var(--font-mono); font-weight: bold; color: var(--c-primary); }
+  .wl-row .wl-mat { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wl-row.done { background: rgba(220, 245, 230, 0.45); }
+  .wl-row .num { text-align: right; font-variant-numeric: tabular-nums; padding-right: 6px; }
+  .wl-sum {
+    display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 10px;
+    font-size: 12px; border-top: 1px solid var(--c-border-03); background: var(--bc-gray-light);
+  }
+
+  .sign-cards { display: flex; gap: 8px; padding: 8px 10px; flex: 0 0 auto; flex-wrap: wrap; }
+  .sign-card {
+    flex: 1 1 140px; min-width: 140px; border: 1px solid var(--c-border-04); border-radius: var(--radius);
+    padding: 8px 10px; background: var(--c-board-normal); display: flex; flex-direction: column; gap: 4px;
+  }
+  .sign-card .sc-title { font-size: 12px; font-weight: bold; }
+  .sign-card .sc-meta { font-size: 11px; color: var(--c-text-sub); }
+  .sign-card.pending { border-color: var(--c-warn); background: var(--bc-alam); }
+  .sign-card.done { border-color: var(--c-ok); background: var(--bc-good); }
+  .sign-card.blocked { border-color: var(--c-error); background: var(--bc-faulty); }
+  .sign-card .sc-link { font-size: 11px; }
+
+  .judge-ok { color: var(--c-ok); font-weight: bold; }
+  .judge-warn { color: var(--c-warn); font-weight: bold; }
+  .judge-fail { color: var(--c-error); font-weight: bold; }
+
+  .tip { display: inline-flex; }
+  .hash { font-family: Consolas, 'Courier New', monospace; font-size: 11px; }
+
+  .demo-fab {
+    position: fixed; right: 2px; bottom: 0; width: 26px; height: 18px;
+    border: 1px solid #555; border-radius: 3px 3px 0 0; background: #333; color: #fff;
+    font: bold 9px/16px 'Malgun Gothic', sans-serif; text-align: center; cursor: pointer; z-index: 900; opacity: .85;
+  }
+  .demo-fab:hover { opacity: 1; }
+  .demo-panel {
+    position: fixed; right: 12px; bottom: 24px; z-index: 900; display: none; flex-direction: column; gap: 8px;
+    padding: 10px 14px; background: rgba(40, 40, 40, 0.94); color: #fff; border-radius: 4px;
+    box-shadow: 0 6px 12px rgba(0,0,0,.3); font: 12px 'Malgun Gothic', sans-serif; letter-spacing: -0.03em;
+    max-width: 320px;
+  }
+  .demo-panel.open { display: flex; }
+  .demo-panel .dp-title { font-weight: bold; color: #ffb100; }
+  .demo-panel label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+  .demo-panel input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: #ffb100; }
+  .demo-panel button {
+    font: 12px 'Malgun Gothic', sans-serif; padding: 2px 10px; border: 1px solid #888;
+    background: #555; color: #fff; border-radius: 2px; cursor: pointer;
+  }
+  .demo-panel button:hover { background: #666; }
+  .demo-panel .dp-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+  .shell-body > .split.main-split {
+    flex: 1 1 auto; min-height: 0;
+    display: flex; flex-direction: row; gap: 0;
+    width: 100%; max-width: 100%; overflow: hidden;
+  }
+  .main-split > .rs-pane {
+    display: flex; flex-direction: column; min-height: 0; min-width: 160px; overflow: hidden;
+  }
+  #panePhaseSteps.rs-pane { flex: 0 0 960px; width: 960px; }
+  #paneLotSide.rs-pane { flex: 1 1 auto; min-width: 200px; }
+
+  /* ---- resizable split gutters (rs-*) — do not collide with mesui .split ---- */
+  .rs-gutter {
+    flex: 0 0 6px; width: 6px; min-width: 6px; cursor: col-resize;
+    background: #e8edf5; border: none; padding: 0; margin: 0;
+    align-self: stretch; position: relative;
+  }
+  .rs-gutter:hover, .rs-gutter.is-drag { background: #2C59D9; }
+  .rs-gutter::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px;
+  }
+  body.is-resizing { cursor: col-resize; user-select: none; }
+  body.is-resizing .rs-pane { pointer-events: none; }
+
+  .shell-body > .grid-block.log-block { flex: 0 0 200px; min-height: 0; }
+  .kpi-board { min-height: 64px; }
+
+  /* 뷰포트/iframe 맞춤: mesui .shell-scale — 1920×1080 비율 유지하며 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+
+  .snap-banner {
+    display: flex; align-items: flex-start; gap: 8px; min-height: 32px; padding: 8px 12px;
+    border: 1px solid var(--c-border-04); border-radius: var(--radius); font-size: 12px;
+    background: var(--bc-plan); margin: 0 0 8px;
+  }
+  .snap-banner.bc-alam { background: var(--bc-alam); border-color: var(--c-error); }
+  .snap-banner.bc-good { background: var(--bc-good); }
+  .snap-banner.bc-gray { background: var(--bc-gray-light); }
+  .snap-banner.hidden { display: none; }
+  .snap-banner .mono { font-family: Consolas, 'Courier New', monospace; }
+  .exec-blocked .main-split,
+  .exec-blocked .log-block {
+    opacity: 0.45; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui" id="shell">
+  <div class="title-bar">
+    <span class="main-title">생산 실행</span>
+    <span class="breadcrumb">
+      <span>eMBR</span><span class="sep">&rsaquo;</span><span>현장 실행</span><span class="sep">&rsaquo;</span><span class="current">생산 실행 보드</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+
+  <div class="shell-body">
+    <div class="flow-strip" id="flowStrip" aria-label="배치 수명주기 위치">
+      <a class="fl done lnk" id="lnkIssue" href="./s-ebr-batch-issue-ui.html" title="BR 발행">
+        <span class="n">1</span>BR 발행
+      </a>
+      <span class="arrow">&rsaquo;</span>
+      <span class="fl active"><span class="n">2</span>생산 실행</span>
+      <span class="arrow">&rsaquo;</span>
+      <a class="fl wait lnk" id="lnkPack" href="./s-ebr-packaging-exec-ui.html" title="포장">
+        <span class="n">3</span>포장
+      </a>
+      <span class="arrow">&rsaquo;</span>
+      <a class="fl wait lnk" id="lnkLot" href="./s-ebr-lot-trace-ui.html" title="LOT 추적">
+        <span class="n">4</span>LOT 추적
+      </a>
+      <span class="arrow">&rsaquo;</span>
+      <a class="fl wait lnk" id="lnkRelease" href="./s-ebr-release-gate-ui.html" title="출하 게이트">
+        <span class="n">5</span>출하 게이트
+      </a>
+      <span class="hint">단계 완료 후 포장으로 · issued 쿼리 전파</span>
+      <a class="fl wait lnk" id="ctaPack" href="./s-ebr-packaging-exec-ui.html" title="포장 실행으로" style="margin-left:8px;font-weight:bold;">포장으로 →</a>
+    </div>
+
+    <div class="search-box cols-4">
+      <div class="search-control">
+        <span class="label">배치 ID</span>
+        <span class="codeview full">
+          <input class="input code" type="text" id="schBatch" value="BR-DEMO-0001" aria-label="배치 ID">
+          <button class="cv-btn" type="button" id="btnBatchPick" title="배치 조회"></button>
+          <input class="input desc" type="text" id="schBatchDesc" value="정제 A 10 mg" readonly aria-label="제품명">
+        </span>
+      </div>
+      <div class="search-control">
+        <span class="label">MBR</span>
+        <input class="input" type="text" id="schMbr" value="MBR-TAB-A v3.2" readonly>
+      </div>
+      <div class="search-control">
+        <span class="label">라인</span>
+        <select class="input" id="schLine">
+          <option value="L-02" selected>L-02 정제 2라인</option>
+          <option value="L-01">L-01 정제 1라인</option>
+          <option value="L-03">L-03 캡슐 라인</option>
+        </select>
+      </div>
+      <div class="search-actions">
+        <button class="btn search" type="button" id="btnReset" title="상태·localStorage 초기화">Reset</button>
+        <button class="btn search secondary" type="button" id="btnSearch">Search</button>
+      </div>
+    </div>
+
+    <div class="snap-banner hidden" id="snapBanner" role="status">
+      <span class="status-dot navy" id="snapBannerDot"></span>
+      <span id="snapBannerText">발행 스냅샷을 로드하세요 (?orderNo= 또는 ?batchId=)</span>
+    </div>
+
+    <div class="kpi-board" id="kpiBoard">
+      <div class="kpi">
+        <span class="kpi-label">배치 상태</span>
+        <span class="kpi-value" id="kpiStatus">실행 중</span>
+        <span class="kpi-code" id="kpiBatch">BR-DEMO-0001</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">현재 단계</span>
+        <span class="kpi-value" id="kpiStep">OP1-1</span>
+        <span class="kpi-code" id="kpiStepName">원료 칭량</span>
+      </div>
+      <div class="kpi" id="kpiLotCard">
+        <span class="kpi-label">칭량 검증</span>
+        <span class="kpi-value" id="kpiLot">—</span>
+        <span class="kpi-code" id="kpiLotNote">줄 VERIFIED / 계획 줄</span>
+      </div>
+      <div class="kpi" id="kpiEligCard">
+        <span class="kpi-label">장비 적격</span>
+        <span class="kpi-value" id="kpiElig">통과</span>
+        <span class="kpi-code" id="kpiEligNote">3/3 클래스</span>
+      </div>
+      <div class="kpi" id="kpiIlCard">
+        <span class="kpi-label">인터록</span>
+        <span class="kpi-value" id="kpiIl">없음</span>
+        <span class="kpi-code" id="kpiIlNote">활성 0</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">서명 대기</span>
+        <span class="kpi-value" id="kpiSign">1</span>
+        <span class="kpi-code" id="kpiSignNote">수행/확인</span>
+      </div>
+    </div>
+
+    <div class="il-banner" id="ilBanner" role="alert">
+      <span class="status-dot red lg" id="ilDot"></span>
+      <span class="il-grade" id="ilGrade">멈춤</span>
+      <span class="il-msg" id="ilMsg"></span>
+      <span class="il-actions" id="ilActions"></span>
+    </div>
+
+    <div class="split main-split" id="prodExecSplit">
+      <div class="grid-block rs-pane" id="panePhaseSteps">
+        <div class="grid-toolbar">
+          <span class="group-title">Phase / Step 보드</span>
+          <span class="muted" style="font-size:12px">ISA-88 · 순서 인터록(선행 완료 전 건너뛰기 불가)</span>
+          <span class="spacer"></span>
+          <span class="muted" style="font-size:12px" id="phaseProgress">완료 0 / 진행 1 / 대기 7</span>
+          <button class="btn search" type="button" id="btnCompleteStep" title="현재 OP 완료">단계 완료</button>
+          <button class="btn search" type="button" id="btnOpenOi" title="OI 단계 실행(개념)">OI 단계 실행</button>
+        </div>
+        <div class="grid-wrap">
+          <div class="phase-board" id="phaseBoard"></div>
+        </div>
+      </div>
+
+      <button type="button" class="rs-gutter" id="gutterMain" aria-label="패널 폭 조절" title="드래그하여 폭 조절"></button>
+
+      <div class="col rs-pane" id="paneLotSide" style="min-height:0; gap: var(--body-gap);">
+        <div class="grid-block" style="flex:0 0 auto; max-height:190px;" id="weighSumBlock">
+          <div class="grid-toolbar">
+            <span class="group-title">칭량 진행</span>
+            <span class="muted" style="font-size:12px" id="weighSumScope">ebr.dispense.v1 · 읽기 전용 · 줄마다 2인 서명</span>
+            <span class="spacer"></span>
+            <button class="btn search secondary" type="button" id="btnOpenWeighScreen" title="칭량 · 디스펜싱 화면">칭량 화면 열기</button>
+          </div>
+          <div class="grid-wrap" id="weighSumWrap">
+            <div class="wl-row head">
+              <span>줄</span><span>자재</span><span class="num">지시</span><span class="text-center">상태</span><span>수행</span><span>확인</span>
+            </div>
+            <div id="weighSumBody"></div>
+            <div class="wl-sum" id="weighSumFoot"></div>
+          </div>
+        </div>
+
+        <div class="grid-block" style="flex:1 1 auto; min-height:0;">
+          <div class="grid-toolbar">
+            <span class="group-title">장비 클래스 적격성</span>
+            <span class="muted" style="font-size:12px">런타임 mock · RAS/CMMS/CFMS</span>
+            <span class="spacer"></span>
+            <button class="btn search" type="button" id="btnRechkElig">재점검</button>
+          </div>
+          <div class="grid-wrap" id="eligWrap">
+            <div class="elig-row" style="font-weight:bold; background:var(--bc-gray-light); color:var(--c-text-sub);">
+              <span>클래스</span><span>선택 설비</span><span class="text-center">RAS</span><span class="text-center">교정</span><span class="text-center">적격</span>
+            </div>
+            <div id="eligBody"></div>
+            <div class="elig-sum" id="eligSum"></div>
+          </div>
+        </div>
+
+        <div class="grid-block" style="flex:0 0 auto;">
+          <div class="grid-toolbar">
+            <span class="group-title">서명 플레이스홀더</span>
+            <span class="muted" style="font-size:12px">현재 OP · T-11 진입(PoC)</span>
+            <span class="spacer"></span>
+            <button class="btn search secondary" type="button" id="btnPerformSign">수행 서명</button>
+            <span class="tip" id="tipConfirm"><button class="btn search primary" type="button" id="btnConfirmSign">확인 서명</button></span>
+          </div>
+          <div class="sign-cards" id="signCards"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-block log-block">
+      <div class="grid-toolbar">
+        <span class="group-title">칭량 · 공정 로그</span>
+        <span class="total-text" data-total-for="grdLog"></span>
+        <span class="vbar"></span>
+        <select class="input w-160" id="fltLogKind" title="종류">
+          <option value="">종류 전체</option>
+          <option>칭량</option>
+          <option>공정</option>
+          <option>IPC</option>
+          <option>인터록</option>
+          <option>서명</option>
+        </select>
+        <label class="checkbox"><input type="checkbox" id="fltLogFail"> 판정 이상만</label>
+        <span class="spacer"></span>
+        <button class="btn search secondary" type="button" id="btnAddLog">로그 새로고침</button>
+      </div>
+      <div class="grid-wrap">
+        <table class="grid selectable" id="grdLog">
+          <colgroup>
+            <col style="width:40px"><col style="width:130px"><col style="width:70px"><col style="width:90px">
+            <col style="width:180px"><col><col style="width:100px"><col style="width:70px">
+            <col style="width:80px"><col style="width:90px"><col style="width:70px"><col style="width:90px">
+          </colgroup>
+          <thead><tr>
+            <th class="col-no">#</th>
+            <th data-key="ts">시각</th>
+            <th data-key="kind">종류</th>
+            <th data-key="step">단계</th>
+            <th data-key="item">항목</th>
+            <th data-key="value">값 / 한계</th>
+            <th data-key="equip">설비</th>
+            <th data-key="src">출처</th>
+            <th data-key="judge">판정</th>
+            <th data-key="sig">보증 서명</th>
+            <th data-key="user">작업자</th>
+            <th data-key="hash">해시</th>
+          </tr></thead>
+          <tbody id="grdLogBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div> <!-- #shellScale -->
+
+<!-- 서명 의미 안내 팝업 -->
+<div class="dialog-backdrop" id="dlgSignHint">
+  <div class="dialog" style="--dialog-w:640px; --dialog-h:360px;">
+    <div class="popup-title">
+      <span class="text" id="dlgSignTitle">전자서명 — 플레이스홀더</span>
+      <button class="popup-close" type="button" data-dialog-close aria-label="Close"></button>
+    </div>
+    <div class="shell-body" style="padding:16px 20px; gap:12px;">
+      <p style="margin:0; font-size:13px; line-height:1.6;" id="dlgSignBody"></p>
+      <div class="form-grid cols-2 readonly">
+        <span class="label">배치</span><span class="field"><span class="text">BR-DEMO-0001 · 정제 A 10 mg</span></span>
+        <span class="label">단계</span><span class="field"><span class="text" id="dlgSignStep">OP1-1 원료 칭량</span></span>
+        <span class="label">서명 의미</span><span class="field"><span class="text" id="dlgSignMeaning">수행</span></span>
+        <span class="label">요구 인증</span><span class="field"><span class="text" id="dlgSignAuth">PIN (연속 세션)</span></span>
+      </div>
+      <p class="muted" style="margin:0; font-size:12px;">본 PoC는 UI 보드입니다. 실제 T-11 전 요소 서명·랜덤 키패드는 OI 단계 실행 화면에서 구현합니다.</p>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn search secondary" type="button" data-dialog-close>닫기</button>
+      <button class="btn search primary" type="button" id="btnSignAck">확인(데모)</button>
+    </div>
+  </div>
+</div>
+
+<div class="demo-fab" id="demoFab" title="데모 바">DEMO</div>
+<div class="demo-panel" id="demoPanel">
+  
+  <label><input type="checkbox" id="demoAllowHardcoded"> 데모: 하드코딩 BATCH 허용 (배너 표시)</label>
+  <span class="dp-title">데모 시나리오</span>
+  <label><input type="checkbox" id="demoIlAbs"> 인터록 Absolute (멈춤)</label>
+  <label><input type="checkbox" id="demoIlHard"> 인터록 Hard-QA</label>
+  <label><input type="checkbox" id="demoIlCtrl"> 인터록 Controlled</label>
+  <label><input type="checkbox" id="demoIlWarn"> 인터록 Warning</label>
+  <label><input type="checkbox" id="demoEqFail"> 장비 적격 실패(교정 만료)</label>
+  <div class="dp-row">
+    <button type="button" id="demoSkipTry">건너뛰기 시도</button>
+    <button type="button" id="demoReset">초기화(Reset)</button>
+  </div>
+</div>
+
+<script src="./assets/mesui.js"></script>
+<script src="./assets/ebr-p0-stores.js"></script>
+<script src="./assets/ebr-exec-snapshot.js"></script>
+<script src="./assets/ebr-user-session.js"></script>   <!-- 칭량 E16 DEVELOPER1 감사 · 세션 (window.EbrUserSession) -->
+<script src="./assets/ebr-dispense-store.js"></script>   <!-- 칭량 E16 DEVELOPER1 완료 판정 (window.EbrDispense) -->
+<script>
+(function () {
+  'use strict';
+
+  var LS_KEY = 'ebr-prod-exec-v2';
+  var ISSUED_LS_KEY = 'ebr.batch.issued.v1';
+  var ORDER_LS_KEY = 'ebr.order.v1';
+  var DEMO_BATCH = {
+    id: 'BR-DEMO-0001', product: '정제 A 10 mg', mbr: 'MBR-TAB-A v3.2',
+    line: 'L-02', status: '실행 중', manifest: 'MF-0412',
+    orderNo: '', processTreeId: 'MBR-TAB-A', ver: '3.2',
+    contentHash: '9f3a7c1e4d2b8a0f6e1c9d7b5a3f2e1d'
+  };
+  var BATCH = Object.assign({}, DEMO_BATCH);
+  var execCtx = {
+    hasSnapshot: false,
+    demoMode: false,
+    orderNo: '',
+    batchId: '',
+    processTreeId: '',
+    ver: '',
+    contentHash: '',
+    blocked: false
+  };
+
+  function loadIssuedBatches() {
+    try {
+      var raw = localStorage.getItem(ISSUED_LS_KEY);
+      if (!raw) return [];
+      var arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  }
+  function findIssued(opts) {
+    opts = opts || {};
+    var orderNo = (opts.orderNo || '').toUpperCase();
+    var batchId = opts.batchId || '';
+    var list = loadIssuedBatches();
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (batchId && String(r.batchId || '') === batchId) return r;
+      if (orderNo && String(r.orderNo || '').toUpperCase() === orderNo) return r;
+    }
+    return null;
+  }
+  function findOrderMeta(orderNo) {
+    orderNo = String(orderNo || '').trim().toUpperCase();
+    if (!orderNo) return null;
+    try {
+      var raw = localStorage.getItem(ORDER_LS_KEY);
+      var arr = raw ? JSON.parse(raw) : [];
+      if (!Array.isArray(arr)) return null;
+      for (var i = 0; i < arr.length; i++) {
+        if (String(arr[i].orderNo || '').toUpperCase() === orderNo) return arr[i];
+      }
+    } catch (e) {}
+    return null;
+  }
+  function showSnapBanner(msg, cls) {
+    var b = $('snapBanner');
+    if (!b) return;
+    $('snapBannerText').innerHTML = msg;
+    b.className = 'snap-banner ' + (cls || '');
+    b.classList.remove('hidden');
+  }
+  function setExecBlocked(blocked) {
+    execCtx.blocked = !!blocked;
+    var shell = $('shell');
+    if (shell) shell.classList.toggle('exec-blocked', !!blocked);
+  }
+  function applySnapshot(rec, meta) {
+    meta = meta || {};
+    execCtx.hasSnapshot = true;
+    execCtx.demoMode = false;
+    execCtx.orderNo = rec.orderNo || meta.orderNo || '';
+    execCtx.batchId = rec.batchId || '';
+    execCtx.processTreeId = rec.processTreeId || '';
+    execCtx.ver = rec.ver || '';
+    execCtx.contentHash = rec.contentHash || '';
+    BATCH.id = execCtx.batchId || BATCH.id;
+    BATCH.product = rec.product || BATCH.product;
+    BATCH.mbr = (execCtx.processTreeId || '') + (execCtx.ver ? ' v' + execCtx.ver : '');
+    BATCH.line = rec.line || BATCH.line;
+    BATCH.manifest = rec.mf || rec.manifestId || BATCH.manifest;
+    BATCH.orderNo = execCtx.orderNo;
+    BATCH.processTreeId = execCtx.processTreeId;
+    BATCH.ver = execCtx.ver;
+    BATCH.contentHash = execCtx.contentHash;
+    BATCH.status = '실행 중';
+    if ($('schBatch')) $('schBatch').value = BATCH.id;
+    if ($('schBatchDesc')) $('schBatchDesc').value = BATCH.product;
+    if ($('schMbr')) $('schMbr').value = BATCH.mbr + (execCtx.contentHash ? ' · ' + execCtx.contentHash.slice(0, 8) + '…' : '');
+    if (BATCH.line && $('schLine')) {
+      try { $('schLine').value = BATCH.line; } catch (e1) {}
+    }
+    setExecBlocked(false);
+    var hasPhases = applyPhaseBoardFromRec(rec);
+    var Snap = window.EbrExecSnapshot;
+    var pl = Snap ? Snap.getPhaseList(rec) : [];
+    var hash8 = (execCtx.contentHash || '').slice(0, 8);
+    if (hasPhases && pl.length) {
+      showSnapBanner(
+        '발행 스냅샷 Phase <b>' + pl.length + '</b>건 · <b class="mono">' + esc(execCtx.processTreeId) + '</b> v' + esc(execCtx.ver) +
+        ' · hash <b class="mono">' + esc(hash8) + '…</b>' +
+        (execCtx.orderNo ? ' · 오더 <b class="mono">' + esc(execCtx.orderNo) + '</b>' : '') +
+        ' · 배치 <b class="mono">' + esc(execCtx.batchId) + '</b>' +
+        ' <span class="unit">(라이브 LS 변경 무시)</span>',
+        'bc-good'
+      );
+    } else {
+      showSnapBanner(
+        '발행 스냅샷에 실행 Phase 없음 — 데모 템플릿(PHASES_TMPL) 사용' +
+        ' · 트리 <b class="mono">' + esc(execCtx.processTreeId) + ' v' + esc(execCtx.ver) + '</b>' +
+        (hash8 ? ' · hash <b class="mono">' + esc(hash8) + '…</b>' : ''),
+        'bc-alam'
+      );
+    }
+    wireFlowStripLinks();
+  }
+  function applyDemoMode() {
+    execCtx.hasSnapshot = false;
+    execCtx.demoMode = true;
+    execCtx.orderNo = '';
+    execCtx.batchId = DEMO_BATCH.id;
+    execCtx.processTreeId = DEMO_BATCH.processTreeId;
+    execCtx.ver = DEMO_BATCH.ver;
+    execCtx.contentHash = DEMO_BATCH.contentHash;
+    BATCH = Object.assign({}, DEMO_BATCH);
+    resetPhaseBoardToFallback();
+    if ($('schBatch')) $('schBatch').value = BATCH.id;
+    if ($('schBatchDesc')) $('schBatchDesc').value = BATCH.product;
+    if ($('schMbr')) $('schMbr').value = BATCH.mbr;
+    setExecBlocked(false);
+    showSnapBanner(
+      '데모 모드 — 하드코딩 BATCH <b class="mono">' + esc(BATCH.id) + '</b> 사용 중. 실제 발행 스냅샷이 아닙니다. (?demo=1 또는 DEMO 체크)',
+      'bc-alam'
+    );
+    wireFlowStripLinks();
+  }
+  function hardBlockNoSnapshot(reason) {
+    execCtx.hasSnapshot = false;
+    execCtx.demoMode = false;
+    execCtx.orderNo = '';
+    execCtx.batchId = '';
+    execCtx.processTreeId = '';
+    execCtx.ver = '';
+    execCtx.contentHash = '';
+    resetPhaseBoardToFallback();
+    setExecBlocked(true);
+    showSnapBanner(
+      reason || '발행 스냅샷이 없습니다. <code>?orderNo=</code> 또는 <code>?batchId=</code> 로 진입하거나, DEMO에서 「하드코딩 BATCH 허용」을 켜세요. 실행 입력 차단.',
+      'bc-alam'
+    );
+  }
+
+  function flowQuery() {
+    var q = [];
+    var on = (execCtx && execCtx.orderNo) || BATCH.orderNo || '';
+    var bid = (execCtx && execCtx.batchId) || BATCH.id || '';
+    if (on) q.push('orderNo=' + encodeURIComponent(on));
+    if (bid) q.push('batchId=' + encodeURIComponent(bid));
+    return q.length ? ('?' + q.join('&')) : '';
+  }
+  function wireFlowStripLinks() {
+    var q = flowQuery();
+    var map = {
+      lnkIssue: './s-ebr-batch-issue-ui.html',
+      lnkPack: './s-ebr-packaging-exec-ui.html',
+      lnkLot: './s-ebr-lot-trace-ui.html',
+      lnkRelease: './s-ebr-release-gate-ui.html'
+    };
+    Object.keys(map).forEach(function (id) {
+      var el = $(id);
+      if (el && el.tagName === 'A') el.href = map[id] + q;
+    });
+    var cta = $('ctaPack');
+    if (cta) cta.href = './s-ebr-packaging-exec-ui.html' + q;
+  }
+
+  function bindExecFromQuery() {
+    var q = new URLSearchParams(location.search || '');
+    var orderNo = (q.get('orderNo') || '').trim().toUpperCase();
+    var batchId = (q.get('batchId') || '').trim();
+    var demoFlag = q.get('demo') === '1' || q.get('demo') === 'true';
+    if ($('demoAllowHardcoded') && $('demoAllowHardcoded').checked) demoFlag = true;
+
+    if (orderNo || batchId) {
+      var rec = findIssued({ orderNo: orderNo, batchId: batchId });
+      if (rec && rec.contentHash && rec.processTreeId) {
+        applySnapshot(rec, { orderNo: orderNo });
+        return true;
+      }
+      var ord = orderNo ? findOrderMeta(orderNo) : null;
+      var pinInfo = ord
+        ? ('오더 핀 ' + (ord.processTreeId || ord.mbrId || '—') + ' v' + (ord.ver || ord.mbrVer || '') +
+           ' · hash ' + ((ord.contentHash || '').slice(0, 8) || '—') + '…')
+        : '';
+      hardBlockNoSnapshot(
+        '발행 스냅샷(<code>ebr.batch.issued.v1</code>)을 찾지 못했습니다' +
+        (orderNo ? ' (orderNo=' + orderNo + ')' : '') +
+        (batchId ? ' (batchId=' + batchId + ')' : '') +
+        '. 실행 입력 차단.' +
+        (pinInfo ? ' · ' + pinInfo + ' (오더 메타만 표시, 스냅샷 없음)' : '') +
+        ' — 배치 발행 후 다시 진입하세요.'
+      );
+      if (ord) {
+        if ($('schMbr')) $('schMbr').value = (ord.processTreeId || ord.mbrId || '') + ' v' + (ord.ver || ord.mbrVer || '') + ' (스냅샷 없음)';
+        if ($('schBatch')) $('schBatch').value = ord.batchNo || batchId || '';
+        if ($('schBatchDesc')) $('schBatchDesc').value = ord.product || '';
+      }
+      return false;
+    }
+
+    if (demoFlag) {
+      applyDemoMode();
+      return true;
+    }
+    hardBlockNoSnapshot();
+    return false;
+  }
+
+  /* ISA-88 — OP 순서가 인터록 기준. phase는 OP 하위 */
+  /* P0: PHASES_TMPL 폴백 유지(삭제 금지). 스냅샷 있으면 ACTIVE_PHASES로 교체 */
+  var PHASES_TMPL_FALLBACK = [
+    { up: 'UP1 계량·투입', steps: [
+      { id: 'OP1-1', name: '원료 칭량', kind: 'op', opIdx: 0, meta: '칭량 대기', eq: 'EC-BAL-01', eqName: '저울 클래스' },
+      { id: 'PH1-1-1', name: 'API 칭량', kind: 'ph', parent: 'OP1-1', meta: 'API-2409 · 대기', eq: 'EC-BAL-01', indent: true },
+      { id: 'PH1-1-2', name: '부형제 칭량', kind: 'ph', parent: 'OP1-1', meta: 'LAC-2411 · MGS-2403', eq: 'EC-BAL-01', indent: true },
+      { id: 'OP1-2', name: '키트 봉인 · 투입', kind: 'op', opIdx: 1, meta: '잠금', eq: 'EC-MIX-01', eqName: '혼합기 클래스' }
+    ]},
+    { up: 'UP2 혼합', steps: [
+      { id: 'OP2-1', name: '습식 혼합', kind: 'op', opIdx: 2, meta: '잠금', eq: 'EC-MIX-01', eqName: '혼합기 클래스' },
+      { id: 'PH2-1-1', name: '혼합 시간', kind: 'ph', parent: 'OP2-1', meta: '목표 12 min (CC-031)', eq: 'EC-MIX-01', indent: true },
+      { id: 'OP2-2', name: '조립 · 정립', kind: 'op', opIdx: 3, meta: '잠금', eq: 'EC-MILL-01', eqName: '정립기 클래스' }
+    ]},
+    { up: 'UP3 타정', steps: [
+      { id: 'OP3-1', name: '타정 준비', kind: 'op', opIdx: 4, meta: '잠금', eq: 'EC-TAB-01', eqName: '타정기 클래스' },
+      { id: 'OP3-2', name: '타정 · IPC', kind: 'op', opIdx: 5, meta: '잠금', eq: 'EC-TAB-01', eqName: '타정기 클래스' }
+    ]},
+    { up: 'UP4 포장(후속)', steps: [
+      { id: 'OP4-1', name: '1차 포장', kind: 'op', opIdx: 6, meta: '포장 화면으로 이관', eq: 'EC-PKG-01', eqName: '포장기 클래스', handoff: true }
+    ]}
+  ];
+  var OP_ORDER_FALLBACK = ['OP1-1', 'OP1-2', 'OP2-1', 'OP2-2', 'OP3-1', 'OP3-2', 'OP4-1'];
+  var PHASES_TMPL = PHASES_TMPL_FALLBACK;
+  var OP_ORDER = OP_ORDER_FALLBACK.slice();
+  var usingSnapshotPhases = false;
+  var lastIssuedRec = null;
+
+  function rebuildOpOrderFromPhases(phases) {
+    var order = [];
+    (phases || []).forEach(function (up) {
+      (up.steps || []).forEach(function (s) {
+        if (s.kind !== 'ph') order.push(s.id);
+      });
+    });
+    return order;
+  }
+  function applyPhaseBoardFromRec(rec) {
+    var Snap = window.EbrExecSnapshot;
+    var built = Snap ? Snap.buildPhasesFromSnapshot(rec) : null;
+    lastIssuedRec = rec || null;
+    if (built && built.length) {
+      PHASES_TMPL = built;
+      OP_ORDER = rebuildOpOrderFromPhases(built);
+      usingSnapshotPhases = true;
+      return true;
+    }
+    PHASES_TMPL = PHASES_TMPL_FALLBACK;
+    OP_ORDER = OP_ORDER_FALLBACK.slice();
+    usingSnapshotPhases = false;
+    return false;
+  }
+  function resetPhaseBoardToFallback() {
+    PHASES_TMPL = PHASES_TMPL_FALLBACK;
+    OP_ORDER = OP_ORDER_FALLBACK.slice();
+    usingSnapshotPhases = false;
+  }
+
+  var ELIG_BASE = [
+    { ec: 'EC-BAL-01', ver: 3, name: '저울 클래스', equip: 'BAL-205', equipName: '분석저울 205',
+      ras: 'ok', cal: 'ok', cfms: 'ok', note: '교정 2027-01-12 · IQ/OQ 유효' },
+    { ec: 'EC-MIX-01', ver: 2, name: '혼합기 클래스', equip: 'MX-01', equipName: '습식혼합기 01',
+      ras: 'ok', cal: 'ok', cfms: 'ok', note: 'CFMS GR-01 적격' },
+    { ec: 'EC-MILL-01', ver: 1, name: '정립기 클래스', equip: 'ML-03', equipName: '정립기 03',
+      ras: 'ok', cal: 'ok', cfms: 'ok', note: '대기(다음 OP)' },
+    /* 칭량 PM 결정: 스냅샷 노드 설비 클래스 게이트 데이터 (기준정보 장비 클래스 적격 목록 · CMMS 교정 시드 기준) */
+    { ec: 'EC-BAL-02', ver: 2, name: '플로어 저울 클래스', equip: 'BAL-301', equipName: '플로어 저울 #301',
+      ras: 'ok', cal: 'ok', cfms: 'ok', note: '교정 2027-02-20 · ≤ 300 kg (BAL-302 는 교정 만료 2026-09-30)' },
+    { ec: 'EC-TAB-01', ver: 3, name: '타정기 클래스', equip: 'TP-02', equipName: '로터리 타정기 02',
+      ras: 'ok', cal: 'ok', cfms: 'ok', note: '대기(다음 OP)' },
+    { ec: 'EC-PKG-01', ver: 2, name: '포장기 클래스', equip: 'PK-01', equipName: 'PTP 포장기 #1',
+      ras: 'ok', cal: 'ok', cfms: 'ok', note: '포장 화면 이관' }
+  ];
+
+  var IL = {
+    absolute: {
+      grade: '멈춤', cls: 'absolute', dot: 'red',
+      msg: 'Absolute — 유당 LAC-2411: 재시험일 경과 자재(211.87). override 불가. 대체 경로만 허용.',
+      actions: [
+        { t: '적합 LOT 선택', primary: true },
+        { t: '자재 담당 호출', primary: false }
+      ]
+    },
+    hardqa: {
+      grade: 'QA 호출', cls: 'hardqa', dot: 'navy',
+      msg: 'Hard-QA — EC-MIX-01 외 설비 전환 요청. QA 전 요소 서명 + 일탈 초안 자동 생성(배치당 1회).',
+      actions: [
+        { t: 'QA 원격 승인', primary: true },
+        { t: '일탈 초안 보기', primary: false }
+      ]
+    },
+    controlled: {
+      grade: '감독자 승인', cls: 'controlled', dot: 'amber',
+      msg: 'Controlled — 재측정 3회째. 감독자 승인 후 진행 · RBE 예외 기록.',
+      actions: [
+        { t: '감독자 서명', primary: true },
+        { t: '사유 코드', primary: false }
+      ]
+    },
+    warning: {
+      grade: '확인 후 진행', cls: 'warning', dot: 'amber',
+      msg: 'Warning — 혼합 시간 10→12 min (CC-2026-031 Minor). 사유 입력 후 진행 가능.',
+      actions: [
+        { t: '사유 입력 · 진행', primary: true }
+      ]
+    }
+  };
+
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function fmtQty(n) {
+    var x = Math.round(n * 1000) / 1000;
+    return (x % 1 === 0 ? x.toFixed(0) : String(x));
+  }
+  function hash8(s) {
+    var h = 2166136261;
+    for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 16777619) >>> 0; }
+    return ('0000000' + h.toString(16)).slice(-8);
+  }
+  function nowTs() {
+    var d = new Date();
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+      p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+  function deepClone(o) { return JSON.parse(JSON.stringify(o)); }
+
+  function defaultState() {
+    var opDone = {};
+    OP_ORDER.forEach(function (id) { opDone[id] = false; });
+    var signs = {};
+    OP_ORDER.forEach(function (id) { signs[id] = { perform: false, confirm: false }; });
+    var first = OP_ORDER[0] || 'OP1-1';
+    return {
+      selectedStep: first,
+      activeOp: first,
+      opDone: opDone,
+      signs: signs,
+      logs: [],
+      il: null,
+      eqFail: false,
+      hardQaDevCreated: false
+    };
+  }
+
+  var state = defaultState();
+  var Dev = (window.EbrP0 && window.EbrP0.Dev) || window.Dev || null;
+  var Equip = (window.EbrP0 && window.EbrP0.Equip) || null;
+
+  function equipIdForStep(stepId) {
+    var eqClass = null;
+    PHASES_TMPL.forEach(function (u) {
+      /* 스냅샷 Phase는 eq:''(칩 표시용) — 설비 클래스는 eqClass(node.equipmentClassRef) (칭량 E4) */
+      u.steps.forEach(function (s) { if (s.id === stepId) eqClass = s.eq || s.eqClass || null; });
+    });
+    if (!eqClass) return null;
+    for (var i = 0; i < ELIG_BASE.length; i++) {
+      if (ELIG_BASE[i].ec === eqClass) return ELIG_BASE[i].equip;
+    }
+    return null;
+  }
+  /* 칭량 완료 게이트 대상: 데모 템플릿 OP1-1, 스냅샷은 isWeigh / phaseKind 'weigh' (칭량 E4) */
+  function isWeighStep(stepId) {
+    if (!usingSnapshotPhases && stepId === 'OP1-1') return true;
+    var hit = false;
+    PHASES_TMPL.forEach(function (u) {
+      u.steps.forEach(function (s) {
+        if (s.id === stepId && (s.isWeigh || s.phaseKind === 'weigh')) hit = true;
+      });
+    });
+    return hit;
+  }
+  /* 칭량 E16: 칭량 단계 완료 판정 = 칭량 저장소(ebr.dispense.v1) — 계획 줄 모두 VERIFIED + 열린 칭량 일탈 0.
+     계획 없음 · 저장소 없음은 fail-closed. 스냅샷 단계는 그 노드 줄(재칭량 = 같은 줄 REDO), 데모 템플릿(OP1-1)은 데모 배치 전체 줄 */
+  function weighFilterFor(stepId) {
+    if (!usingSnapshotPhases) return {};
+    return { nodeId: stepId };
+  }
+  function weighGateFor(stepId) {
+    var D = window.EbrDispense;
+    var filter = weighFilterFor(stepId);
+    if (!D || !D.weighingGate || !execCtx.batchId) return { ok: false, why: 'no_plan', message: '칭량 계획 없음, 재발행 필요', filter: filter, total: 0, verified: 0, gate: null };
+    var g = D.weighingGate(execCtx.batchId, filter);
+    return { ok: !!g.ok, why: g.why, message: g.message || '', filter: filter, gate: g, total: g.total || 0, verified: g.verified || 0 };
+  }
+  /* 칭량 화면 경로 (설계 §11.3 s-ebr-dispense-ui.html — X1) + 배치 · 오더 쿼리 */
+  /* 감사 · 서명 uid 표시 — 자동 처리 'SYSTEM' 은 '시스템' */
+  function uidLabel(id) { return String(id == null ? '' : id).toUpperCase() === 'SYSTEM' ? '시스템' : String(id == null ? '' : id); }
+  function weighScreenHref() { return './s-ebr-dispense-ui.html' + flowQuery(); }
+  function assertEquipUsableFor(stepId) {
+    if (!Equip) return { ok: true };
+    var eid = equipIdForStep(stepId);
+    if (!eid) return { ok: true };
+    var r = Equip.assertUsable(eid);
+    if (r && r.ok) return r;
+    var hold = (r && r.rec && r.rec.cleanHoldUntil) || '';
+    var msg = (r && r.reason) || ('설비 ' + eid + ' 사용 불가');
+    if (hold) msg += '\nholdUntil=' + hold;
+    return { ok: false, grade: 'Absolute', reason: msg, equipmentId: eid, holdUntil: hold, rec: r && r.rec };
+  }
+
+
+  function saveState() {
+    if (execCtx.blocked) return; /* hard block: do not persist writes */
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        selectedStep: state.selectedStep,
+        activeOp: state.activeOp,
+        opDone: state.opDone,
+        signs: state.signs,
+        logs: state.logs,
+        il: state.il,
+        eqFail: state.eqFail,
+        hardQaDevCreated: !!state.hardQaDevCreated,
+        line: $('schLine').value,
+        orderNo: execCtx.orderNo || BATCH.orderNo || '',
+        batchId: execCtx.batchId || BATCH.id || '',
+        processTreeId: execCtx.processTreeId || BATCH.processTreeId || '',
+        ver: execCtx.ver || BATCH.ver || '',
+        contentHash: execCtx.contentHash || BATCH.contentHash || '',
+        demoMode: !!execCtx.demoMode
+      }));
+    } catch (e) { /* ignore quota */ }
+  }
+
+  function loadState() {
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if (!raw) return false;
+      var o = JSON.parse(raw);
+      if (!o || !o.opDone) return false;
+      if (o.contentHash && o.processTreeId) {
+        if (!(execCtx.hasSnapshot && execCtx.contentHash && o.contentHash !== execCtx.contentHash)) {
+          if (!execCtx.hasSnapshot) {
+            execCtx.orderNo = o.orderNo || '';
+            execCtx.batchId = o.batchId || '';
+            execCtx.processTreeId = o.processTreeId || '';
+            execCtx.ver = o.ver || '';
+            execCtx.contentHash = o.contentHash || '';
+            execCtx.demoMode = !!o.demoMode;
+            execCtx.hasSnapshot = !o.demoMode;
+            BATCH.id = execCtx.batchId || BATCH.id;
+            BATCH.processTreeId = execCtx.processTreeId;
+            BATCH.ver = execCtx.ver;
+            BATCH.contentHash = execCtx.contentHash;
+            BATCH.orderNo = execCtx.orderNo;
+            BATCH.mbr = (BATCH.processTreeId || '') + (BATCH.ver ? ' v' + BATCH.ver : '');
+          }
+        }
+      }
+      state.selectedStep = o.selectedStep || 'OP1-1';
+      state.activeOp = o.activeOp || 'OP1-1';
+      state.opDone = o.opDone;
+      state.signs = o.signs || state.signs;
+      state.logs = Array.isArray(o.logs) ? o.logs : [];
+      state.il = (o.il && IL[o.il]) ? o.il : null;
+      state.eqFail = !!o.eqFail;
+      state.hardQaDevCreated = !!o.hardQaDevCreated;
+      if (o.line) $('schLine').value = o.line;
+      return true;
+    } catch (e) { return false; }
+  }
+
+  function resetAll() {
+    try { localStorage.removeItem(LS_KEY); } catch (e) {}
+    state = defaultState();
+    ['demoIlAbs', 'demoIlHard', 'demoIlCtrl', 'demoIlWarn', 'demoEqFail'].forEach(function (id) {
+      if ($(id)) $(id).checked = false;
+    });
+    bindExecFromQuery();
+    $('schBatch').value = BATCH.id || '';
+    $('schBatchDesc').value = BATCH.product || '';
+    $('schMbr').value = BATCH.mbr || '';
+    $('schLine').value = BATCH.line || 'L-02';
+    $('fltLogKind').value = '';
+    $('fltLogFail').checked = false;
+    if (!execCtx.blocked) saveState();
+    renderAll();
+    MesUI.toast(execCtx.blocked ? '초기화 · 스냅샷 없음(입력 차단)' : '상태·localStorage 초기화 완료', 'ok');
+  }
+
+  function opIndex(opId) {
+    var i = OP_ORDER.indexOf(opId);
+    return i < 0 ? 999 : i;
+  }
+
+  function activeOpIndex() {
+    for (var i = 0; i < OP_ORDER.length; i++) {
+      if (!state.opDone[OP_ORDER[i]]) return i;
+    }
+    return OP_ORDER.length;
+  }
+
+  function resolveOp(stepId) {
+    if (OP_ORDER.indexOf(stepId) >= 0) return stepId;
+    var found = null;
+    PHASES_TMPL.forEach(function (up) {
+      up.steps.forEach(function (s) {
+        if (s.id === stepId && s.parent) found = s.parent;
+      });
+    });
+    return found || stepId;
+  }
+
+  function canSelectStep(stepId) {
+    var op = resolveOp(stepId);
+    var idx = opIndex(op);
+    var act = activeOpIndex();
+    if (idx > act) return { ok: false, reason: '선행 단계 미완료 — ' + (OP_ORDER[act] || '전부 완료') + ' 완료 후 진행' };
+    return { ok: true };
+  }
+
+  function stepStatus(s) {
+    var op = s.kind === 'ph' ? s.parent : s.id;
+    var idx = opIndex(op);
+    var act = activeOpIndex();
+    if (state.il === 'absolute' && (op === state.activeOp || op === 'OP2-1')) {
+      if (idx === act) return 'blocked';
+    }
+    if (state.opDone[op]) return 'done';
+    if (idx === act) return 'active';
+    if (idx > act) return 'wait';
+    return 'done';
+  }
+
+  function stepMeta(s, st) {
+    if (st === 'blocked') return '인터록 차단';
+    if (s.kind === 'op') {
+      var weigh = isWeighStep(s.id);
+      if (st === 'done') {
+        if (weigh) return '완료 · 칭량 자동 완료 (줄 2인 서명)';
+        var sg = state.signs[s.id];
+        return '완료 · 수행/확인' + (sg && sg.confirm ? ' ✓' : '');
+      }
+      if (st === 'active') {
+        if (weigh) {
+          var wg = weighGateFor(s.id);
+          return wg.total ? ('칭량 검증 ' + wg.verified + '/' + wg.total + ' · 줄 서명') : '칭량 계획 없음';
+        }
+        if (s.handoff) return '포장 화면으로 이관';
+        return '진행 중 · 서명 대기';
+      }
+      return '잠금 — 선행 완료 후';
+    }
+    return s.meta;
+  }
+
+  function pushLog(row) {
+    state.logs.unshift(row);
+    if (state.logs.length > 80) state.logs.length = 80;
+  }
+
+  function completeCurrentOp() {
+    var act = activeOpIndex();
+    if (act >= OP_ORDER.length) {
+      MesUI.toast('모든 생산 단계 완료 — 포장으로 이관', 'ok');
+      return;
+    }
+    var op = OP_ORDER[act];
+    if (state.il === 'absolute') {
+      MesUI.alert('인터록 활성 — 단계를 완료할 수 없습니다.', 'Warning');
+      return;
+    }
+    var eu = assertEquipUsableFor(op);
+    if (!eu.ok) {
+      state.il = 'absolute';
+      IL.absolute.msg = 'Absolute — ' + eu.reason;
+      saveState(); renderAll();
+      MesUI.alert('Absolute — 설비 사용 불가\n\nequipmentId=' + (eu.equipmentId || '') +
+        (eu.holdUntil ? '\nholdUntil=' + eu.holdUntil : '') + '\n\n' + eu.reason, 'Error');
+      return;
+    }
+    if (state.eqFail && (op === 'OP2-1' || op === 'OP2-2')) {
+      MesUI.alert('장비 적격 미충족 — 단계 완료 불가', 'Warning');
+      return;
+    }
+    if (isWeighStep(op)) {   /* 칭량 E16 · E17: 칭량 OP 는 OP 서명 없음 — 저장소 판정이 참이면 자동 완료 */
+      var wg = weighGateFor(op);
+      if (!wg.ok) { MesUI.alert('칭량 미완료 — 단계를 완료할 수 없습니다.\n\n' + wg.message, 'Warning'); return; }
+      var ac = window.EbrDispense.markOpAutoComplete(execCtx.batchId, wg.filter, { screen: 'S-EBR-PROD-EXEC' });
+      if (!ac.ok) { MesUI.alert('칭량 자동 완료 기록 실패 — ' + (ac.message || ac.why || ''), 'Error'); return; }
+      var nextW = finishOp(op, act, { auto: true, gate: wg });
+      saveState();
+      renderAll();
+      MesUI.toast('칭량 ' + wg.verified + '/' + wg.total + ' VERIFIED — ' + op + ' 자동 완료 (OP 서명 없음) → ' + (nextW || '끝'), 'ok');
+      return;
+    }
+    var sg = state.signs[op];
+    if (!sg || !sg.perform || !sg.confirm) {
+      MesUI.alert('수행·확인 서명이 필요합니다. (현재 OP: ' + op + ')', 'Warning');
+      return;
+    }
+    if (op === 'OP4-1') {
+      finishOp(op, act, {});
+      MesUI.toast('포장 화면으로 이관 가능 — 상단 「포장으로 →」 또는 플로우 스트립 사용', 'ok');
+      saveState();
+      renderAll();
+      return;
+    }
+    var next = finishOp(op, act, {});
+    saveState();
+    renderAll();
+    MesUI.toast(op + ' 완료 → ' + (next || '끝'), 'ok');
+  }
+
+  /* 단계 완료 공통 — opDone · 다음 단계 · 공정 로그. 저장 · 렌더는 호출 쪽 */
+  function finishOp(op, act, how) {
+    how = how || {};
+    state.opDone[op] = true;
+    if (how.auto) {
+      var g = how.gate || {};
+      pushLog({
+        ts: nowTs(), kind: '공정', step: op,
+        item: '칭량 OP 자동 완료', value: '칭량 ' + (g.verified || 0) + '/' + (g.total || 0) + ' VERIFIED · 열린 일탈 0' + (how.trigger ? ' · ' + how.trigger : ''),
+        equip: '—', src: 'AUTO', judge: 'OK', sig: '줄 서명 ' + (g.verified || 0) + '/' + (g.total || 0), user: 'SYS',
+        hash: hash8(op + 'auto' + Date.now())
+      });
+    }
+    if (op === 'OP4-1') { wireFlowStripLinks(); return null; }
+    var next = OP_ORDER[act + 1];
+    if (next) {
+      state.activeOp = next;
+      state.selectedStep = next;
+      pushLog({
+        ts: nowTs(), kind: '공정', step: op,
+        item: '단계 완료 · 다음 ' + next, value: '순서 인터록 해제',
+        equip: '—', src: 'AUTO', judge: 'OK', sig: how.auto ? '줄 서명' : '유효', user: how.auto ? 'SYS' : 'A',
+        hash: hash8(op + next + Date.now())
+      });
+    }
+    return next || null;
+  }
+
+  /* 칭량 E17: 진입 · focus · storage 때도 판정 — 현재 단계가 칭량 OP 이고 줄 모두 VERIFIED 이면 자동 완료 (markOpAutoComplete 는 1회만 기록).
+     인터록 Absolute · 설비 사용 불가면 자동 완료하지 않음(「단계 완료」에서 사유 표시) */
+  var weighAutoBusy = false;
+  function evaluateWeighAutoComplete(trigger) {
+    var D = window.EbrDispense;
+    if (weighAutoBusy || execCtx.blocked || !D || !D.markOpAutoComplete) return [];
+    weighAutoBusy = true;
+    var done = [];
+    try {
+      for (var guard = 0; guard < OP_ORDER.length; guard++) {
+        var act = activeOpIndex();
+        if (act >= OP_ORDER.length) break;
+        var op = OP_ORDER[act];
+        if (!isWeighStep(op) || state.il === 'absolute') break;
+        if (!assertEquipUsableFor(op).ok) break;
+        var wg = weighGateFor(op);
+        if (!wg.ok) break;
+        var ac = D.markOpAutoComplete(execCtx.batchId, wg.filter, { screen: 'S-EBR-PROD-EXEC' });
+        if (!ac.ok) break;
+        finishOp(op, act, { auto: true, gate: wg, trigger: trigger });
+        done.push(op + ' ' + wg.verified + '/' + wg.total);
+      }
+    } finally { weighAutoBusy = false; }
+    if (done.length) {
+      saveState();
+      renderAll();
+      MesUI.toast('칭량 줄 모두 VERIFIED — ' + done.join(', ') + ' 자동 완료 (OP 서명 없음)', 'ok');
+    }
+    return done;
+  }
+
+  function eligRows() {
+    return ELIG_BASE.map(function (r) {
+      var o = {}; for (var k in r) o[k] = r[k];
+      if (state.eqFail && r.ec === 'EC-MIX-01') {
+        o.cal = 'fail'; o.note = '교정 만료 2026-09-28 · 사용 차단';
+      }
+      return o;
+    });
+  }
+
+  function badgeRt(v) {
+    if (v === 'ok') return '<span class="badge ok">유효</span>';
+    if (v === 'fail') return '<span class="badge error">만료</span>';
+    if (v === 'warn') return '<span class="badge warn">경고</span>';
+    return '<span class="badge muted">' + esc(v) + '</span>';
+  }
+  function srcTag(s) {
+    var cls = 'src-tag';
+    if (s === 'IFACE' || s === 'AUTO') cls += ' iface';
+    else if (s === 'MANUAL') cls += ' manual';
+    else if (s === 'CALC') cls += ' calc';
+    else if (s === 'SCAN') cls += ' auto';
+    return '<span class="' + cls + '">' + esc(s) + '</span>';
+  }
+  function judgeHtml(j) {
+    if (j === 'OK') return '<span class="judge-ok">OK</span>';
+    if (j === 'WARN') return '<span class="judge-warn">WARN</span>';
+    if (j === 'FAIL') return '<span class="judge-fail">FAIL</span>';
+    return '<span class="muted">' + esc(j) + '</span>';
+  }
+
+  function renderPhases() {
+    var html = '';
+    var counts = { done: 0, active: 0, wait: 0, blocked: 0 };
+    if (!PHASES_TMPL || !PHASES_TMPL.length) {
+      $('phaseBoard').innerHTML = '<div class="nodata">표시할 Phase가 없습니다</div>';
+      $('phaseProgress').textContent = '완료 0 / 진행 0 / 대기 0';
+      return;
+    }
+    PHASES_TMPL.forEach(function (up) {
+      html += '<div class="up-block"><div class="up-head"><span class="up-id">' + esc(up.up.split(' ')[0]) + '</span><span style="min-width:0; overflow:hidden; text-overflow:ellipsis;">' + esc(up.up.replace(/^[^\s]+\s/, '')) + '</span></div>';
+      up.steps.forEach(function (s) {
+        var st = stepStatus(s);
+        counts[st] = (counts[st] || 0) + 1;
+        var sel = state.selectedStep === s.id ? ' selected' : '';
+        var skip = st === 'wait' ? ' locked-skip' : '';
+        var cls = 'step ' + st + (s.indent ? ' indent' : '') + sel + skip;
+        var meta = stepMeta(s, st);
+        var kindChip = s.phaseKind
+          ? '<span class="eq-tag" title="kind">' + esc(s.phaseKind) + '</span>'
+          : (s.eq ? '<span class="eq-tag" title="' + esc(s.eqName || s.eq) + '">' + esc(s.eq) + '</span>' : '');
+        html += '<div class="' + cls + '" data-step="' + esc(s.id) + '" role="button" tabindex="0">' +
+          '<span class="no">' + (st === 'done' ? '' : (s.kind === 'ph' ? 'P' : s.id.split('-').pop())) + '</span>' +
+          '<span class="name">' + esc(s.id) + ' ' + esc(s.name) + kindChip + '</span>' +
+          '<span class="meta">' + esc(meta) + '</span></div>';
+      });
+      html += '</div>';
+    });
+    $('phaseBoard').innerHTML = html;
+    $('phaseProgress').textContent =
+      '완료 ' + (counts.done || 0) + ' / 진행 ' + (counts.active || 0) +
+      ' / 대기 ' + (counts.wait || 0) +
+      (counts.blocked ? ' / 차단 ' + counts.blocked : '');
+  }
+
+  /* 칭량 E15: 칭량 진행 요약 (읽기 전용) — 현재 칭량 OP, 아니면 첫 칭량 OP 의 계획 줄 */
+  function summaryWeighStep() {
+    var op = currentOpForSign();
+    if (isWeighStep(op)) return op;
+    for (var i = 0; i < OP_ORDER.length; i++) { if (isWeighStep(OP_ORDER[i])) return OP_ORDER[i]; }
+    return null;
+  }
+  function renderWeighSummary() {
+    var D = window.EbrDispense;
+    var op = summaryWeighStep();
+    var body = $('weighSumBody'), foot = $('weighSumFoot');
+    $('btnOpenWeighScreen').setAttribute('data-href', weighScreenHref());
+    if (!op) {
+      body.innerHTML = '<div class="nodata">칭량 단계 없음</div>';
+      foot.innerHTML = '<span class="badge muted">칭량 —</span>';
+      $('kpiLot').textContent = '—';
+      $('kpiLotNote').textContent = '칭량 단계 없음';
+      $('kpiLotCard').classList.remove('warning');
+      return;
+    }
+    var wg = weighGateFor(op);
+    var sm = (D && D.opSummary && execCtx.batchId) ? D.opSummary(execCtx.batchId, wg.filter) : null;
+    var lines = sm && sm.ok ? sm.lines : [];
+    $('weighSumScope').textContent = op + ' · ebr.dispense.v1 · 읽기 전용 · 줄마다 2인 서명';
+    body.innerHTML = lines.length ? lines.map(function (l) {
+      var ver = l.status === 'VERIFIED';
+      var badge = ver ? 'ok' : (l.status === 'PLANNED' ? 'muted' : (l.status === 'DEVIATION' || l.status === 'OOT') ? 'error' : 'info');
+      return '<div class="wl-row' + (ver ? ' done' : '') + '">' +
+        '<span class="wl-id">' + esc(l.lineId) + '</span>' +
+        '<span class="wl-mat" title="' + esc(l.materialId) + '">' + esc(l.materialName || l.materialId) + ' <span class="muted">' + esc(l.materialId) + '</span></span>' +
+        '<span class="num">' + esc(l.theoQty != null ? fmtQty(l.theoQty) : '—') + ' ' + esc(l.uom || '') + '</span>' +
+        '<span class="text-center"><span class="badge ' + badge + '">' + esc(l.statusLabel || l.status) + '</span></span>' +
+        '<span>' + esc(uidLabel(l.performedBy) || '—') + '</span>' +
+        '<span>' + esc(uidLabel(l.verifiedBy) || '—') + '</span></div>';
+    }).join('') : '<div class="nodata">' + esc(wg.message || '칭량 계획 없음') + '</div>';
+    var opDone = !!state.opDone[op];
+    var sumBadge = wg.total ? ('<span class="badge ' + (wg.ok ? 'ok' : (wg.why === 'open_deviation' ? 'error' : 'info')) + '">검증 ' + wg.verified + '/' + wg.total + '</span>') : '<span class="badge error">계획 없음</span>';
+    foot.innerHTML = sumBadge + ' <span>' + esc(opDone ? op + ' 자동 완료 — OP 서명 없음' : (wg.ok ? '줄 모두 VERIFIED — 자동 완료 대상' : (wg.message || ''))) + '</span>';
+    $('kpiLot').textContent = wg.total ? (wg.verified + '/' + wg.total) : '—';
+    $('kpiLotNote').textContent = opDone ? '칭량 OP 완료' : (wg.ok ? '자동 완료 대상' : (wg.why === 'open_deviation' ? '열린 칭량 일탈' : (wg.total ? '미검증 ' + (wg.total - wg.verified) : '계획 없음')));
+    $('kpiLotCard').classList.toggle('warning', !opDone && !wg.ok && opIndex(op) === activeOpIndex());
+  }
+
+  function renderElig() {
+    var rows = eligRows();
+    var fail = 0, warn = 0;
+    var html = rows.map(function (r) {
+      var rowCls = 'elig-row';
+      if (r.cal === 'fail' || r.ras === 'fail' || r.cfms === 'fail') { rowCls += ' fail'; fail++; }
+      else if (r.cal === 'warn' || r.cfms === 'warn') { rowCls += ' warn'; warn++; }
+      return '<div class="' + rowCls + '">' +
+        '<span class="ec" title="' + esc(r.name) + '">' + esc(r.ec) + ' v' + r.ver + '</span>' +
+        '<span>' + esc(r.equip) + ' · ' + esc(r.equipName) +
+          ' <span class="muted hash">· ' + esc(r.note) + '</span></span>' +
+        '<span class="text-center">' + badgeRt(r.ras) + '</span>' +
+        '<span class="text-center">' + badgeRt(r.cal) + '</span>' +
+        '<span class="text-center">' + badgeRt(r.cfms) + '</span></div>';
+    }).join('');
+    $('eligBody').innerHTML = html;
+    var pass = rows.length - fail;
+    var sumBadge = fail ? '<span class="badge error">차단</span>' : warn ? '<span class="badge warn">경고</span>' : '<span class="badge ok">통과</span>';
+    $('eligSum').innerHTML = sumBadge +
+      ' <span>적격 클래스 ' + pass + '/' + rows.length +
+      (fail ? ' — 교정/적격 미충족 설비는 단계 시작 불가' : ' — 현재 OP 요구 클래스 충족') + '</span>';
+    $('kpiElig').textContent = fail ? '차단' : warn ? '경고' : '통과';
+    $('kpiEligNote').textContent = pass + '/' + rows.length + ' 클래스';
+    $('kpiEligCard').classList.toggle('warning', !!fail);
+  }
+
+  function renderIl() {
+    var banner = $('ilBanner');
+    var key = state.il;
+    if (!key || !IL[key]) {
+      banner.className = 'il-banner';
+      banner.classList.remove('open');
+      $('kpiIl').textContent = '없음';
+      $('kpiIlNote').textContent = '활성 0';
+      $('kpiIlCard').classList.remove('warning');
+      return;
+    }
+    var d = IL[key];
+    banner.className = 'il-banner open ' + d.cls;
+    $('ilDot').className = 'status-dot lg ' + d.dot;
+    $('ilGrade').textContent = d.grade;
+    $('ilMsg').textContent = d.msg;
+    $('ilActions').innerHTML = d.actions.map(function (a) {
+      return '<button class="btn inner' + (a.primary ? ' primary' : '') + '" type="button" data-il-act="' + esc(a.t) + '">' + esc(a.t) + '</button>';
+    }).join('');
+    $('kpiIl').textContent = d.grade;
+    $('kpiIlNote').textContent = '활성 1 · ' + key;
+    $('kpiIlCard').classList.add('warning');
+  }
+
+  function currentOpForSign() {
+    var op = resolveOp(state.selectedStep);
+    var act = activeOpIndex();
+    if (opIndex(op) !== act) op = OP_ORDER[act] || op;
+    return op;
+  }
+
+  function renderSigns() {
+    var op = currentOpForSign();
+    var sg = state.signs[op] || { perform: false, confirm: false };
+    var weigh = isWeighStep(op);
+    var cards = [];
+    var firstOp = OP_ORDER[0];
+    if (activeOpIndex() > 0 || (firstOp && state.opDone[firstOp])) {
+      cards.push({
+        id: 'sc-prev', title: '선행 OP 서명',
+        meta: '완료된 단계 서명 유효', st: 'done', label: '잠금'
+      });
+    }
+    var opName = op;
+    PHASES_TMPL.forEach(function (u) { u.steps.forEach(function (s) { if (s.id === op) opName = s.name; }); });
+    var wg = weigh ? weighGateFor(op) : null;
+    if (weigh) {   /* 칭량 E15 · Q8: 칭량 OP 는 OP 서명 없음 — 줄 2인 서명 요약 + 칭량 화면 링크 */
+      var weq = null, wst = 'pending', wlabel = '줄 서명 대기', wmeta = '검증 ' + wg.verified + '/' + wg.total + ' · 칭량 화면에서 줄마다 수행 · 확인 서명';
+      if (state.opDone[op]) { wst = 'done'; wlabel = '자동 완료'; wmeta = '검증 ' + wg.verified + '/' + wg.total + ' · OP 서명 없음 (줄 2인 서명)'; }
+      else if (wg.ok && state.il === 'absolute') { wst = 'blocked'; wlabel = '인터록'; wmeta = '검증 ' + wg.verified + '/' + wg.total + ' VERIFIED · Absolute 인터록 해소 후 자동 완료'; }
+      else if (wg.ok && !(weq = assertEquipUsableFor(op)).ok) { wst = 'blocked'; wlabel = '설비 사용 불가'; wmeta = '검증 ' + wg.verified + '/' + wg.total + ' VERIFIED · ' + String(weq.reason || '').split('\n')[0] + ' — 해소 후 자동 완료'; }
+      else if (wg.ok) { wst = 'done'; wlabel = '자동 완료 대상'; wmeta = '검증 ' + wg.verified + '/' + wg.total + ' VERIFIED · 열린 일탈 0'; }
+      else if (wg.why !== 'pending') { wst = 'blocked'; wlabel = wg.why === 'open_deviation' ? '일탈 처분 대기' : '계획 없음'; wmeta = wg.message || '칭량 계획 없음'; }
+      cards.push({ id: 'sc-weigh', title: op + ' ' + opName + ' — 칭량 검증 ' + wg.verified + '/' + wg.total, meta: wmeta, st: wst, label: wlabel, link: weighScreenHref() });
+    } else {
+      var st = 'pending';
+      var meta = '수행 대기 · 확인 대기';
+      var label = '서명 대기';
+      if (sg.perform && !sg.confirm) { meta = '수행 A · 확인 대기'; label = '확인 대기'; }
+      if (sg.confirm) { st = 'done'; meta = '수행 A · 확인 B'; label = '유효'; }
+      if (state.il === 'absolute') {
+        st = 'blocked'; meta = '인터록 차단 — 서명 불가'; label = '차단';
+      }
+      cards.push({ id: 'sc-cur', title: op + ' ' + opName, meta: meta, st: st, label: label });
+    }
+    cards.push({
+      id: 'sc-brief', title: '변경 브리핑 CC-031',
+      meta: "읽고 이해함 A · B", st: 'done', label: '완료'
+    });
+
+    $('signCards').innerHTML = cards.map(function (c) {
+      return '<div class="sign-card ' + c.st + '" data-sc="' + esc(c.id) + '">' +
+        '<span class="sc-title">' + esc(c.title) + '</span>' +
+        '<span class="sc-meta">' + esc(c.meta) + '</span>' +
+        (c.link ? '<a class="lnk sc-link" id="lnkWeighScreen" href="' + esc(c.link) + '">칭량 화면 열기 →</a>' : '') +
+        '<span class="badge ' + (c.st === 'done' ? 'ok' : c.st === 'blocked' ? 'error' : 'warn') + '">' + esc(c.label) + '</span></div>';
+    }).join('');
+
+    var pending;
+    if (weigh) {
+      pending = state.opDone[op] ? 0 : Math.max(0, wg.total - wg.verified);
+      $('kpiSignNote').textContent = '줄 서명 ' + wg.verified + '/' + wg.total;
+    } else {
+      pending = sg.confirm ? 0 : (sg.perform ? 1 : 2);
+      if (state.opDone[op]) pending = 0;
+      $('kpiSignNote').textContent = '수행/확인';
+    }
+    $('kpiSign').textContent = String(pending);
+
+    /* 칭량 OP 는 OP 서명 버튼 숨김 (Q8). 다른 OP 는 그대로 */
+    $('btnPerformSign').style.display = weigh ? 'none' : '';
+    $('tipConfirm').style.display = weigh ? 'none' : '';
+    var blocked = state.il === 'absolute' || state.opDone[op];
+    var canPerform = !weigh && !sg.perform && !blocked && !(state.eqFail && (op === 'OP2-1' || op === 'OP2-2'));
+    var canConfirm = !weigh && sg.perform && !sg.confirm && !blocked;
+    $('btnPerformSign').disabled = !canPerform;
+    $('btnConfirmSign').disabled = !canConfirm;
+  }
+
+  function renderLog() {
+    var kind = $('fltLogKind').value;
+    var onlyFail = $('fltLogFail').checked;
+    var rows = state.logs.filter(function (r) {
+      if (kind && r.kind !== kind) return false;
+      if (onlyFail && r.judge !== 'WARN' && r.judge !== 'FAIL') return false;
+      return true;
+    });
+    $('grdLogBody').innerHTML = rows.map(function (r, i) {
+      return '<tr data-hash="' + esc(r.hash) + '">' +
+        '<td class="col-no">' + (i + 1) + '</td>' +
+        '<td>' + esc(r.ts) + '</td>' +
+        '<td>' + esc(r.kind) + '</td>' +
+        '<td>' + esc(r.step) + '</td>' +
+        '<td>' + esc(r.item) + '</td>' +
+        '<td>' + esc(r.value) + '</td>' +
+        '<td>' + esc(r.equip) + '</td>' +
+        '<td>' + srcTag(r.src) + '</td>' +
+        '<td>' + judgeHtml(r.judge) + '</td>' +
+        '<td>' + esc(r.sig) + '</td>' +
+        '<td>' + esc(r.user) + '</td>' +
+        '<td class="hash">' + esc(r.hash) + '</td></tr>';
+    }).join('');
+    MesUI.setTotal('grdLog', rows.length);
+  }
+
+  function renderKpi() {
+    $('kpiStatus').textContent = (state.il === 'absolute' || state.eqFail) ? '보류' : BATCH.status;
+    $('kpiBatch').textContent = BATCH.id;
+    var stepId = state.selectedStep;
+    var step = null;
+    PHASES_TMPL.forEach(function (up) {
+      up.steps.forEach(function (s) { if (s.id === stepId) step = s; });
+    });
+    if (step) {
+      $('kpiStep').textContent = step.id;
+      $('kpiStepName').textContent = step.name;
+    }
+  }
+
+  function renderAll() {
+    renderPhases();
+    renderWeighSummary();
+    renderElig();
+    renderIl();
+    renderSigns();
+    renderLog();
+    renderKpi();
+  }
+
+  /* ---------- 이벤트 ---------- */
+  $('btnCopyLink').addEventListener('click', function () {
+    MesUI.toast('화면 링크를 복사했습니다.', 'info');
+  });
+  $('btnBatchPick').addEventListener('click', function () {
+    MesUI.toast('배치 코드뷰 팝업(연동) — PoC', 'info');
+  });
+  $('btnSearch').addEventListener('click', function () {
+    if (execCtx.blocked) { MesUI.alert('발행 스냅샷이 없어 실행할 수 없습니다.', 'Warning'); return; }
+    MesUI.toast('배치 ' + $('schBatch').value + ' 조회(mock) · 상태 유지', 'ok');
+    renderAll();
+  });
+  $('btnReset').addEventListener('click', function () {
+    MesUI.confirm('생산 실행 상태와 localStorage를 모두 초기화할까요?', function () {
+      resetAll();
+    }, { title: 'Confirm' });
+  });
+  $('schLine').addEventListener('change', function () { saveState(); });
+
+  $('phaseBoard').addEventListener('click', function (e) {
+    var step = e.target.closest('[data-step]');
+    if (!step) return;
+    var id = step.getAttribute('data-step');
+    var gate = canSelectStep(id);
+    if (!gate.ok) {
+      MesUI.toast('순서 인터록: ' + gate.reason, 'warn');
+      pushLog({
+        ts: nowTs(), kind: '인터록', step: id,
+        item: '단계 건너뛰기 차단', value: gate.reason,
+        equip: '—', src: 'AUTO', judge: 'WARN', sig: '—', user: 'SYS',
+        hash: hash8('skip' + id + Date.now())
+      });
+      saveState();
+      renderLog();
+      return;
+    }
+    state.selectedStep = id;
+    saveState();
+    renderPhases();
+    renderSigns();
+    renderKpi();
+    MesUI.toast('단계 선택: ' + id, 'info');
+  });
+
+  $('btnCompleteStep').addEventListener('click', completeCurrentOp);
+  $('btnOpenOi').addEventListener('click', function () {
+    MesUI.toast('OI 단계 실행(s-ebr-step-exec-oi) — 미구현 · 개념 링크', 'warn');
+  });
+
+  $('btnOpenWeighScreen').addEventListener('click', function () {
+    location.href = weighScreenHref();
+  });
+
+  $('btnRechkElig').addEventListener('click', function () {
+    MesUI.toast('장비 클래스 적격성 재점검 완료(mock)', 'ok');
+    renderElig();
+  });
+  $('btnAddLog').addEventListener('click', function () {
+    MesUI.toast('공정 로그 새로고침', 'ok');
+    renderLog();
+  });
+  $('fltLogKind').addEventListener('change', renderLog);
+  $('fltLogFail').addEventListener('change', renderLog);
+
+  function openSign(meaning) {
+    if (state.il === 'absolute') {
+      MesUI.alert('인터록 활성 — 서명할 수 없습니다.', 'Warning');
+      return;
+    }
+    var op = currentOpForSign();
+    if (meaning === '수행') {
+      var eu2 = assertEquipUsableFor(op);
+      if (!eu2.ok) {
+        state.il = 'absolute';
+        IL.absolute.msg = 'Absolute — ' + eu2.reason;
+        saveState(); renderAll();
+        MesUI.alert('Absolute — 설비 사용 불가 (Phase 시작/USE)\n\nequipmentId=' + (eu2.equipmentId || '') +
+          (eu2.holdUntil ? '\nholdUntil=' + eu2.holdUntil : '') + '\n\n' + eu2.reason, 'Error');
+        return;
+      }
+    }
+    if (state.eqFail && meaning === '수행' && (op === 'OP2-1' || op === 'OP2-2')) {
+      MesUI.alert('장비 적격 미충족(교정 만료) — 단계 시작·수행 서명이 차단됩니다.', 'Warning');
+      return;
+    }
+    if (isWeighStep(op)) {   /* 칭량 Q8: 칭량 OP 는 OP 서명 없음 — 칭량 화면 줄 서명 후 자동 완료 */
+      var wg2 = weighGateFor(op);
+      MesUI.alert('칭량 단계는 OP 서명이 없습니다 — 칭량 화면에서 줄마다 수행 · 확인 서명 후 자동 완료됩니다.' + (wg2.ok ? '' : '\n\n' + wg2.message), 'Warning');
+      return;
+    }
+    var nm = op;
+    PHASES_TMPL.forEach(function (u) { u.steps.forEach(function (s) { if (s.id === op) nm = s.name; }); });
+    $('dlgSignTitle').textContent = '전자서명 — ' + meaning + ' (플레이스홀더)';
+    $('dlgSignMeaning').textContent = meaning;
+    $('dlgSignStep').textContent = op + ' ' + nm;
+    $('dlgSignAuth').textContent = meaning === '확인' ? '전 요소 (ID + 카드 + PIN)' : 'PIN (연속 세션)';
+    $('dlgSignBody').textContent = meaning === '수행'
+      ? '수행 서명: 현재 세션 작업자가 Operation 값을 보증합니다. PoC에서는 상태만 갱신합니다.'
+      : '확인 서명: 수행자와 다른 사람이 전 요소 인증으로 확인합니다. 동일인 차단이 적용됩니다.';
+    MesUI.openDialog('dlgSignHint');
+  }
+  $('btnPerformSign').addEventListener('click', function () { openSign('수행'); });
+  $('btnConfirmSign').addEventListener('click', function () { openSign('확인'); });
+  $('btnSignAck').addEventListener('click', function () {
+    var meaning = $('dlgSignMeaning').textContent;
+    var op = currentOpForSign();
+    if (!state.signs[op]) state.signs[op] = { perform: false, confirm: false };
+    if (meaning === '수행') state.signs[op].perform = true;
+    if (meaning === '확인') state.signs[op].confirm = true;
+    pushLog({
+      ts: nowTs(), kind: '서명', step: op,
+      item: meaning + ' 서명', value: meaning === '확인' ? '확인 · 전 요소' : '수행 · PIN',
+      equip: '—', src: 'MANUAL', judge: '—',
+      sig: meaning === '확인' ? '확인 B' : '수행 A',
+      user: meaning === '확인' ? 'B' : 'A',
+      hash: hash8(op + meaning + Date.now())
+    });
+    MesUI.closeDialog('dlgSignHint');
+    MesUI.toast(meaning + ' 서명 완료(데모)', 'ok');
+    saveState();
+    renderSigns();
+    renderLog();
+    renderKpi();
+  });
+
+  $('ilActions').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-il-act]');
+    if (!btn) return;
+    var act = btn.getAttribute('data-il-act');
+    if (act === '적합 LOT 선택') {
+      state.il = null;
+      saveState();
+      renderAll();
+      MesUI.toast('적합 LOT 경로(데모) — 인터록 해제', 'ok');
+      return;
+    }
+    MesUI.toast('인터록 조치: ' + act + ' (연동)', 'info');
+  });
+
+  /* flow-strip: real hrefs + query from wireFlowStripLinks (no preventDefault) */
+  wireFlowStripLinks();
+
+  $('demoFab').addEventListener('click', function () {
+    $('demoPanel').classList.toggle('open');
+  });
+  if ($('demoAllowHardcoded')) {
+    $('demoAllowHardcoded').addEventListener('change', function () {
+      if (this.checked) {
+        applyDemoMode();
+        setExecBlocked(false);
+        saveState();
+        renderAll();
+        MesUI.toast('데모 하드코딩 BATCH 허용', 'warn');
+      } else {
+        bindExecFromQuery();
+        renderAll();
+      }
+    });
+  }
+  function applyDemoIl() {
+    var abs = $('demoIlAbs').checked, hard = $('demoIlHard').checked,
+        ctrl = $('demoIlCtrl').checked, warn = $('demoIlWarn').checked;
+    if (abs) { state.il = 'absolute'; $('demoIlHard').checked = $('demoIlCtrl').checked = $('demoIlWarn').checked = false; }
+    else if (hard) {
+      state.il = 'hardqa';
+      $('demoIlCtrl').checked = $('demoIlWarn').checked = false;
+      if (Dev && Dev.create && !state.hardQaDevCreated) {
+        try {
+          Dev.create({
+            batchId: execCtx.batchId || BATCH.id || 'BR-DEMO-0001',
+            orderNo: execCtx.orderNo || BATCH.orderNo || null,
+            source: 'production',
+            title: '설비 전환 Hard-QA (EC-MIX-01 외)',
+            grade: 'Hard-QA',
+            status: 'open'
+          });
+          state.hardQaDevCreated = true;
+          MesUI.toast('일탈 초안 생성(Dev) · Hard-QA', 'warn');
+        } catch (eDev) { /* ignore */ }
+      }
+    }
+    else if (ctrl) { state.il = 'controlled'; $('demoIlWarn').checked = false; }
+    else if (warn) { state.il = 'warning'; }
+    else if (state.il === 'absolute' || state.il === 'hardqa' || state.il === 'controlled' || state.il === 'warning') {
+      state.il = null;
+    }
+    state.eqFail = $('demoEqFail').checked;
+    saveState();
+    renderAll();
+  }
+  ['demoIlAbs', 'demoIlHard', 'demoIlCtrl', 'demoIlWarn', 'demoEqFail'].forEach(function (id) {
+    $(id).addEventListener('change', function () {
+      if (id.indexOf('demoIl') === 0 && $(id).checked) {
+        ['demoIlAbs', 'demoIlHard', 'demoIlCtrl', 'demoIlWarn'].forEach(function (oid) {
+          if (oid !== id) $(oid).checked = false;
+        });
+      }
+      applyDemoIl();
+    });
+  });
+  $('demoSkipTry').addEventListener('click', function () {
+    state.selectedStep = 'OP1-1';
+    var gate = canSelectStep('OP3-1');
+    MesUI.toast('건너뛰기 시도 OP3-1 → ' + (gate.ok ? '허용' : gate.reason), 'warn');
+    /* trigger same path as click */
+    var fake = document.createElement('div');
+    fake.setAttribute('data-step', 'OP3-1');
+    $('phaseBoard').appendChild(fake);
+    fake.click();
+    fake.remove();
+  });
+  $('demoReset').addEventListener('click', resetAll);
+
+  /* boot */
+  /* P0: bind issued snapshot from URL before restoring session */
+  bindExecFromQuery();
+  wireFlowStripLinks();
+  var restored = false;
+  if (!execCtx.blocked) restored = loadState();
+  /* 세션 step id가 스냅샷 OP_ORDER와 섞이면 리셋 */
+  if (restored) {
+    var SnapBoot = window.EbrExecSnapshot;
+    var okSess = SnapBoot
+      ? SnapBoot.sessionMatchesOpOrder({ opDone: state.opDone }, OP_ORDER)
+      : (OP_ORDER.indexOf(state.selectedStep) >= 0 || OP_ORDER.indexOf(state.activeOp) >= 0);
+    if (!okSess) {
+      state = defaultState();
+      restored = false;
+      try { localStorage.removeItem(LS_KEY); } catch (eBoot) {}
+    }
+  } else if (!execCtx.blocked) {
+    state = defaultState();
+  }
+  renderAll();
+  if (restored) MesUI.toast('localStorage에서 실행 상태 복원 · ' + (BATCH.id || ''), 'info');
+  else if (usingSnapshotPhases) MesUI.toast('신규 세션 · 발행 스냅샷 Phase 보드', 'info');
+  else MesUI.toast('신규 세션 · 칭량은 칭량 화면에서 (생산은 VERIFIED 결과만 사용)', 'info');
+  /* 칭량 E17: 진입 · 창 복귀(focus) · 다른 탭 저장(storage — 칭량 · 발행 · 일탈 · 설비 상태) 때 칭량 OP 자동 완료 판정 */
+  evaluateWeighAutoComplete('진입');
+  window.addEventListener('focus', function () {
+    if (!evaluateWeighAutoComplete('focus').length && !execCtx.blocked) renderAll();
+  });
+  window.addEventListener('storage', function (e) {
+    var D = window.EbrDispense, K = (D && D.KEYS) || {};
+    var EQK = Equip && Equip.KEY;
+    if (e.key !== null && e.key !== K.DISPENSE && e.key !== K.ISSUED && e.key !== K.DEV && e.key !== EQK) return;
+    if (!evaluateWeighAutoComplete('storage').length && !execCtx.blocked) renderAll();
+  });
+
+  /* —— resizable split panes (2-col) —— */
+  /* localStorage shape: {"left": <px>}  key=ebr.productionExec.split.v1 */
+  var SPLIT_KEY = 'ebr.productionExec.split.v1';
+  var SPLIT_DEFAULT_LEFT = 960;
+  function rsLogicalPx(visualPx) {
+    var wrap = document.getElementById('shellScale');
+    var s = 1;
+    try {
+      if (wrap) s = parseFloat(getComputedStyle(wrap).getPropertyValue('--scale')) || 1;
+    } catch (err) { s = 1; }
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    return visualPx / s;
+  }
+  function applySplitWidths(left) {
+    var split = document.getElementById('prodExecSplit');
+    if (!split) return;
+    var splitW = rsLogicalPx(split.getBoundingClientRect().width) || 1200;
+    var gutter = 6;
+    var minL = 280, minR = 280;
+    var maxL = Math.max(minL, Math.floor(splitW * 0.7));
+    maxL = Math.min(maxL, splitW - gutter - minR);
+    /* also keep right from exceeding ~55% by forcing left floor */
+    var minLByRight = Math.max(minL, Math.ceil(splitW - gutter - Math.floor(splitW * 0.55)));
+    if (minLByRight > maxL) minLByRight = minL;
+    var lo = Math.max(minLByRight, Math.min(maxL, left | 0));
+    var paneL = document.getElementById('panePhaseSteps');
+    if (!paneL) return;
+    paneL.style.flex = '0 0 ' + lo + 'px';
+    paneL.style.width = lo + 'px';
+  }
+  function loadSplit() {
+    try {
+      var s = JSON.parse(localStorage.getItem(SPLIT_KEY) || 'null');
+      if (s && s.left) applySplitWidths(s.left);
+    } catch (e) {}
+  }
+  function saveSplit() {
+    var paneL = document.getElementById('panePhaseSteps');
+    if (!paneL) return;
+    localStorage.setItem(SPLIT_KEY, JSON.stringify({
+      left: rsLogicalPx(paneL.getBoundingClientRect().width)
+    }));
+  }
+  function bindGutter(gutterId) {
+    var gut = document.getElementById(gutterId);
+    if (!gut) return;
+    gut.addEventListener('mousedown', function (ev) {
+      ev.preventDefault();
+      var startX = ev.clientX;
+      var startL = rsLogicalPx(document.getElementById('panePhaseSteps').getBoundingClientRect().width);
+      gut.classList.add('is-drag');
+      document.body.classList.add('is-resizing');
+      function onMove(e) {
+        applySplitWidths(startL + rsLogicalPx(e.clientX - startX));
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        gut.classList.remove('is-drag');
+        document.body.classList.remove('is-resizing');
+        saveSplit();
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    gut.addEventListener('dblclick', function () {
+      applySplitWidths(SPLIT_DEFAULT_LEFT);
+      saveSplit();
+    });
+  }
+  loadSplit();
+  bindGutter('gutterMain');
+
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

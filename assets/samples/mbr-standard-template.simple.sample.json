@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "dosage": "tablet",
+  "templates": [
+    {
+      "id": "TPL-TAB-04",
+      "name": "정제 표준 · 직타 · 이중 포장",
+      "version": "1.0",
+      "description": "기존 라이브러리 공정만 조합한 예시입니다.",
+      "phases": [
+        "weigh",
+        "mix",
+        "compress",
+        "pack"
+      ]
+    }
+  ]
+}

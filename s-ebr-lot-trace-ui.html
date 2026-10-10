@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-ebr-lot-trace-ui  (P-02d · LOT 추적 — 전방/후방 계보)
+  템플릿       : T-01 조회 보드 + 계보 트리 · 타임라인
+  CLIENT_TYPE  : UI (shell-ui 1920×1080)
+  위치         : 생산/포장 실행과 교차 · 출하 게이트 이전 추적 조회
+  공용 자산     : ./assets/mesui.css, ./assets/mesui.js
+  PoC 범위     :
+    - 배치 BR-2026-0412 기준 원료 → 중간체 → 완제품 → 포장/라벨 LOT 계보
+    - LOT 또는 배치로 검색 · 정추적(Forward) / 역추적(Backward)
+    - 타임라인에서 생산·포장 화면으로 개념 링크
+  미결         : 실 WMS/LIMS 연동 · 시리얼 단위 추적 · 타 배치 교차 오염 경로
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<link rel="icon" href="data:,">
+<title>LOT 추적 — eMBR/eBR PoC</title>
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  body { margin: 0; background: #fff; }
+  .lnk { color: var(--c-primary); cursor: pointer; text-decoration: none; }
+  .lnk:hover { color: var(--c-primary-active); }
+  .lnk.disabled { color: var(--c-text-disabled); cursor: default; pointer-events: none; }
+  .mono { font-family: Consolas, 'Courier New', monospace; }
+
+  .flow-strip {
+    flex: 0 0 36px; display: flex; align-items: center; gap: 0; padding: 0 4px;
+    border: 1px solid var(--c-border-03); background: var(--bc-gray-light);
+  }
+  .flow-strip .fl {
+    display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px;
+    font-size: 12px; color: var(--c-text-sub); border-radius: 2px; white-space: nowrap;
+  }
+  .flow-strip .fl .n {
+    width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: bold; background: var(--bc-gray); color: var(--c-text-sub);
+  }
+  .flow-strip .fl.done { color: var(--c-text); }
+  .flow-strip .fl.done .n { background: var(--c-ok); color: #fff; }
+  .flow-strip .fl.active { color: var(--c-primary); font-weight: bold; background: #fff; box-shadow: inset 0 -2px 0 var(--c-primary); }
+  .flow-strip .fl.active .n { background: var(--c-primary); color: #fff; }
+  .flow-strip .fl.wait .n { background: var(--bc-gray); color: var(--c-text-disabled); }
+  .flow-strip .arrow { color: var(--c-border-03); padding: 0 2px; font-size: 14px; }
+  .flow-strip .hint { margin-left: auto; font-size: 11px; color: var(--c-text-disabled); padding-right: 8px; }
+  .flow-strip .fl { text-decoration: none; }
+  .snap-banner {
+    display: flex; align-items: flex-start; gap: 8px; min-height: 32px; padding: 8px 12px;
+    border: 1px solid var(--c-border-04); border-radius: var(--radius); font-size: 12px;
+    background: var(--bc-plan); margin: 0 0 8px;
+  }
+  .snap-banner.bc-alam { background: var(--bc-alam); border-color: var(--c-error); }
+  .snap-banner.bc-good { background: var(--bc-good); }
+  .snap-banner.hidden { display: none; }
+  .snap-banner .mono { font-family: Consolas, 'Courier New', monospace; }
+
+  .dir-toggle {
+    display: inline-flex; align-items: stretch; height: 28px; border: 1px solid var(--c-border-03);
+    border-radius: 2px; overflow: hidden; background: #fff;
+  }
+  .dir-toggle button {
+    border: none; background: transparent; padding: 0 14px; font: 12px 'Malgun Gothic', sans-serif;
+    color: var(--c-text-sub); cursor: pointer; letter-spacing: -0.03em;
+  }
+  .dir-toggle button + button { border-left: 1px solid var(--c-border-03); }
+  .dir-toggle button.is-on { background: var(--c-primary); color: #fff; font-weight: bold; }
+
+  .shell-body > .split.main-split {
+    flex: 1 1 auto; min-height: 0; display: flex; flex-direction: row; gap: 0;
+    width: 100%; max-width: 100%; overflow: hidden;
+    grid-template-columns: unset; /* override mesui .split grid */
+  }
+  .shell-body > .split.main-split > .grid-block.rs-pane {
+    min-height: 0; min-width: 160px; display: flex; flex-direction: column; overflow: hidden;
+  }
+  #paneGene { flex: 0 0 820px; width: 820px; }
+  #paneLotDetail { flex: 1 1 auto; min-width: 200px; }
+  /* ---- resizable split gutters (rs-*) — do not collide with mesui .split ---- */
+  .rs-gutter {
+    flex: 0 0 6px; width: 6px; min-width: 6px; cursor: col-resize;
+    background: #e8edf5; border: none; padding: 0; margin: 0;
+    align-self: stretch; position: relative;
+  }
+  .rs-gutter:hover, .rs-gutter.is-drag { background: #2C59D9; }
+  .rs-gutter::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px;
+  }
+  body.is-resizing { cursor: col-resize; user-select: none; }
+  body.is-resizing .rs-pane { pointer-events: none; }
+
+  .shell-body > .grid-block.tl-block { flex: 0 0 236px; min-height: 0; }
+  .kpi-board { min-height: 64px; }
+
+  /* 계보 트리 */
+  .gene-wrap { display: flex; flex-direction: column; gap: 0; padding: 8px 10px 12px; min-height: 0; overflow: auto; }
+  .gene-layer {
+    position: relative; display: flex; flex-direction: column; gap: 6px; padding: 8px 0 8px 0;
+  }
+  .gene-layer + .gene-layer { border-top: 1px dashed var(--c-border-05); margin-top: 4px; }
+  .gene-layer .ly-head {
+    display: flex; align-items: center; gap: 8px; height: 22px; font-size: 11px; font-weight: bold;
+    color: var(--c-text-sub); text-transform: none; letter-spacing: -0.02em;
+  }
+  .gene-layer .ly-head .ly-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 2px; background: var(--bc-gray); color: var(--c-text);
+    font-size: 10px;
+  }
+  .gene-layer .ly-head .ly-arrow { color: var(--c-primary); font-size: 12px; margin-left: 4px; }
+  .gene-cards { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; }
+  .lot-card {
+    flex: 0 1 auto; min-width: 168px; max-width: 240px;
+    border: 1px solid var(--c-border-04); border-left: 4px solid var(--c-border-03);
+    border-radius: var(--radius); background: var(--c-board-normal);
+    padding: 8px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 3px;
+    transition: box-shadow .12s, border-color .12s;
+  }
+  .lot-card:hover { border-color: var(--c-primary); box-shadow: 0 1px 4px rgba(0,80,160,.12); }
+  .lot-card.selected {
+    outline: 2px solid var(--c-primary); outline-offset: -2px;
+    border-color: var(--c-primary); background: #f3f7ff;
+  }
+  .lot-card.focus-root { box-shadow: inset 0 0 0 1px var(--c-primary); }
+  .lot-card .lc-lot { font-size: 13px; font-weight: bold; font-family: Consolas, 'Courier New', monospace; color: var(--c-primary); }
+  .lot-card .lc-nm { font-size: 12px; color: var(--c-text); line-height: 1.3; }
+  .lot-card .lc-meta { font-size: 11px; color: var(--c-text-sub); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .lot-card.rm { border-left-color: #2a7a2a; }
+  .lot-card.im { border-left-color: #6952db; }
+  .lot-card.fg { border-left-color: var(--c-primary); }
+  .lot-card.pk { border-left-color: #f56813; }
+  .lot-card.lb { border-left-color: #b37c00; }
+  .lot-card.batch { border-left-color: var(--c-navy); }
+  .lot-card.dim { opacity: .45; }
+  .lot-card.hit { opacity: 1; outline: 2px solid var(--c-warn); outline-offset: -2px; }
+
+  .kind-tag {
+    display: inline-flex; align-items: center; height: 16px; padding: 0 5px; border-radius: 2px;
+    font-size: 10px; font-weight: bold; white-space: nowrap; background: var(--bc-gray); color: var(--c-text-sub);
+  }
+  .kind-tag.rm { color: #2a7a2a; background: var(--bc-good); }
+  .kind-tag.im { color: #6952db; background: #eeeafc; }
+  .kind-tag.fg { color: var(--c-primary); background: var(--bc-plan); }
+  .kind-tag.pk { color: #f56813; background: var(--bc-alam); }
+  .kind-tag.lb { color: #b37c00; background: #FFF6D6; }
+  .kind-tag.batch { color: var(--c-navy); background: var(--bc-gray); }
+
+  /* 상세 패널 */
+  .detail-pane { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
+  .detail-empty {
+    flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+    color: var(--c-text-disabled); font-size: 13px; padding: 24px;
+  }
+  .rel-list { display: flex; flex-direction: column; gap: 0; }
+  .rel-row {
+    display: grid; grid-template-columns: 72px 1fr auto; gap: 8px; align-items: center;
+    min-height: 32px; padding: 4px 10px; border-top: 1px solid var(--c-border-05); font-size: 12px;
+  }
+  .rel-row:first-child { border-top: none; }
+  .rel-row .rel-dir { font-size: 11px; font-weight: bold; color: var(--c-text-sub); }
+  .rel-row .rel-dir.in { color: #2a7a2a; }
+  .rel-row .rel-dir.out { color: var(--c-primary); }
+  .rel-row .rel-lot { font-family: Consolas, 'Courier New', monospace; font-weight: bold; color: var(--c-primary); cursor: pointer; }
+  .rel-row .rel-lot:hover { text-decoration: underline; }
+  .rel-row .rel-nm { color: var(--c-text-sub); margin-left: 6px; font-weight: normal; font-family: 'Malgun Gothic', sans-serif; }
+
+  /* 타임라인 */
+  .tl-list { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+  .tl-row {
+    display: grid; grid-template-columns: 36px 130px 90px 1fr 160px 110px 90px;
+    gap: 0; align-items: center; min-height: 34px; padding: 0 10px;
+    border-top: 1px solid var(--c-border-05); font-size: 12px; cursor: default;
+  }
+  .tl-row:first-child { border-top: none; }
+  .tl-row:hover { background: rgba(0, 80, 160, 0.04); }
+  .tl-row.hl { background: rgba(255, 238, 218, 0.55); }
+  .tl-row .tl-dot {
+    width: 10px; height: 10px; border-radius: 50%; background: var(--c-primary); margin: 0 auto;
+  }
+  .tl-row .tl-dot.rm { background: #2a7a2a; }
+  .tl-row .tl-dot.im { background: #6952db; }
+  .tl-row .tl-dot.fg { background: var(--c-primary); }
+  .tl-row .tl-dot.pk { background: #f56813; }
+  .tl-row .tl-dot.lb { background: #b37c00; }
+  .tl-head {
+    display: grid; grid-template-columns: 36px 130px 90px 1fr 160px 110px 90px;
+    gap: 0; align-items: center; min-height: 28px; padding: 0 10px;
+    background: var(--bc-gray-light); font-size: 11px; font-weight: bold; color: var(--c-text-sub);
+    border-bottom: 1px solid var(--c-border-03); flex: 0 0 auto;
+  }
+
+  .demo-fab {
+    position: fixed; right: 2px; bottom: 0; width: 26px; height: 18px;
+    border: 1px solid #555; border-radius: 3px 3px 0 0; background: #333; color: #fff;
+    font: bold 9px/16px 'Malgun Gothic', sans-serif; text-align: center; cursor: pointer; z-index: 900; opacity: .85;
+  }
+  .demo-fab:hover { opacity: 1; }
+  .demo-panel {
+    position: fixed; right: 12px; bottom: 24px; z-index: 900; display: none; flex-direction: column; gap: 8px;
+    padding: 10px 14px; background: rgba(40, 40, 40, 0.94); color: #fff; border-radius: 4px;
+    box-shadow: 0 6px 12px rgba(0,0,0,.3); font: 12px 'Malgun Gothic', sans-serif; letter-spacing: -0.03em;
+  }
+  .demo-panel.open { display: flex; }
+  .demo-panel .dp-title { font-weight: bold; color: #ffb100; }
+  .demo-panel button {
+    font: 12px 'Malgun Gothic', sans-serif; padding: 2px 10px; border: 1px solid #888;
+    background: #555; color: #fff; border-radius: 2px; cursor: pointer; text-align: left;
+  }
+  .demo-panel button:hover { background: #666; }
+
+  /* 카탈로그/iframe 맞춤: mesui .shell-scale — 1920×1080 미만 뷰포트면 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+</style>
+</head>
+<body>
+
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui" id="shell">
+  <div class="title-bar">
+    <span class="main-title">LOT 추적</span>
+    <span class="breadcrumb">
+      <span>eMBR</span><span class="sep">&rsaquo;</span><span>배치 실행</span><span class="sep">&rsaquo;</span><span class="current">LOT 추적 · 계보</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+
+  <div class="shell-body">
+    <div class="flow-strip" id="flowStrip" aria-label="배치 수명주기 위치">
+      <a class="fl done lnk" id="lnkIssue" href="./s-ebr-batch-issue-ui.html" title="BR 발행"><span class="n">1</span>BR 발행</a>
+      <span class="arrow">&rsaquo;</span>
+      <a class="fl done lnk" id="lnkProd" href="./s-ebr-production-exec-ui.html" title="생산 실행"><span class="n">2</span>생산 실행</a>
+      <span class="arrow">&rsaquo;</span>
+      <a class="fl done lnk" id="lnkPack" href="./s-ebr-packaging-exec-ui.html" title="포장"><span class="n">3</span>포장</a>
+      <span class="arrow">&rsaquo;</span>
+      <span class="fl active" id="lnkLot"><span class="n">4</span>LOT 추적</span>
+      <span class="arrow">&rsaquo;</span>
+      <a class="fl wait lnk" id="lnkRelease" href="./s-ebr-release-gate-ui.html" title="출하 게이트"><span class="n">5</span>출하 게이트</a>
+      <span class="hint">전방·후방 계보 · issued 메타 · 쿼리 전파</span>
+    </div>
+    <div class="snap-banner hidden" id="snapBanner" role="status">
+      <span class="status-dot navy" id="snapBannerDot"></span>
+      <span id="snapBannerText">발행 스냅샷을 로드하세요 (?orderNo= 또는 ?batchId=)</span>
+    </div>
+
+    <div class="search-box cols-4">
+      <div class="search-control">
+        <span class="label">검색 키</span>
+        <span class="codeview full">
+          <input class="input code" type="text" id="schKey" value="BR-2026-0412" aria-label="LOT 또는 배치 ID" placeholder="LOT / 배치 ID">
+          <button class="cv-btn" type="button" id="btnKeyPick" title="조회"></button>
+          <input class="input desc" type="text" id="schKeyDesc" value="배치 · 정제 A 10 mg" readonly aria-label="검색 대상 설명">
+        </span>
+      </div>
+      <div class="search-control">
+        <span class="label">추적 방향</span>
+        <div class="dir-toggle" role="group" aria-label="추적 방향">
+          <button type="button" id="btnDirBack" class="is-on" title="완제품→원료 (어디서 왔는가)">역추적</button>
+          <button type="button" id="btnDirFwd" title="원료→완제품 (어디로 갔는가)">정추적</button>
+        </div>
+      </div>
+      <div class="search-control">
+        <span class="label">제품</span>
+        <input class="input" type="text" id="schProduct" value="정제 A 10 mg · MBR-TAB-A v3.2" readonly>
+      </div>
+      <div class="search-actions">
+        <button class="btn search" type="button" id="btnReset">Reset</button>
+        <button class="btn search secondary" type="button" id="btnSearch">Search</button>
+      </div>
+    </div>
+
+    <div class="kpi-board" id="kpiBoard">
+      <div class="kpi">
+        <span class="kpi-label">배치</span>
+        <span class="kpi-value" id="kpiBatch">BR-2026-0412</span>
+        <span class="kpi-code" id="kpiBatchSt">포장 완료</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">완제품 LOT</span>
+        <span class="kpi-value" id="kpiFg">TA0412</span>
+        <span class="kpi-code">제조번호 · EXP 2028-10-04</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">원료 LOT</span>
+        <span class="kpi-value" id="kpiRm">3</span>
+        <span class="kpi-code">API · 유당 · MgSt</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">포장·라벨 LOT</span>
+        <span class="kpi-value" id="kpiPk">7</span>
+        <span class="kpi-code">1·2·3차 자재</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">추적 방향</span>
+        <span class="kpi-value" id="kpiDir">역추적</span>
+        <span class="kpi-code" id="kpiDirNote">FG → 원료</span>
+      </div>
+    </div>
+
+    <div class="split main-split" id="lotSplit">
+      <div class="grid-block rs-pane" id="paneGene">
+        <div class="grid-toolbar">
+          <span class="group-title">LOT 계보</span>
+          <span class="muted" style="font-size:12px" id="geneHint">역추적 · 완제품에서 원료·포장재로</span>
+          <span class="spacer"></span>
+          <span class="muted" style="font-size:12px" id="geneCount">노드 0</span>
+          <button class="btn search" type="button" id="btnExpandAll">전체 펼침</button>
+        </div>
+        <div class="grid-wrap">
+          <div class="gene-wrap" id="geneWrap"></div>
+        </div>
+      </div>
+
+      <button type="button" class="rs-gutter" id="gutterMain" aria-label="패널 너비 조절" title="드래그하여 너비 조절"></button>
+
+      <div class="grid-block rs-pane" id="paneLotDetail">
+        <div class="grid-toolbar">
+          <span class="group-title">선택 LOT 상세</span>
+          <span class="muted" style="font-size:12px">소비 · 생성 · 사용처</span>
+          <span class="spacer"></span>
+          <button class="btn search secondary" type="button" id="btnOpenScreen" title="관련 실행 화면(개념)">관련 화면</button>
+        </div>
+        <div class="grid-wrap detail-pane" id="detailPane">
+          <div class="detail-empty">계보에서 LOT를 선택하세요</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-block tl-block">
+      <div class="grid-toolbar">
+        <span class="group-title">LOT 타임라인</span>
+        <span class="muted" style="font-size:12px">입고 → 칭량 → 공정 → 포장 → 라벨 — 생산·포장 개념 링크</span>
+        <span class="total-text" id="tlTotal"></span>
+        <span class="spacer"></span>
+        <label class="checkbox"><input type="checkbox" id="fltTlSel"> 선택 LOT만</label>
+        <button class="btn search" type="button" id="btnJumpProd" title="생산 실행(개념)">생산 실행</button>
+        <button class="btn search secondary" type="button" id="btnJumpPack" title="포장 실행(개념)">포장 실행</button>
+      </div>
+      <div class="tl-head">
+        <span></span><span>시각</span><span>단계</span><span>이벤트</span><span>LOT</span><span>수량 / 결과</span><span>화면</span>
+      </div>
+      <div class="grid-wrap" style="flex:1 1 auto;">
+        <div class="tl-list" id="tlList"></div>
+      </div>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+
+<div class="demo-fab" id="demoFab" title="데모 바">DEMO</div>
+<div class="demo-panel" id="demoPanel">
+  <span class="dp-title">빠른 검색</span>
+  <button type="button" data-q="BR-2026-0412">배치 BR-2026-0412</button>
+  <button type="button" data-q="TA0412">완제품 TA0412</button>
+  <button type="button" data-q="API-2409">원료 API-2409</button>
+  <button type="button" data-q="CT2609-21">단상자 CT2609-21</button>
+  <button type="button" data-q="LB2609-15">라벨 LB2609-15</button>
+  <button type="button" data-q="UNKNOWN">없는 LOT (오류)</button>
+  <button type="button" id="demoReset">초기화</button>
+</div>
+
+<script src="./assets/mesui.js"></script>
+<script src="./assets/ebr-p0-stores.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var $ = function (sel) { return document.querySelector(sel); };
+  var $$ = function (sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); };
+
+  /* ========== Mock genealogy for BR-2026-0412 ========== */
+  var BATCH = {
+    id: 'BR-2026-0412',
+    product: '정제 A 10 mg',
+    mbr: 'MBR-TAB-A v3.2',
+    pbr: 'PBR-TAB-A-PTP30 v2.1',
+    po: 'PO-2026-0412-P1',
+    status: '포장 완료',
+    line: 'L-02 → PK-L02',
+    bulkQty: '498,500 T',
+    fgLot: 'TA0412',
+    mfgDate: '2026-10-05',
+    expDate: '2028-10-04'
+  };
+
+  var ISSUED_LS_KEY = 'ebr.batch.issued.v1';
+  var uiCtx = {
+    hasSnapshot: false,
+    demoMode: true,
+    orderNo: '',
+    batchId: '',
+    processTreeId: '',
+    ver: '',
+    contentHash: '',
+    product: '',
+    mf: ''
+  };
+  function loadIssuedBatches() {
+    try {
+      var raw = localStorage.getItem(ISSUED_LS_KEY);
+      if (!raw) return [];
+      var arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) { return []; }
+  }
+  function findIssued(opts) {
+    opts = opts || {};
+    var orderNo = (opts.orderNo || '').toUpperCase();
+    var batchId = opts.batchId || '';
+    var list = loadIssuedBatches();
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      if (batchId && String(r.batchId || '') === batchId) return r;
+      if (orderNo && String(r.orderNo || '').toUpperCase() === orderNo) return r;
+    }
+    return null;
+  }
+  function flowQuery() {
+    var q = [];
+    var on = uiCtx.orderNo || '';
+    var bid = uiCtx.batchId || (typeof BATCH !== 'undefined' && BATCH.id) || '';
+    if (on) q.push('orderNo=' + encodeURIComponent(on));
+    if (bid) q.push('batchId=' + encodeURIComponent(bid));
+    return q.length ? ('?' + q.join('&')) : '';
+  }
+  function wireFlowStripLinks() {
+    var q = flowQuery();
+    var map = {
+      lnkIssue: './s-ebr-batch-issue-ui.html',
+      lnkProd: './s-ebr-production-exec-ui.html',
+      lnkPack: './s-ebr-packaging-exec-ui.html',
+      lnkLot: './s-ebr-lot-trace-ui.html',
+      lnkRelease: './s-ebr-release-gate-ui.html'
+    };
+    Object.keys(map).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && el.tagName === 'A') el.href = map[id] + q;
+    });
+  }
+  function showSnapBanner(msg, cls) {
+    var b = document.getElementById('snapBanner');
+    if (!b) return;
+    var t = document.getElementById('snapBannerText');
+    if (t) t.innerHTML = msg;
+    b.className = 'snap-banner ' + (cls || '');
+    b.classList.remove('hidden');
+  }
+
+  function applyIssuedLabels(rec) {
+    uiCtx.hasSnapshot = true;
+    uiCtx.demoMode = false;
+    uiCtx.orderNo = rec.orderNo || '';
+    uiCtx.batchId = rec.batchId || '';
+    uiCtx.processTreeId = rec.processTreeId || '';
+    uiCtx.ver = rec.ver || '';
+    uiCtx.contentHash = rec.contentHash || '';
+    uiCtx.product = rec.product || BATCH.product;
+    uiCtx.mf = rec.mf || rec.manifestId || '';
+    BATCH.id = uiCtx.batchId || BATCH.id;
+    BATCH.product = uiCtx.product || BATCH.product;
+    BATCH.mbr = (uiCtx.processTreeId || '') + (uiCtx.ver ? ' v' + uiCtx.ver : '') || BATCH.mbr;
+    if ($('#schKey')) $('#schKey').value = BATCH.id;
+    if ($('#schKeyDesc')) $('#schKeyDesc').value = '배치 · ' + BATCH.product;
+    if ($('#kpiBatch')) $('#kpiBatch').textContent = BATCH.id;
+    showSnapBanner(
+      '발행 스냅샷 — 배치 <b class="mono">' + esc(uiCtx.batchId) + '</b>' +
+      (uiCtx.orderNo ? ' · 오더 <b class="mono">' + esc(uiCtx.orderNo) + '</b>' : '') +
+      ' · 제품 <b>' + esc(uiCtx.product) + '</b>' +
+      ' · 트리 <b class="mono">' + esc(uiCtx.processTreeId) + ' v' + esc(uiCtx.ver) + '</b>' +
+      ' · hash <b class="mono">' + esc((uiCtx.contentHash || '').slice(0, 8)) + '…</b>' +
+      (uiCtx.mf ? ' · mf <b class="mono">' + esc(uiCtx.mf) + '</b>' : ''),
+      'bc-good'
+    );
+    wireFlowStripLinks();
+  }
+  function applyDemoBanner() {
+    uiCtx.hasSnapshot = false;
+    uiCtx.demoMode = true;
+    uiCtx.orderNo = '';
+    uiCtx.batchId = BATCH.id;
+    uiCtx.product = BATCH.product;
+    showSnapBanner(
+      '<b>데모 모드</b> — 하드코딩 배치 <b class="mono">' + esc(BATCH.id) + '</b> 사용 중. 실제 발행 스냅샷(<code>ebr.batch.issued.v1</code>)이 아닙니다.',
+      'bc-alam'
+    );
+    wireFlowStripLinks();
+  }
+  function bindIssuedFromQuery() {
+    var q = new URLSearchParams(location.search || '');
+    var orderNo = (q.get('orderNo') || '').trim().toUpperCase();
+    var batchId = (q.get('batchId') || '').trim();
+    var rec = null;
+    if (orderNo || batchId) rec = findIssued({ orderNo: orderNo, batchId: batchId });
+    if (!rec) rec = findIssued({ batchId: BATCH.id });
+    if (rec && (rec.batchId || rec.orderNo)) {
+      applyIssuedLabels(rec);
+      return true;
+    }
+    applyDemoBanner();
+    return false;
+  }
+
+  /** @typedef {'rm'|'im'|'fg'|'pk'|'lb'|'batch'} LotKind */
+  /** @type {Record<string, object>} */
+  var LOTS = {
+    'API-2409': {
+      lot: 'API-2409', kind: 'rm', name: '주성분 API (TAB-API)', code: 'RM-API-01',
+      vendor: 'Supplier A', qc: '적합', exp: '2027-09-30', qty: '20.012 kg', unit: 'kg',
+      warehouse: 'WH-RM-01', batch: 'BR-2026-0412',
+      note: '역가 보정 칭량 · LIMS 함량 99.8 %'
+    },
+    'LAC-2411': {
+      lot: 'LAC-2411', kind: 'rm', name: '유당 (Lactose)', code: 'RM-EXC-02',
+      vendor: 'Supplier B', qc: '적합', exp: '2028-01-15', qty: '79.00 kg', unit: 'kg',
+      warehouse: 'WH-RM-01', batch: 'BR-2026-0412',
+      note: '발행 시 재시험 대기 → 칭량 전 LIMS 적합 확인'
+    },
+    'MGS-2403': {
+      lot: 'MGS-2403', kind: 'rm', name: '스테아르산마그네슘', code: 'RM-EXC-07',
+      vendor: 'Supplier C', qc: '적합', exp: '2027-03-31', qty: '1.00 kg', unit: 'kg',
+      warehouse: 'WH-RM-02', batch: 'BR-2026-0412',
+      note: '윤활제 · 후첨가'
+    },
+    'GRN-0412': {
+      lot: 'GRN-0412', kind: 'im', name: '습식 과립 (중간체)', code: 'IM-GRN-A',
+      vendor: '—', qc: '적합', exp: '—', qty: '99.8 kg', unit: 'kg',
+      warehouse: 'IPC-HOLD', batch: 'BR-2026-0412',
+      note: 'UP2 혼합 · 정립 후 과립 LOT'
+    },
+    'BLK-TA0412': {
+      lot: 'BLK-TA0412', kind: 'im', name: '벌크 정제 (미포장)', code: 'IM-BLK-A',
+      vendor: '—', qc: '적합', exp: '2028-10-04', qty: '498,500 T', unit: 'T',
+      warehouse: 'WH-BULK', batch: 'BR-2026-0412',
+      note: '타정·코팅 완료 · 포장 수령'
+    },
+    'TA0412': {
+      lot: 'TA0412', kind: 'fg', name: '정제 A 10 mg (완제품 · 제조번호)', code: 'FG-TAB-A-10',
+      vendor: '—', qc: '적합(격리)', exp: '2028-10-04', qty: '16,480 단상자', unit: 'EA',
+      warehouse: 'WH-FG-Q', batch: 'BR-2026-0412',
+      note: 'PTP 30정 · 출하 게이트 대기 · GS1 (10)TA0412'
+    },
+    'PV2609-11': {
+      lot: 'PV2609-11', kind: 'pk', name: 'PVC/PVDC 필름 250 mm', code: 'PM-1001',
+      vendor: 'Film Co.', qc: '적합', exp: '2028-03-31', qty: '190.0 kg', unit: 'kg',
+      warehouse: 'WH-PM', batch: 'BR-2026-0412', artwork: '—',
+      note: '1차 포장재'
+    },
+    'AL2609-04': {
+      lot: 'AL2609-04', kind: 'pk', name: '알루미늄 호일(인쇄) 250 mm', code: 'PM-1002',
+      vendor: 'Foil Co.', qc: '적합', exp: '2028-05-31', qty: '66.0 kg', unit: 'kg',
+      warehouse: 'WH-PM', batch: 'BR-2026-0412', artwork: 'AW-ALU-TA10 v3',
+      note: '1차 · 인쇄 · 엠보 TA0412'
+    },
+    'CT2609-21': {
+      lot: 'CT2609-21', kind: 'pk', name: '단상자 정제 A 10 mg 30정', code: 'PM-2001',
+      vendor: 'Carton Co.', qc: '적합', exp: '2029-09-30', qty: '16,800 EA', unit: 'EA',
+      warehouse: 'WH-PM', batch: 'BR-2026-0412', artwork: 'AW-CTN-TA10 v4',
+      note: '2차 · 인쇄 · 가변코딩'
+    },
+    'PI2609-08': {
+      lot: 'PI2609-08', kind: 'pk', name: '첨부문서(사용설명서)', code: 'PM-2002',
+      vendor: 'Print Co.', qc: '적합', exp: '2029-08-31', qty: '16,800 EA', unit: 'EA',
+      warehouse: 'WH-PM', batch: 'BR-2026-0412', artwork: 'AW-PIL-TA10 v6',
+      note: '2차 · 인쇄'
+    },
+    'SL2608-30': {
+      lot: 'SL2608-30', kind: 'lb', name: '봉합 라벨(개봉 방지)', code: 'PM-2003',
+      vendor: 'Label Co.', qc: '적합', exp: '2028-08-31', qty: '16,800 EA', unit: 'EA',
+      warehouse: 'WH-PM', batch: 'BR-2026-0412', artwork: 'AW-SEAL v2',
+      note: '2차 · 라벨'
+    },
+    'SB2609-02': {
+      lot: 'SB2609-02', kind: 'pk', name: '수송박스 120 단상자', code: 'PM-3001',
+      vendor: 'Ship Co.', qc: '적합', exp: '—', qty: '140 EA', unit: 'EA',
+      warehouse: 'WH-PM', batch: 'BR-2026-0412', artwork: 'AW-SHP-TA10 v1',
+      note: '3차 · 인쇄'
+    },
+    'LB2609-15': {
+      lot: 'LB2609-15', kind: 'lb', name: '수송박스 라벨(SSCC)', code: 'PM-3002',
+      vendor: 'Label Co.', qc: '적합', exp: '2028-09-30', qty: '140 EA', unit: 'EA',
+      warehouse: 'WH-PM', batch: 'BR-2026-0412', artwork: 'AW-SSCC v1',
+      note: '3차 · 라벨 · SSCC'
+    }
+  };
+
+  /* Directed edges: from → to (material flow / consumption creates child) */
+  var EDGES = [
+    { from: 'API-2409', to: 'GRN-0412', rel: '칭량·투입', qty: '20.012 kg' },
+    { from: 'LAC-2411', to: 'GRN-0412', rel: '칭량·투입', qty: '79.00 kg' },
+    { from: 'MGS-2403', to: 'GRN-0412', rel: '후첨가', qty: '1.00 kg' },
+    { from: 'GRN-0412', to: 'BLK-TA0412', rel: '타정·코팅', qty: '99.8 kg → 498,500 T' },
+    { from: 'BLK-TA0412', to: 'TA0412', rel: '포장 수령', qty: '498,500 T' },
+    { from: 'PV2609-11', to: 'TA0412', rel: '1차 포장', qty: '186.0 kg 사용' },
+    { from: 'AL2609-04', to: 'TA0412', rel: '1차 포장', qty: '64.0 kg 사용' },
+    { from: 'CT2609-21', to: 'TA0412', rel: '2차 포장', qty: '16,480 EA' },
+    { from: 'PI2609-08', to: 'TA0412', rel: '2차 포장', qty: '16,480 EA' },
+    { from: 'SL2608-30', to: 'TA0412', rel: '라벨 부착', qty: '16,480 EA' },
+    { from: 'SB2609-02', to: 'TA0412', rel: '3차 포장', qty: '137 EA' },
+    { from: 'LB2609-15', to: 'TA0412', rel: 'SSCC 라벨', qty: '137 EA' }
+  ];
+
+  var TIMELINE = [
+    { ts: '2026-09-12 10:20', stage: '입고', kind: 'rm', event: '원료 입고 · QC 적합', lot: 'API-2409', result: '20.5 kg · WH-RM-01', screen: 'WMS', screenKey: null },
+    { ts: '2026-09-18 14:05', stage: '입고', kind: 'rm', event: '원료 입고 · 재시험 의뢰', lot: 'LAC-2411', result: '200 kg · WH-RM-01', screen: 'WMS', screenKey: null },
+    { ts: '2026-09-20 09:40', stage: '입고', kind: 'rm', event: '원료 입고 · QC 적합', lot: 'MGS-2403', result: '25 kg · WH-RM-02', screen: 'WMS', screenKey: null },
+    { ts: '2026-09-28 11:15', stage: '입고', kind: 'pk', event: '포장재 입고 · 아트워크 대조', lot: 'CT2609-21', result: 'AW-CTN-TA10 v4', screen: 'WMS', screenKey: null },
+    { ts: '2026-09-28 11:22', stage: '입고', kind: 'lb', event: '라벨 입고 · 아트워크 대조', lot: 'LB2609-15', result: 'AW-SSCC v1', screen: 'WMS', screenKey: null },
+    { ts: '2026-10-05 08:10', stage: '발행', kind: 'batch', event: 'BR 발행 · LOT 예약', lot: 'API-2409', result: 'API/LAC/MGS 예약', screen: '배치 발행', screenKey: 'issue' },
+    { ts: '2026-10-05 09:12', stage: '칭량', kind: 'rm', event: 'API 칭량 (OP1-1)', lot: 'API-2409', result: '20.012 kg / ±0.5% OK', screen: '생산 실행', screenKey: 'prod' },
+    { ts: '2026-10-05 09:28', stage: '칭량', kind: 'rm', event: '부형제 칭량 (OP1-1)', lot: 'LAC-2411', result: '79.00 kg OK', screen: '생산 실행', screenKey: 'prod' },
+    { ts: '2026-10-05 09:31', stage: '칭량', kind: 'rm', event: 'MgSt 칭량 (OP1-1)', lot: 'MGS-2403', result: '1.00 kg OK', screen: '생산 실행', screenKey: 'prod' },
+    { ts: '2026-10-05 10:45', stage: '혼합', kind: 'im', event: '습식 혼합 · 과립 LOT 생성', lot: 'GRN-0412', result: '99.8 kg', screen: '생산 실행', screenKey: 'prod' },
+    { ts: '2026-10-05 12:20', stage: '타정', kind: 'im', event: '타정·코팅 · 벌크 LOT 생성', lot: 'BLK-TA0412', result: '498,500 T', screen: '생산 실행', screenKey: 'prod' },
+    { ts: '2026-10-05 13:20', stage: '포장', kind: 'im', event: '벌크 수령 · 포장 지시 기동', lot: 'BLK-TA0412', result: 'PO-2026-0412-P1', screen: '포장 실행', screenKey: 'pack' },
+    { ts: '2026-10-05 13:34', stage: '자재', kind: 'pk', event: '포장 자재 스캔 대조', lot: 'PV2609-11', result: '6종 LOT 일치', screen: '포장 실행', screenKey: 'pack' },
+    { ts: '2026-10-05 13:34', stage: '자재', kind: 'pk', event: '포장 자재 스캔 대조', lot: 'AL2609-04', result: 'AW-ALU-TA10 v3', screen: '포장 실행', screenKey: 'pack' },
+    { ts: '2026-10-05 13:35', stage: '자재', kind: 'pk', event: '포장 자재 스캔 대조', lot: 'CT2609-21', result: 'AW-CTN-TA10 v4', screen: '포장 실행', screenKey: 'pack' },
+    { ts: '2026-10-05 13:35', stage: '자재', kind: 'lb', event: '라벨 LOT 스캔 대조', lot: 'SL2608-30', result: 'AW-SEAL v2', screen: '포장 실행', screenKey: 'pack' },
+    { ts: '2026-10-05 13:36', stage: '자재', kind: 'pk', event: '첨부문서 · 수송박스 스캔', lot: 'PI2609-08', result: 'PI / SB / LB 일치', screen: '포장 실행', screenKey: 'pack' },
+    { ts: '2026-10-05 13:50', stage: '라벨', kind: 'fg', event: '라벨·코딩 첫 시료 · QA 확인', lot: 'TA0412', result: '제조번호 TA0412 적합', screen: '포장 실행', screenKey: 'pack' },
+    { ts: '2026-10-05 18:10', stage: '정산', kind: 'fg', event: '수량 정산 · 완제품 LOT 확정', lot: 'TA0412', result: '16,480 단상자 · 수율 99.54%', screen: '포장 실행', screenKey: 'pack' },
+    { ts: '2026-10-05 18:40', stage: '이송', kind: 'fg', event: '완제품 격리창고 이송', lot: 'TA0412', result: 'WH-FG-Q · 출하 대기', screen: '출하 게이트', screenKey: 'release' },
+    { ts: '2026-10-05 18:42', stage: '라벨', kind: 'lb', event: '수송박스 SSCC 라벨 적용', lot: 'LB2609-15', result: '137 EA 적용', screen: '포장 실행', screenKey: 'pack' }
+  ];
+
+  var KIND_LABEL = { rm: '원료', im: '중간체', fg: '완제품', pk: '포장재', lb: '라벨', batch: '배치' };
+
+  var QC_STATUS_KO = {
+    quarantine: '격리',
+    testing: '시험 중',
+    released: '적합',
+    rejected: '부적합',
+    expired: '만료',
+    missing: '미등록'
+  };
+  var QC_STATUS_BADGE = {
+    quarantine: 'warn',
+    testing: 'warn',
+    released: 'ok',
+    rejected: 'error',
+    expired: 'error',
+    missing: 'muted'
+  };
+  /** Read-only MatQC chip for a lot; falls back to static LOTS.qc */
+  function qcChip(lotNo, fallbackQc) {
+    var st = null;
+    try {
+      if (typeof MatQC !== 'undefined' && MatQC.get) {
+        var lot = MatQC.get(lotNo);
+        if (lot && lot.status) st = String(lot.status);
+      }
+    } catch (e) { /* ignore */ }
+    if (st) {
+      var label = QC_STATUS_KO[st] || st;
+      var cls = QC_STATUS_BADGE[st] || 'warn';
+      return { label: label, cls: cls, fromStore: true };
+    }
+    var fb = fallbackQc || '';
+    var okish = fb.indexOf('적합') === 0;
+    return { label: fb, cls: okish ? 'ok' : 'warn', fromStore: false };
+  }
+
+
+  var state = {
+    dir: 'back',          /* back | fwd */
+    focusKey: 'BR-2026-0412',
+    focusType: 'batch',   /* batch | lot */
+    selected: 'TA0412',
+    filterTlSel: false
+  };
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function resolveKey(raw) {
+    var k = String(raw || '').trim().toUpperCase();
+    if (!k) return null;
+    if (k === BATCH.id.toUpperCase() || k === 'BR20260412') {
+      return { type: 'batch', key: BATCH.id, desc: '배치 · ' + BATCH.product };
+    }
+    /* alias */
+    var aliases = {
+      'BR-2026-0412': { type: 'batch', key: BATCH.id },
+      'PO-2026-0412-P1': { type: 'batch', key: BATCH.id },
+      'MF-0412': { type: 'batch', key: BATCH.id }
+    };
+    if (aliases[k] || aliases[raw.trim()]) {
+      var a = aliases[k] || aliases[raw.trim()];
+      return { type: a.type, key: a.key, desc: '배치 · ' + BATCH.product };
+    }
+    var lotKey = Object.keys(LOTS).find(function (id) { return id.toUpperCase() === k; });
+    if (lotKey) {
+      var L = LOTS[lotKey];
+      return { type: 'lot', key: lotKey, desc: KIND_LABEL[L.kind] + ' · ' + L.name };
+    }
+    return null;
+  }
+
+  function parentsOf(lot) {
+    return EDGES.filter(function (e) { return e.to === lot; });
+  }
+  function childrenOf(lot) {
+    return EDGES.filter(function (e) { return e.from === lot; });
+  }
+
+  /** Layers for display depending on direction & focus */
+  function buildLayers() {
+    var layers;
+    if (state.dir === 'back') {
+      /* FG top → packaging+bulk → intermediate → RM bottom (reading: where from) */
+      layers = [
+        { id: 'fg', title: '완제품 LOT', lots: ['TA0412'] },
+        { id: 'pack', title: '포장 · 라벨 LOT (소비)', lots: ['PV2609-11', 'AL2609-04', 'CT2609-21', 'PI2609-08', 'SL2608-30', 'SB2609-02', 'LB2609-15'] },
+        { id: 'im', title: '중간체 · 벌크', lots: ['BLK-TA0412', 'GRN-0412'] },
+        { id: 'rm', title: '원료 LOT', lots: ['API-2409', 'LAC-2411', 'MGS-2403'] }
+      ];
+    } else {
+      layers = [
+        { id: 'rm', title: '원료 LOT', lots: ['API-2409', 'LAC-2411', 'MGS-2403'] },
+        { id: 'im', title: '중간체 · 벌크', lots: ['GRN-0412', 'BLK-TA0412'] },
+        { id: 'fg', title: '완제품 LOT', lots: ['TA0412'] },
+        { id: 'pack', title: '포장 · 라벨 LOT (사용)', lots: ['PV2609-11', 'AL2609-04', 'CT2609-21', 'PI2609-08', 'SL2608-30', 'SB2609-02', 'LB2609-15'] }
+      ];
+    }
+    return layers;
+  }
+
+  function relatedSet() {
+    var set = {};
+    if (state.focusType === 'batch') {
+      Object.keys(LOTS).forEach(function (k) { set[k] = true; });
+      return set;
+    }
+    var root = state.focusKey;
+    set[root] = true;
+    /* BFS both directions within this batch graph */
+    var queue = [root];
+    var seen = {};
+    seen[root] = true;
+    while (queue.length) {
+      var cur = queue.shift();
+      parentsOf(cur).concat(childrenOf(cur)).forEach(function (e) {
+        var n = e.from === cur ? e.to : e.from;
+        if (!seen[n]) { seen[n] = true; set[n] = true; queue.push(n); }
+      });
+    }
+    return set;
+  }
+
+  function renderGene() {
+    var layers = buildLayers();
+    var rel = relatedSet();
+    var focusLot = state.focusType === 'lot' ? state.focusKey : null;
+    var html = '';
+    var count = 0;
+    var arrow = state.dir === 'back' ? '↓ 역추적 (출처)' : '↓ 정추적 (사용처)';
+
+    layers.forEach(function (ly, idx) {
+      html += '<div class="gene-layer" data-layer="' + ly.id + '">';
+      html += '<div class="ly-head"><span class="ly-num">' + (idx + 1) + '</span>' + esc(ly.title);
+      if (idx < layers.length - 1) html += '<span class="ly-arrow">' + arrow + '</span>';
+      html += '</div><div class="gene-cards">';
+      ly.lots.forEach(function (id) {
+        var L = LOTS[id];
+        if (!L) return;
+        count++;
+        var cls = 'lot-card ' + L.kind;
+        if (state.selected === id) cls += ' selected';
+        if (focusLot === id) cls += ' focus-root';
+        if (focusLot && !rel[id]) cls += ' dim';
+        if (focusLot && rel[id] && id !== focusLot) cls += ' hit';
+        html += '<div class="' + cls + '" data-lot="' + esc(id) + '" role="button" tabindex="0">';
+        html += '<div class="lc-lot">' + esc(id) + '</div>';
+        html += '<div class="lc-nm">' + esc(L.name) + '</div>';
+        html += '<div class="lc-meta"><span class="kind-tag ' + L.kind + '">' + KIND_LABEL[L.kind] + '</span>';
+        html += '<span>' + esc(L.qty) + '</span>';
+        var qc = qcChip(id, L.qc); if (qc.label) html += '<span class="badge ' + qc.cls + '" title="' + (qc.fromStore ? 'MatQC' : '데모') + '">' + esc(qc.label) + '</span>';
+        html += '</div></div>';
+      });
+      html += '</div></div>';
+    });
+
+    $('#geneWrap').innerHTML = html;
+    $('#geneCount').textContent = '노드 ' + count;
+    $('#geneHint').textContent = state.dir === 'back'
+      ? '역추적 · 완제품에서 원료·포장재로'
+      : '정추적 · 원료에서 완제품·포장 사용처로';
+
+    $$('#geneWrap .lot-card').forEach(function (el) {
+      el.addEventListener('click', function () {
+        state.selected = el.getAttribute('data-lot');
+        renderAll();
+      });
+      el.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); el.click(); }
+      });
+    });
+  }
+
+  function renderDetail() {
+    var id = state.selected;
+    var L = LOTS[id];
+    var pane = $('#detailPane');
+    if (!L) {
+      pane.innerHTML = '<div class="detail-empty">계보에서 LOT를 선택하세요</div>';
+      return;
+    }
+    var ins = parentsOf(id);
+    var outs = childrenOf(id);
+    var html = '';
+    html += '<div style="padding:10px 12px; display:flex; flex-direction:column; gap:10px; min-height:0; overflow:auto;">';
+    html += '<div class="form-grid cols-2 readonly">';
+    html += '<span class="label">LOT</span><span class="field"><span class="text mono"><b>' + esc(L.lot) + '</b></span></span>';
+    html += '<span class="label">구분</span><span class="field"><span class="text"><span class="kind-tag ' + L.kind + '">' + KIND_LABEL[L.kind] + '</span></span></span>';
+    html += '<span class="label">자재코드</span><span class="field"><span class="text mono">' + esc(L.code) + '</span></span>';
+    html += '<span class="label">자재명</span><span class="field"><span class="text">' + esc(L.name) + '</span></span>';
+    html += '<span class="label">수량</span><span class="field"><span class="text">' + esc(L.qty) + '</span></span>';
+    var qcD = qcChip(id, L.qc); html += '<span class="label">QC</span><span class="field"><span class="text"><span class="badge ' + qcD.cls + '" title="' + (qcD.fromStore ? 'MatQC 읽기 전용' : '데모') + '">' + esc(qcD.label || '—') + '</span>' + (qcD.fromStore ? '<span class="muted"> · MatQC</span>' : '') + '</span></span>';
+    html += '<span class="label">유효기한</span><span class="field"><span class="text">' + esc(L.exp || '—') + '</span></span>';
+    html += '<span class="label">창고</span><span class="field"><span class="text">' + esc(L.warehouse) + '</span></span>';
+    html += '<span class="label">배치</span><span class="field"><span class="text"><span class="lnk" id="lnkDetailBatch">' + esc(L.batch) + '</span></span></span>';
+    if (L.artwork) {
+      html += '<span class="label">아트워크</span><span class="field"><span class="text">' + esc(L.artwork) + '</span></span>';
+    }
+    html += '<span class="label">비고</span><span class="field span-2"><span class="text">' + esc(L.note) + '</span></span>';
+    html += '</div>';
+
+    html += '<div class="grid-toolbar" style="padding:0;"><span class="group-title" style="font-size:12px;">투입 · 출처 (←)</span><span class="total-text">' + ins.length + '건</span></div>';
+    html += '<div class="rel-list" style="border:1px solid var(--c-border-05); border-radius:var(--radius);">';
+    if (!ins.length) html += '<div class="rel-row"><span class="rel-dir">—</span><span class="muted">출처 없음 (최상위 입고 LOT)</span><span></span></div>';
+    ins.forEach(function (e) {
+      var p = LOTS[e.from];
+      html += '<div class="rel-row"><span class="rel-dir in">← 출처</span><span><span class="rel-lot" data-goto="' + esc(e.from) + '">' + esc(e.from) + '</span><span class="rel-nm">' + esc(p ? p.name : '') + '</span></span><span class="muted">' + esc(e.rel + ' · ' + e.qty) + '</span></div>';
+    });
+    html += '</div>';
+
+    html += '<div class="grid-toolbar" style="padding:0;"><span class="group-title" style="font-size:12px;">생성 · 사용처 (→)</span><span class="total-text">' + outs.length + '건</span></div>';
+    html += '<div class="rel-list" style="border:1px solid var(--c-border-05); border-radius:var(--radius);">';
+    if (!outs.length) html += '<div class="rel-row"><span class="rel-dir">—</span><span class="muted">하위 없음 (종단 LOT)</span><span></span></div>';
+    outs.forEach(function (e) {
+      var c = LOTS[e.to];
+      html += '<div class="rel-row"><span class="rel-dir out">→ 사용</span><span><span class="rel-lot" data-goto="' + esc(e.to) + '">' + esc(e.to) + '</span><span class="rel-nm">' + esc(c ? c.name : '') + '</span></span><span class="muted">' + esc(e.rel + ' · ' + e.qty) + '</span></div>';
+    });
+    html += '</div>';
+    html += '</div>';
+
+    pane.innerHTML = html;
+    var lb = $('#lnkDetailBatch');
+    if (lb) lb.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      doSearch(BATCH.id);
+    });
+    $$('#detailPane .rel-lot').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var g = el.getAttribute('data-goto');
+        state.selected = g;
+        renderAll();
+      });
+    });
+  }
+
+  function renderTimeline() {
+    var rows = TIMELINE;
+    if (state.filterTlSel && state.selected) {
+      rows = TIMELINE.filter(function (t) { return t.lot === state.selected; });
+    } else if (state.focusType === 'lot') {
+      var rel = relatedSet();
+      rows = TIMELINE.filter(function (t) { return rel[t.lot] || t.lot === state.focusKey; });
+    }
+    $('#tlTotal').textContent = '총 ' + rows.length + '건';
+    var html = '';
+    rows.forEach(function (t, i) {
+      var hl = state.selected && t.lot === state.selected ? ' hl' : '';
+      var scr = t.screenKey
+        ? '<a class="lnk" href="#" data-jump="' + esc(t.screenKey) + '">' + esc(t.screen) + '</a>'
+        : '<span class="muted">' + esc(t.screen) + '</span>';
+      html += '<div class="tl-row' + hl + '" data-lot="' + esc(t.lot) + '">';
+      html += '<span><span class="tl-dot ' + esc(t.kind) + '"></span></span>';
+      html += '<span class="mono">' + esc(t.ts) + '</span>';
+      html += '<span>' + esc(t.stage) + '</span>';
+      html += '<span>' + esc(t.event) + '</span>';
+      html += '<span class="mono lnk" data-sel="' + esc(t.lot) + '">' + esc(t.lot) + '</span>';
+      html += '<span>' + esc(t.result) + '</span>';
+      html += '<span>' + scr + '</span>';
+      html += '</div>';
+    });
+    if (!rows.length) html = '<div class="tl-row"><span></span><span class="muted" style="grid-column:2/-1;">표시할 타임라인 없음</span></div>';
+    $('#tlList').innerHTML = html;
+
+    $$('#tlList [data-sel]').forEach(function (el) {
+      el.addEventListener('click', function () {
+        state.selected = el.getAttribute('data-sel');
+        renderAll();
+      });
+    });
+    $$('#tlList [data-jump]').forEach(function (el) {
+      el.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        jumpScreen(el.getAttribute('data-jump'));
+      });
+    });
+  }
+
+  function renderKpi() {
+    $('#kpiBatch').textContent = BATCH.id;
+    $('#kpiBatchSt').textContent = BATCH.status;
+    $('#kpiFg').textContent = BATCH.fgLot;
+    $('#kpiRm').textContent = '3';
+    $('#kpiPk').textContent = '7';
+    $('#kpiDir').textContent = state.dir === 'back' ? '역추적' : '정추적';
+    $('#kpiDirNote').textContent = state.dir === 'back' ? 'FG → 원료' : '원료 → FG';
+    $('#btnDirBack').classList.toggle('is-on', state.dir === 'back');
+    $('#btnDirFwd').classList.toggle('is-on', state.dir === 'fwd');
+  }
+
+  function renderAll() {
+    renderKpi();
+    renderGene();
+    renderDetail();
+    renderTimeline();
+  }
+
+  function doSearch(raw) {
+    var hit = resolveKey(raw);
+    if (!hit) {
+      MesUI.alert('검색 결과 없음\n\nLOT 또는 배치 ID를 확인하세요.\n예) BR-2026-0412 · TA0412 · API-2409 · CT2609-21', 'Error');
+      return;
+    }
+    state.focusType = hit.type;
+    state.focusKey = hit.key;
+    $('#schKey').value = hit.key;
+    $('#schKeyDesc').value = hit.desc;
+    if (hit.type === 'lot') {
+      state.selected = hit.key;
+    } else {
+      state.selected = BATCH.fgLot;
+    }
+    renderAll();
+    MesUI.toast((hit.type === 'batch' ? '배치 ' : 'LOT ') + hit.key + ' 계보를 표시합니다.', 'ok');
+  }
+
+  function jumpScreen(key) {
+    var map = {
+      issue: './s-ebr-batch-issue-ui.html',
+      prod: './s-ebr-production-exec-ui.html',
+      pack: './s-ebr-packaging-exec-ui.html',
+      release: './s-ebr-release-gate-ui.html'
+    };
+    var href = map[key];
+    if (!href) { MesUI.toast('알 수 없는 화면', 'warn'); return; }
+    location.href = href + flowQuery();
+  }
+
+  function openRelated() {
+    var L = LOTS[state.selected];
+    if (!L) { MesUI.toast('LOT를 먼저 선택하세요.', 'warn'); return; }
+    if (L.kind === 'rm' || L.kind === 'im') jumpScreen('prod');
+    else if (L.kind === 'pk' || L.kind === 'lb' || L.kind === 'fg') jumpScreen('pack');
+    else jumpScreen('issue');
+  }
+
+  /* ===== wiring ===== */
+  $('#btnSearch').addEventListener('click', function () { doSearch($('#schKey').value); });
+  $('#btnKeyPick').addEventListener('click', function () { doSearch($('#schKey').value); });
+  $('#schKey').addEventListener('keydown', function (ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); doSearch($('#schKey').value); }
+  });
+  $('#btnReset').addEventListener('click', function () {
+    state.dir = 'back';
+    state.focusType = 'batch';
+    state.focusKey = BATCH.id;
+    state.selected = BATCH.fgLot;
+    state.filterTlSel = false;
+    $('#fltTlSel').checked = false;
+    $('#schKey').value = BATCH.id;
+    $('#schKeyDesc').value = '배치 · ' + BATCH.product;
+    renderAll();
+    MesUI.toast('초기 상태(배치 BR-2026-0412 · 역추적)로 되돌렸습니다.', 'info');
+  });
+
+  $('#btnDirBack').addEventListener('click', function () { state.dir = 'back'; renderAll(); });
+  $('#btnDirFwd').addEventListener('click', function () { state.dir = 'fwd'; renderAll(); });
+  $('#fltTlSel').addEventListener('change', function () {
+    state.filterTlSel = $('#fltTlSel').checked;
+    renderTimeline();
+  });
+  $('#btnExpandAll').addEventListener('click', function () {
+    state.focusType = 'batch';
+    state.focusKey = BATCH.id;
+    $('#schKey').value = BATCH.id;
+    $('#schKeyDesc').value = '배치 · ' + BATCH.product;
+    renderAll();
+    MesUI.toast('배치 전체 계보를 펼쳤습니다.', 'info');
+  });
+  $('#btnOpenScreen').addEventListener('click', openRelated);
+  $('#btnJumpProd').addEventListener('click', function () { jumpScreen('prod'); });
+  $('#btnJumpPack').addEventListener('click', function () { jumpScreen('pack'); });
+  $('#lnkIssue').addEventListener('click', function (e) { e.preventDefault(); jumpScreen('issue'); });
+  $('#lnkProd').addEventListener('click', function (e) { e.preventDefault(); jumpScreen('prod'); });
+  $('#lnkPack').addEventListener('click', function (e) { e.preventDefault(); jumpScreen('pack'); });
+  $('#lnkRelease').addEventListener('click', function (e) { e.preventDefault(); jumpScreen('release'); });
+
+  $('#btnCopyLink').addEventListener('click', function () {
+    var url = location.href.split('#')[0] + '#lot=' + encodeURIComponent(state.selected || state.focusKey);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () {
+        MesUI.toast('링크를 복사했습니다.', 'ok');
+      }).catch(function () { MesUI.toast(url, 'info'); });
+    } else {
+      MesUI.toast(url, 'info');
+    }
+  });
+
+  /* DEMO */
+  $('#demoFab').addEventListener('click', function () {
+    $('#demoPanel').classList.toggle('open');
+  });
+  $$('#demoPanel [data-q]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      doSearch(btn.getAttribute('data-q'));
+      $('#demoPanel').classList.remove('open');
+    });
+  });
+  $('#demoReset').addEventListener('click', function () {
+    $('#btnReset').click();
+    $('#demoPanel').classList.remove('open');
+  });
+
+  /* hash bootstrap */
+  try { if (typeof MatQC !== 'undefined' && MatQC.seedIfEmpty) MatQC.seedIfEmpty(); } catch (eSeed) {}
+  bindIssuedFromQuery();
+  wireFlowStripLinks();
+
+  (function bootHash() {
+    var h = (location.hash || '').replace(/^#/, '');
+    if (h.indexOf('lot=') === 0) {
+      var v = decodeURIComponent(h.slice(4));
+      if (resolveKey(v)) doSearch(v);
+      else renderAll();
+    } else {
+      renderAll();
+    }
+  })();
+
+  /* —— resizable split panes (2-col) —— */
+  /* localStorage shape: {"left": <px>}  key=ebr.lotTrace.split.v1 */
+  var SPLIT_KEY = 'ebr.lotTrace.split.v1';
+  var SPLIT_DEFAULT_LEFT = 820;
+  function rsLogicalPx(visualPx) {
+    var wrap = document.getElementById('shellScale');
+    var s = 1;
+    try {
+      if (wrap) s = parseFloat(getComputedStyle(wrap).getPropertyValue('--scale')) || 1;
+    } catch (err) { s = 1; }
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    return visualPx / s;
+  }
+  function applySplitWidths(left) {
+    var split = document.getElementById('lotSplit');
+    if (!split) return;
+    var splitW = rsLogicalPx(split.getBoundingClientRect().width) || 1200;
+    var gutter = 6;
+    var minL = 160, minR = 200;
+    var maxL = Math.max(minL, Math.floor(splitW * 0.7));
+    maxL = Math.min(maxL, splitW - gutter - minR);
+    /* also keep right from exceeding ~55% by forcing left floor */
+    var minLByRight = Math.max(minL, Math.ceil(splitW - gutter - Math.floor(splitW * 0.55)));
+    if (minLByRight > maxL) minLByRight = minL;
+    var lo = Math.max(minLByRight, Math.min(maxL, left | 0));
+    var paneL = document.getElementById('paneGene');
+    if (!paneL) return;
+    paneL.style.flex = '0 0 ' + lo + 'px';
+    paneL.style.width = lo + 'px';
+  }
+  function loadSplit() {
+    try {
+      var s = JSON.parse(localStorage.getItem(SPLIT_KEY) || 'null');
+      if (s && s.left) applySplitWidths(s.left);
+    } catch (e) {}
+  }
+  function saveSplit() {
+    var paneL = document.getElementById('paneGene');
+    if (!paneL) return;
+    localStorage.setItem(SPLIT_KEY, JSON.stringify({
+      left: rsLogicalPx(paneL.getBoundingClientRect().width)
+    }));
+  }
+  function bindGutter(gutterId) {
+    var gut = document.getElementById(gutterId);
+    if (!gut) return;
+    gut.addEventListener('mousedown', function (ev) {
+      ev.preventDefault();
+      var startX = ev.clientX;
+      var startL = rsLogicalPx(document.getElementById('paneGene').getBoundingClientRect().width);
+      gut.classList.add('is-drag');
+      document.body.classList.add('is-resizing');
+      function onMove(e) {
+        applySplitWidths(startL + rsLogicalPx(e.clientX - startX));
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        gut.classList.remove('is-drag');
+        document.body.classList.remove('is-resizing');
+        saveSplit();
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    gut.addEventListener('dblclick', function () {
+      applySplitWidths(SPLIT_DEFAULT_LEFT);
+      saveSplit();
+    });
+  }
+  loadSplit();
+  bindGutter('gutterMain');
+
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

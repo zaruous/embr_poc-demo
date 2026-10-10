@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : poc-index (eMBR/eBR PoC 루트 카탈로그)
+  역할         : 백업 제외 전체 PoC 화면을 좌측 메뉴 + iframe 미리보기로 탐색 (고객 설정 · 설계 문서 그룹 포함)
+  위치         : docs/design/poc/index.html (루트)
+  공용 자산     : ./assets/mesui.css · ./catalog.css
+  라우팅       : location.hash = 상대 경로 (예: #master-setup/ebr/s-ebr-phase-library-ui.html)
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<script>
+  (function () {
+    if (window.frameElement) return; /* iframe: keep width=1920 + fitShell --scale */
+    if (Math.min(screen.width, screen.height) >= 900) return;
+    var v = document.querySelector('meta[name="viewport"]');
+    if (v) v.setAttribute('content', 'width=device-width, initial-scale=1, maximum-scale=5');
+    document.documentElement.classList.add('is-mobile');
+  })();
+</script>
+<title>eMBR / eBR PoC 카탈로그</title>
+<link rel="stylesheet" href="./assets/mesui.css">
+<link rel="stylesheet" href="./catalog.css">
+</head>
+<body>
+<div class="cat-shell">
+  <header class="cat-top">
+    <div class="cat-brand">
+      <strong>eMBR / eBR PoC 카탈로그</strong>
+      <span>백업 제외 · 메뉴 + 미리보기</span>
+    </div>
+    <div class="cat-top-meta">
+      <div class="cat-current" id="currentMeta" hidden>
+        <span class="nm" id="currentName">—</span>
+        <span class="sid" id="currentSid">—</span>
+      </div>
+      <button type="button" class="cat-btn" id="btnHome" title="환영 화면">홈</button>
+      <a class="cat-btn cat-btn-primary is-disabled" id="btnOpen" href="#" target="_blank" rel="noopener">새 탭으로 열기</a>
+    </div>
+  </header>
+
+  <div class="cat-body">
+    <nav class="cat-nav" aria-label="PoC 화면 목록">
+      <div class="cat-nav-head">
+        <div class="h">화면 메뉴</div>
+        <div class="s" id="navSummary">로딩 중…</div>
+      </div>
+      <div class="cat-groups" id="navGroups"></div>
+    </nav>
+
+    <main class="cat-main">
+      <div class="cat-frame-wrap">
+        <div class="cat-welcome" id="welcome" aria-live="polite">
+          <div class="wel-card">
+            <h1>PoC 화면 카탈로그</h1>
+            <p class="lead">
+              루트 <code>docs/design/poc/</code> 아래 백업(<code>*.bak*</code>, <code>bak-*</code>, backup 폴더)을 제외한
+              실행·작성·기준정보 화면을 한곳에서 엽니다. 왼쪽 메뉴를 선택하면 오른쪽에 미리보기가 로드됩니다.
+            </p>
+            <div class="wel-stats" id="welStats"></div>
+            <ul class="wel-hints">
+              <li>기본은 환영 화면입니다. 새로고침 후에도 선택 유지: URL 해시 예)
+                <code>#master-setup/guide/s-master-setup-overview-ui.html</code></li>
+              <li>iframe 미리보기가 깨지면 <strong>새 탭으로 열기</strong>로 단독 확인하세요.</li>
+              <li>휴대폰에서는 미리보기 안 화면이 1920px 폭으로 축소됩니다. <strong>새 탭으로 열기</strong>로 보세요 (프로세스 트리 디자이너는 휴대폰 레이아웃 지원).</li>
+              <li>레거시 모놀리스(<code>s-ebmr-master-setup-ui.html</code>)는 참고용이며, 기준정보는
+                <code>master-setup/</code> 허브·개별 화면을 사용합니다.</li>
+              <li>바이오 P0: <strong>바이오 시드</strong>(MBR-BIO-DS-01) → 효력 → 오더 핀 → 배치 발행 → 생산 실행. <strong>발행 스냅샷 Phase</strong>가 생산 보드에 표시됩니다(없으면 PHASES_TMPL 폴백). 자재 QC는 <code>s-ebr-material-qc-ui.html</code>.</li>
+            </ul>
+            <div class="wel-actions">
+              <button type="button" class="cat-btn cat-btn-primary" data-go="master-setup/guide/s-master-setup-overview-ui.html">기준정보 개요 열기</button>
+              <button type="button" class="cat-btn" data-go="s-ebmr-creation-workflow-ui.html">eMBR 작성 워크플로</button>
+              <button type="button" class="cat-btn" data-go="s-ebmr-process-tree-designer-ui.html">프로세스 트리 디자이너</button>
+              <button type="button" class="cat-btn" data-go="s-ebr-order-ui.html">오더 생성 · 조회</button>
+              <button type="button" class="cat-btn" data-go="s-ebr-batch-issue-ui.html">배치 발행</button>
+              <button type="button" class="cat-btn" data-go="s-ebr-dispense-ui.html">칭량 · 디스펜싱</button>
+              <button type="button" class="cat-btn" data-go="s-ebr-production-exec-ui.html">생산 실행</button>
+              <button type="button" class="cat-btn" data-go="s-ebr-packaging-exec-ui.html">포장 실행</button>
+              <button type="button" class="cat-btn" data-go="s-ebr-lot-trace-ui.html">LOT 추적</button>
+              <button type="button" class="cat-btn" data-go="s-ebr-material-qc-ui.html">자재 · QC</button>
+              <button type="button" class="cat-btn" data-go="s-ebr-release-gate-ui.html">출하 · 릴리스 게이트</button>
+              <button type="button" class="cat-btn" data-go="s-ebr-esign-history-ui.html">서명 내역 조회</button>
+              <button type="button" class="cat-btn" data-go="master-setup/index.html">기준정보 허브</button>
+            </div>
+          </div>
+        </div>
+        <iframe class="cat-frame hidden" id="frame" title="PoC 화면 미리보기"></iframe>
+      </div>
+      <footer class="cat-foot">
+        <span>경로</span>
+        <span class="path" id="footPath">(선택 없음)</span>
+        <span class="vbar"></span>
+        <span id="footHint">메뉴에서 화면을 선택하세요</span>
+      </footer>
+    </main>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /** @typedef {{ id: string, label: string, path: string, badge?: string, badgeClass?: string, note?: string }} Screen */
+  /** @typedef {{ id: string, title: string, items: Screen[], collapsed?: boolean }} Group */
+
+  /** @type {Group[]} */
+  var GROUPS = [
+    {
+      id: 'master-setup',
+      title: '기준정보',
+      items: [
+        {
+          id: 'overview',
+          label: '기준정보 개요 · 판단 기준',
+          path: 'master-setup/guide/s-master-setup-overview-ui.html',
+          badge: '가이드',
+          badgeClass: 'badge-guide'
+        },
+        {
+          id: 'hub',
+          label: '기준정보 허브',
+          path: 'master-setup/index.html',
+          badge: '허브',
+          badgeClass: 'badge-hub'
+        },
+        {
+          id: 'customer-setup',
+          label: '고객 설정',
+          path: 's-ebmr-customer-setup-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        },
+        {
+          id: 'gcm',
+          label: 'GCM 공통 코드',
+          path: 'master-setup/adm/s-adm-gcm-code-ui.html',
+          badge: '조회전용',
+          badgeClass: 'badge-ro'
+        },
+        {
+          id: 'phase',
+          label: 'Phase 라이브러리',
+          path: 'master-setup/ebr/s-ebr-phase-library-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        },
+        {
+          id: 'config',
+          label: 'Config Object',
+          path: 'master-setup/ebr/s-ebr-config-object-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        },
+        {
+          id: 'signature',
+          label: '전자서명 설정',
+          path: 'master-setup/ebr/s-ebr-signature-setup-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        },
+        {
+          id: 'user-role',
+          label: '사용자 · 역할',
+          path: 'master-setup/adm/s-adm-user-role-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        },
+        {
+          id: 'terminal',
+          label: '터미널 레지스트리',
+          path: 'master-setup/ebr/s-ebr-terminal-registry-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        },
+        {
+          id: 'equipment',
+          label: '장비 클래스',
+          path: 'master-setup/ebr/s-ebr-equipment-class-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        },
+        {
+          id: 'eq-state',
+          label: '설비 상태 마스터',
+          path: 's-ebr-equipment-state-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        },
+        {
+          id: 'eq-event',
+          label: '설비 이벤트 마스터',
+          path: 's-ebr-equipment-event-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        }
+      ]
+    },
+    {
+      id: 'embmr-write',
+      title: 'eMBR 정의',
+      items: [
+        {
+          id: 'creation-workflow',
+          label: 'eMBR 작성 워크플로',
+          path: 's-ebmr-creation-workflow-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        },
+        {
+          id: 'process-tree-designer',
+          label: '프로세스 트리 디자이너',
+          path: 's-ebmr-process-tree-designer-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit',
+          note: '고형제·바이오 시드(MBR-BIO-DS-01) · 효력→오더 핀→발행 스냅샷 Phase'
+        }
+      ]
+    },
+    {
+      id: 'ebr-run',
+      title: 'eBR 실행',
+      items: [
+        {
+          id: 'order',
+          label: '오더 생성 · 조회',
+          path: 's-ebr-order-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit',
+          note: 'ebr.order.v1 · 효력 트리 핀(id/ver/hash) · 발행 CTA'
+        },
+        {
+          id: 'batch-issue',
+          label: '배치 발행',
+          path: 's-ebr-batch-issue-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit',
+          note: '?orderNo= 핀 고정 · freeze≡order · bindSource'
+        },
+        {
+          id: 'dispense',
+          label: '칭량 · 디스펜싱',
+          path: 's-ebr-dispense-ui.html',
+          badge: 'P0',
+          badgeClass: 'badge-edit',
+          note: 'OI · ebr.dispense.v1 · 선칭량 · 칭량실 R-201/R-202'
+        },
+        {
+          id: 'production-exec',
+          label: '생산 실행',
+          path: 's-ebr-production-exec-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit',
+          note: '발행 스냅샷 Phase 렌더(없으면 PHASES_TMPL 폴백) · hash 배너'
+        },
+        {
+          id: 'packaging-exec',
+          label: '포장 실행',
+          path: 's-ebr-packaging-exec-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        },
+        {
+          id: 'material-qc',
+          label: '자재 · QC',
+          path: 's-ebr-material-qc-ui.html',
+          badge: 'P0',
+          badgeClass: 'badge-edit',
+          note: 'ebr.materialLot.v1 · MatQC (D1 stores)'
+        },
+        {
+          id: 'lot-trace',
+          label: 'LOT 추적',
+          path: 's-ebr-lot-trace-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        },
+        {
+          id: 'release-gate',
+          label: '출하 · 릴리스 게이트',
+          path: 's-ebr-release-gate-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        },
+        {
+          id: 'esign-history',
+          label: '서명 내역 조회',
+          path: 's-ebr-esign-history-ui.html',
+          badge: '조회전용',
+          badgeClass: 'badge-ro',
+          note: 'signHistory · 읽기 전용 · ?batchId='
+        }
+      ]
+    },
+    {
+      id: 'legacy',
+      title: '레거시',
+      collapsed: true,
+      items: [
+        {
+          id: 'legacy-monolith',
+          label: '마스터 설정 (구버전/레거시 모놀리스)',
+          path: 's-ebmr-master-setup-ui.html',
+          badge: '레거시',
+          badgeClass: 'badge-legacy'
+        }
+      ]
+    }
+  ];
+
+  var $ = function (sel) { return document.querySelector(sel); };
+  var frame = $('#frame');
+  var welcome = $('#welcome');
+  var btnOpen = $('#btnOpen');
+  var currentMeta = $('#currentMeta');
+  var navGroups = $('#navGroups');
+  var allScreens = GROUPS.reduce(function (acc, g) {
+    return acc.concat(g.items);
+  }, []);
+
+  function fileName(path) {
+    var i = path.lastIndexOf('/');
+    return i >= 0 ? path.slice(i + 1) : path;
+  }
+
+  function normalizeHash(raw) {
+    if (!raw) return '';
+    var h = raw.replace(/^#/, '').trim();
+    try { h = decodeURIComponent(h); } catch (e) { /* keep */ }
+    return h.replace(/^\.\//, '').replace(/^\/+/, '');
+  }
+
+  function findByPath(path) {
+    var p = normalizeHash(path);
+    for (var i = 0; i < allScreens.length; i++) {
+      if (allScreens[i].path === p) return allScreens[i];
+    }
+    return null;
+  }
+
+  function setActive(path) {
+    var buttons = navGroups.querySelectorAll('.cat-item');
+    for (var i = 0; i < buttons.length; i++) {
+      var b = buttons[i];
+      b.classList.toggle('is-active', b.getAttribute('data-path') === path);
+    }
+  }
+
+  function showWelcome() {
+    welcome.classList.remove('hidden');
+    frame.classList.add('hidden');
+    frame.removeAttribute('src');
+    currentMeta.hidden = true;
+    btnOpen.href = '#';
+    btnOpen.classList.add('is-disabled');
+    btnOpen.setAttribute('aria-disabled', 'true');
+    $('#footPath').textContent = '(선택 없음)';
+    $('#footHint').textContent = '메뉴에서 화면을 선택하세요';
+    setActive('');
+    if (location.hash && location.hash !== '#' && location.hash !== '#home') {
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+  }
+
+  function openScreen(path, pushHash) {
+    var screen = findByPath(path);
+    if (!screen) {
+      showWelcome();
+      return;
+    }
+    welcome.classList.add('hidden');
+    frame.classList.remove('hidden');
+    if (frame.getAttribute('src') !== screen.path) {
+      frame.setAttribute('src', screen.path);
+    }
+    $('#currentName').textContent = screen.label;
+    $('#currentSid').textContent = fileName(screen.path);
+    currentMeta.hidden = false;
+    btnOpen.href = screen.path;
+    btnOpen.classList.remove('is-disabled');
+    btnOpen.removeAttribute('aria-disabled');
+    $('#footPath').textContent = './' + screen.path;
+    $('#footHint').textContent = (screen.badge ? '[' + screen.badge + '] ' : '') + screen.label + (screen.note ? ' · ' + screen.note : '');
+    setActive(screen.path);
+    if (pushHash !== false) {
+      var next = '#' + screen.path;
+      if (location.hash !== next) {
+        history.replaceState(null, '', next);
+      }
+    }
+  }
+
+  function renderNav() {
+    var html = '';
+    var total = 0;
+    for (var gi = 0; gi < GROUPS.length; gi++) {
+      var g = GROUPS[gi];
+      total += g.items.length;
+      var collapsedCls = g.collapsed ? ' is-collapsed' : '';
+      html += '<div class="cat-group' + collapsedCls + '" data-group="' + g.id + '">';
+      html += '<button type="button" class="cat-group-title" aria-expanded="' + (g.collapsed ? 'false' : 'true') + '">' +
+        '<span class="chev" aria-hidden="true"></span>' +
+        '<span>' + g.title + '</span><span class="cnt">' + g.items.length + '</span></button>';
+      for (var ii = 0; ii < g.items.length; ii++) {
+        var s = g.items[ii];
+        var badge = s.badge
+          ? '<span class="badge ' + (s.badgeClass || '') + '">' + s.badge + '</span>'
+          : '';
+        html += '<button type="button" class="cat-item" data-path="' + s.path + '" data-id="' + s.id + '">' +
+          '<span class="row1"><span class="label">' + s.label + '</span>' + badge + '</span>' +
+          '<span class="sub">' + s.path + '</span></button>';
+      }
+      html += '</div>';
+    }
+    navGroups.innerHTML = html;
+    $('#navSummary').textContent = '백업 제외 · 화면 ' + total + '개 · 그룹 ' + GROUPS.length + '개';
+
+    var byGroup = GROUPS.map(function (g) {
+      return { title: g.title, n: g.items.length };
+    });
+    var statsHtml = '';
+    statsHtml += '<div class="wel-stat"><div class="n">' + total + '</div><div class="t">전체 화면</div></div>';
+    for (var i = 0; i < byGroup.length; i++) {
+      statsHtml += '<div class="wel-stat"><div class="n">' + byGroup[i].n + '</div><div class="t">' + byGroup[i].title + '</div></div>';
+    }
+    $('#welStats').innerHTML = statsHtml;
+  }
+
+  function applyHash() {
+    var h = normalizeHash(location.hash);
+    if (!h || h === 'home' || h === 'welcome') {
+      showWelcome();
+      return;
+    }
+    openScreen(h, false);
+  }
+
+  navGroups.addEventListener('click', function (ev) {
+    var titleBtn = ev.target.closest('.cat-group-title');
+    if (titleBtn) {
+      var groupEl = titleBtn.closest('.cat-group');
+      if (!groupEl) return;
+      var nowCollapsed = groupEl.classList.toggle('is-collapsed');
+      titleBtn.setAttribute('aria-expanded', nowCollapsed ? 'false' : 'true');
+      return;
+    }
+    var btn = ev.target.closest('.cat-item');
+    if (!btn) return;
+    openScreen(btn.getAttribute('data-path'), true);
+  });
+
+  $('#btnHome').addEventListener('click', function () {
+    history.replaceState(null, '', location.pathname + location.search + '#home');
+    showWelcome();
+  });
+
+  welcome.addEventListener('click', function (ev) {
+    var go = ev.target.closest('[data-go]');
+    if (!go) return;
+    openScreen(go.getAttribute('data-go'), true);
+  });
+
+  window.addEventListener('hashchange', applyHash);
+
+  renderNav();
+  applyHash();
+})();
+</script>
+</body>
+</html>

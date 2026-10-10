@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elephant UX PoC 스타일 가이드</title>
+<link rel="stylesheet" href="./mesui.css">
+<style>
+  /* 이 페이지 전용(가이드 레이아웃) — PoC 화면에는 복사하지 않는다 */
+  body { margin: 0; background: #f1f2f7; color: #333; font: 13px 'Malgun Gothic', '맑은 고딕', sans-serif; letter-spacing: -0.03em; }
+  .guide { max-width: 1400px; margin: 0 auto; padding: 0 30px 80px; }
+  .guide h1 { font-size: 22px; margin: 24px 0 4px; }
+  .guide h2 { font-size: 18px; margin: 44px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #bbbdc1; }
+  .guide h3 { font-size: 14px; margin: 18px 0 8px; color: #5c5c5c; }
+  .guide p.desc { color: #5c5c5c; margin: 0 0 12px; }
+  .nav { position: sticky; top: 0; z-index: 20; background: #fff; border-bottom: 1px solid #dedfe1; margin: 0 -30px; padding: 10px 30px; display: flex; gap: 14px; flex-wrap: wrap; }
+  .nav a { color: #2C59D9; text-decoration: none; white-space: nowrap; }
+  .card { background: #fff; border: 1px solid #dedfe1; padding: 16px; margin-bottom: 12px; }
+  .card.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .ctx { width: auto; height: auto; padding: 16px; overflow: visible; }           /* 셸 치수 해제: 컨텍스트(폰트·크기)만 적용 */
+  .ctx-label { font-size: 11px; color: #707070; margin-bottom: 8px; }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .swatch { border: 1px solid #dedfe1; background: #fff; }
+  .swatch i { display: block; height: 40px; }
+  .swatch span { display: block; font-size: 11px; padding: 4px 6px; line-height: 1.4; }
+  .swatch span b { display: block; font-weight: normal; color: #707070; }
+  code { font-family: Consolas, 'Courier New', monospace; font-size: 12px; background: #edf0f5; padding: 1px 4px; border-radius: 2px; }
+  pre { font-family: Consolas, 'Courier New', monospace; font-size: 12px; background: #edf0f5; padding: 10px 12px; overflow: auto; margin: 8px 0 0; }
+  table.spec { border-collapse: collapse; width: 100%; font-size: 12px; }
+  table.spec th, table.spec td { border-bottom: 1px solid #dedfe1; padding: 6px 8px; text-align: left; vertical-align: top; }
+  table.spec th { background: #edf0f5; }
+  .demo-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 6px 0; }
+  .preview-wrap { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  .preview-wrap .shell-scale { border: 1px solid #bbbdc1; background: #fff; }
+  .log { font-family: Consolas, monospace; font-size: 12px; color: #5c5c5c; min-height: 18px; }
+</style>
+</head>
+<body>
+<div class="guide">
+  <nav class="nav">
+    <a href="#tokens">토큰</a><a href="#title">타이틀</a><a href="#buttons">버튼</a><a href="#inputs">입력</a>
+    <a href="#search">검색 영역</a><a href="#form">폼</a><a href="#grid">그리드</a><a href="#badge">배지</a>
+    <a href="#dialog">대화상자·알림</a><a href="#embr">eMBR 보조</a><a href="#shells">셸 골격</a>
+  </nav>
+
+  <h1>Elephant UX PoC 스타일 가이드</h1>
+  <p class="desc">mesui.css / mesui.js 가 제공하는 컴포넌트 목록. PoC 화면(<code>poc/*.html</code>)은 <code>./assets/mesui.css</code>, <code>./assets/mesui.js</code> 로 참조한다. 값 출처: Elephant UI theme 조사 결과(실효 CSS = settings.part.less + mrc/*.part.less). 조사에 없는 값은 CSS 주석에 "(추정)" 표기.</p>
+
+  <!-- ============================================================ 토큰 -->
+  <h2 id="tokens">1. 토큰</h2>
+  <div class="card">
+    <h3>색상</h3>
+    <div class="swatches" id="swatches"></div>
+    <h3>폰트 / 크기</h3>
+    <table class="spec">
+      <tr><th>항목</th><th>UI</th><th>OI (touch-style)</th><th>PDA (pda-style)</th><th>팝업</th></tr>
+      <tr><td>기본 글자</td><td>13px Malgun Gothic</td><td>16px (입력 15px)</td><td>15px (입력 14px)</td><td>13px</td></tr>
+      <tr><td>그리드 본문 / 헤더</td><td>12px / 12px bold, 28/30px</td><td>16px / 15px bold, 36/30px</td><td>15px / 15px bold, 40/42px</td><td>12px, 36/30px</td></tr>
+      <tr><td>화면 타이틀</td><td>22px bold, 행 29px</td><td>24px bold, 행 36px</td><td>없음</td><td>22px bold, 행 36px</td></tr>
+      <tr><td>search 버튼</td><td>13px, 80×28</td><td>16px, 100×32</td><td>18px, 100×40</td><td>13px, 80×28</td></tr>
+      <tr><td>normal 버튼</td><td>16px, 100×40</td><td>24px, 120×48 (primary 700)</td><td>20px bold, 120×46</td><td>사용 금지</td></tr>
+      <tr><td>검색 라벨 / 컨트롤</td><td>110px / 28px</td><td>140px / 32px</td><td>114px bold / 40px</td><td>키인 폼 130px / 24px</td></tr>
+      <tr><td>셸 패딩</td><td>20px 30px</td><td>16px 30px</td><td>없음</td><td>24px 30px</td></tr>
+    </table>
+  </div>
+
+  <!-- ============================================================ 타이틀 -->
+  <h2 id="title">2. 타이틀</h2>
+  <div class="card">
+    <div class="ctx-label">UI: .title-bar &gt; .main-title + .breadcrumb</div>
+    <div class="shell shell-ui ctx">
+      <div class="title-bar">
+        <span class="main-title">eMBR 배치 기록 조회</span>
+        <span class="breadcrumb"><span>Home</span><span class="sep">&rsaquo;</span><span>eMBR</span><span class="sep">&rsaquo;</span><span>조회</span><span class="sep">&rsaquo;</span><span class="current">eMBR 배치 기록 조회</span><button class="copy" type="button" title="링크 복사"></button></span>
+      </div>
+    </div>
+    <div class="ctx-label" style="margin-top:12px">OI: .title-bar &gt; .main-title + .btn.search.btn-close (밑줄은 아래 .search-box 의 border-top)</div>
+    <div class="shell shell-oi ctx">
+      <div class="title-bar">
+        <span class="main-title">공정 단계 실행</span>
+        <button class="btn search btn-close" type="button">Close</button>
+      </div>
+    </div>
+    <div class="ctx-label" style="margin-top:12px">팝업: .popup-title &gt; .text + .popup-close</div>
+    <div class="shell shell-popup ctx">
+      <div class="popup-title">
+        <span class="text">전자서명</span>
+        <button class="popup-close" type="button" aria-label="Close"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ 버튼 -->
+  <h2 id="buttons">3. 버튼</h2>
+  <p class="desc">class 체계는 Elephant 그대로: 조회·툴바·팝업 하단·OI Close = <code>.btn.search</code> 계열, OI 하단 트랜잭션·PDA 하단 = <code>.btn.normal</code> 계열. primary 는 항상 최우측.</p>
+  <div class="card">
+    <div class="ctx-label">UI 컨텍스트 (.shell-ui)</div>
+    <div class="shell shell-ui ctx">
+      <div class="demo-row">
+        <button class="btn search">Reset</button>
+        <button class="btn search secondary">Search</button>
+        <button class="btn search primary">New</button>
+        <button class="btn search" disabled>Disabled</button>
+        <span class="vbar"></span>
+        <button class="btn normal">Print Option</button>
+        <button class="btn normal secondary">Cancel</button>
+        <button class="btn normal primary">Complete</button>
+        <span class="vbar"></span>
+        <button class="btn inner">Add</button>
+        <button class="btn icon ic-detail" title="Detail"></button>
+        <button class="btn icon ic-workflow" title="Workflow"></button>
+        <button class="popup-close" title="Close"></button>
+      </div>
+    </div>
+    <div class="ctx-label" style="margin-top:12px">OI 컨텍스트 (.shell-oi): search 100×32 16px, normal 120×48 24px</div>
+    <div class="shell shell-oi ctx">
+      <div class="demo-row">
+        <button class="btn search">Reset</button>
+        <button class="btn search secondary">Add</button>
+        <button class="btn search primary">Load</button>
+        <span class="vbar"></span>
+        <button class="btn normal">Print Option</button>
+        <button class="btn normal secondary">Unload</button>
+        <button class="btn normal primary">In</button>
+        <span class="vbar"></span>
+        <button class="btn inner">Add</button>
+      </div>
+    </div>
+    <div class="ctx-label" style="margin-top:12px">PDA 컨텍스트 (.shell-pda): search 100×40 18px, normal 120×46 20px bold</div>
+    <div class="shell shell-pda ctx">
+      <div class="demo-row">
+        <button class="btn search secondary">Add</button>
+        <button class="btn normal">Delete</button>
+        <button class="btn normal primary">Complete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ 입력 -->
+  <h2 id="inputs">4. 입력 요소</h2>
+  <div class="card">
+    <div class="ctx-label">UI 컨텍스트</div>
+    <div class="shell shell-ui ctx">
+      <div class="demo-row">
+        <input class="input" type="text" placeholder="inputbox">
+        <span class="input-clear"><input class="input" type="text" value="showclearbutton"><button class="clear" type="button"></button></span>
+        <select class="input"><option>Material Type</option><option>RAW</option><option>FG</option></select>
+        <input class="input num" type="text" value="1,234.50">
+        <input class="input" type="text" value="readonly" readonly>
+        <input class="input" type="text" value="disabled" disabled>
+        <input class="input status-error" type="text" value="status-error">
+      </div>
+      <div class="demo-row">
+        <label class="checkbox"><input type="checkbox" checked> Direct Material</label>
+        <label class="checkbox"><input type="checkbox"> Auto No Flag</label>
+        <label class="checkbox"><input type="checkbox" disabled checked> disabled</label>
+        <label class="radio"><input type="radio" name="r1" checked> Pass</label>
+        <label class="radio"><input type="radio" name="r1"> Fail</label>
+      </div>
+      <div class="demo-row">
+        <span class="label required">코드뷰</span>
+        <span class="codeview w-full" style="max-width:360px"><input class="input code" type="text" value="OP-1010"><button class="cv-btn" type="button" title="Code View"></button><input class="input desc" type="text" value="칭량 (Dispensing)" readonly></span>
+        <span class="label">바코드</span>
+        <span class="barcode"><input class="input" type="text" placeholder="Scan"><button class="kb-btn" type="button" title="Keyboard"></button></span>
+      </div>
+    </div>
+    <div class="ctx-label" style="margin-top:12px">OI 컨텍스트 (테두리 #90939a, 높이 32)</div>
+    <div class="shell shell-oi ctx">
+      <div class="demo-row">
+        <input class="input" type="text" placeholder="inputbox">
+        <select class="input"><option>Combo</option></select>
+        <span class="codeview" style="width:420px"><input class="input code" type="text" value="MAT-0001"><button class="cv-btn" type="button"></button><input class="input desc" type="text" value="Acetaminophen API" readonly></span>
+        <label class="checkbox"><input type="checkbox" checked> Print Label</label>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ 검색 영역 -->
+  <h2 id="search">5. 검색 영역 (.search-box)</h2>
+  <p class="desc">상·하 1px 선만 있는 흰 바탕. UI 3열(기본) / OI 2열 / PDA 1열. 4번째 셀부터 자동으로 다음 행. <code>.search-actions</code> 는 항상 마지막 열 우측 끝.</p>
+  <div class="card">
+    <div class="ctx-label">UI 3열 × 2행 (WipSetupMaterialMain)</div>
+    <div class="shell shell-ui ctx">
+      <div class="search-box">
+        <div class="search-control"><span class="label">Material Type</span><select class="input"><option>All</option></select></div>
+        <div class="search-control"><span class="label">Material Code</span><span class="input-clear"><input class="input" type="text"><button class="clear" type="button"></button></span></div>
+        <div class="search-control"><span class="label">Mat Desc</span><input class="input" type="text"></div>
+        <div class="search-control"><span class="label">Select Options</span><span class="checkbox-group"><label class="checkbox"><input type="checkbox"> Use Only</label><label class="checkbox"><input type="checkbox"> Direct</label></span></div>
+        <div class="search-control empty"></div>
+        <div class="search-actions"><button class="btn search">Reset</button><button class="btn search secondary">Search</button></div>
+      </div>
+    </div>
+    <div class="ctx-label" style="margin-top:12px">OI 2열 (필수 라벨 + 코드뷰)</div>
+    <div class="shell shell-oi ctx">
+      <div class="search-box">
+        <div class="search-control"><span class="label required">Batch No</span><span class="codeview"><input class="input code" type="text"><button class="cv-btn" type="button"></button><input class="input desc" type="text" readonly></span></div>
+        <div class="search-control"><span class="label required">Operation</span><span class="codeview"><input class="input code" type="text"><button class="cv-btn" type="button"></button><input class="input desc" type="text" readonly></span></div>
+        <div class="search-control"><span class="label">Inv Lot Id</span><span class="field"><input class="input" type="text"><label class="checkbox"><input type="checkbox"> Auto No</label></span></div>
+        <div class="search-actions"><button class="btn search">Reset</button><button class="btn search secondary">Add</button></div>
+      </div>
+    </div>
+    <div class="ctx-label" style="margin-top:12px">PDA 1열 (배경 #EDF0F5, 행 48px, 버튼 전체 폭)</div>
+    <div class="shell shell-pda ctx" style="width:480px">
+      <div class="search-box">
+        <div class="search-control"><span class="label required">Inv Lot Id</span><span class="barcode"><input class="input" type="text" placeholder="Scan"><button class="kb-btn" type="button"></button></span></div>
+        <div class="search-control"><span class="label required">Qty</span><input class="input num" type="text" value="0"></div>
+        <div class="search-control"><span class="label">Inv Mat Code</span><input class="input" type="text" disabled></div>
+        <div class="search-actions full"><button class="btn search secondary">Add</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ 폼 -->
+  <h2 id="form">6. 폼 (.form-grid, tpl-view-key-in)</h2>
+  <p class="desc">라벨 셀 #EDF0F5 130px, 행 36px, 상단선 #61666f / 하단선 #bbbdc1 / 행 구분선 #dedfe1. 팝업은 2열까지(3열 금지).</p>
+  <div class="card">
+    <div class="shell shell-popup ctx">
+      <div class="ctx-label">읽기전용 2열 (.form-grid.cols-2.readonly)</div>
+      <div class="form-grid cols-2 readonly">
+        <span class="label">Order No</span><span class="field"><input class="input" type="text" value="WO-2026-00128" readonly></span>
+        <span class="label">Ord Line</span><span class="field"><input class="input" type="text" value="10  |  Acetaminophen 500mg Tab" readonly></span>
+        <span class="label">Material</span><span class="field"><input class="input" type="text" value="FG-0001  |  Acetaminophen 500mg Tab" readonly></span>
+        <span class="label">Batch Size</span><span class="field"><input class="input num" type="text" value="120,000 EA" readonly></span>
+      </div>
+      <div class="ctx-label" style="margin-top:16px">키인 2열 (.form-grid.cols-2) — 코드뷰 + inner 버튼</div>
+      <div class="form-grid cols-2">
+        <span class="label required">Oper Code</span><span class="field"><span class="codeview"><input class="input code" type="text" value="OP-1010"><button class="cv-btn" type="button"></button><input class="input desc" type="text" value="칭량" readonly></span></span>
+        <span class="label">Equip Code</span><span class="field"><span class="codeview"><input class="input code" type="text"><button class="cv-btn" type="button"></button><input class="input desc" type="text" readonly></span></span>
+        <span class="label required">INP Inv Label Id</span><span class="field"><input class="input" type="text"><button class="btn inner" type="button">Add</button></span>
+        <span class="label">Remark</span><span class="field"><input class="input" type="text"></span>
+      </div>
+      <div class="ctx-label" style="margin-top:16px">1열 + 헤더 셀 (.form-grid &gt; .header)</div>
+      <div class="form-grid">
+        <span class="header">서명자 정보</span>
+        <span class="label required">User ID</span><span class="field"><input class="input" type="text" value="demo.user"></span>
+        <span class="label required">Password</span><span class="field"><input class="input" type="password" value="********"></span>
+        <span class="label">Reason</span><span class="field"><select class="input"><option>검토 완료</option><option>승인</option></select></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ 그리드 -->
+  <h2 id="grid">7. 그리드 (.grid-block &gt; .grid-title-area + .grid-wrap &gt; table.grid + .paging)</h2>
+  <p class="desc">헤더 #edf0f5 bold, 외곽 상단 #61666f / 하단 #bbbdc1, 좌우 테두리 없음, 셀 하단선 #dedfe1. 행 클릭 = 단일 선택(<code>table.grid.selectable</code>, 'rowselect' 이벤트), 체크박스 열 = <code>.col-check</code>, 숫자 열 = <code>.num</code>.</p>
+  <div class="card">
+    <div class="ctx-label">UI: 제목 행 21px + 툴바 28px, 페이징(300px 중앙)</div>
+    <div class="shell shell-ui ctx">
+      <div class="grid-block" style="height:360px">
+        <div class="grid-title-area">
+          <span class="group-title">Batch List</span>
+          <div class="grid-toolbar">
+            <span class="total-text" data-total-for="grdDemo"></span>
+            <span class="vbar"></span>
+            <select class="input page-size"><option>Views 20</option><option>Views 50</option><option>Views 100</option></select>
+            <span class="spacer"></span>
+            <input class="input w-160" type="text" id="grdFilter" placeholder="필터(filterGrid 데모)">
+            <button class="btn search" type="button" onclick="MesUI.filterGrid('grdDemo', function(tr,c){ var q=document.getElementById('grdFilter').value.toLowerCase(); return !q || c.join(' ').toLowerCase().indexOf(q)>=0; })">Filter</button>
+            <button class="btn search" type="button">Excel</button>
+            <button class="btn search" type="button" onclick="MesUI.confirm(MesUI.checkedRows('grdDemo').length + '건을 삭제하시겠습니까?', function(){ MesUI.toast('삭제되었습니다.', 'ok'); }, {title:'Delete'})">Delete</button>
+            <button class="btn search primary" type="button">New</button>
+          </div>
+        </div>
+        <div class="grid-wrap">
+          <table class="grid selectable" id="grdDemo">
+            <colgroup><col class="col-check"><col class="col-no"><col class="col-icon"><col style="width:140px"><col><col style="width:110px"><col style="width:100px"><col style="width:110px"><col style="width:150px"></colgroup>
+            <thead><tr>
+              <th class="col-check"><input type="checkbox"></th><th class="col-no">No.</th><th class="col-icon">Detail</th>
+              <th class="required" data-key="batchNo">Batch No</th><th data-key="product">Product</th><th data-key="step">Step</th>
+              <th class="num" data-key="qty">Qty</th><th class="center" data-key="status">Status</th><th data-key="updated">Updated</th>
+            </tr></thead>
+            <tbody id="grdDemoBody"></tbody>
+          </table>
+        </div>
+        <div class="paging">
+          <button class="pg-btn pg-first" type="button" disabled></button><button class="pg-btn pg-prev" type="button" disabled></button>
+          <button class="pg-no current" type="button">1</button><button class="pg-no" type="button">2</button><button class="pg-no" type="button">3</button><button class="pg-no" type="button">4</button><button class="pg-no" type="button">5</button>
+          <button class="pg-btn pg-next" type="button"></button><button class="pg-btn pg-last" type="button"></button>
+          <input class="input pg-input" type="text" value="1"><button class="btn pg-go" type="button">GO</button>
+        </div>
+      </div>
+      <div class="log mt-8" id="rowLog">행을 클릭하면 rowselect 이벤트 detail 이 여기에 표시됩니다.</div>
+    </div>
+
+    <div class="ctx-label" style="margin-top:16px">OI: 한 행 툴바(group_title + Total + 우측 버튼), 헤더 36 / 행 30, 합계 바</div>
+    <div class="shell shell-oi ctx">
+      <div class="grid-block">
+        <div class="grid-toolbar">
+          <span class="group-title">Inv Mat In Store List</span>
+          <span class="total-text" data-total-for="grdOi"></span>
+          <span class="spacer"></span>
+          <button class="btn search" type="button">Delete</button>
+        </div>
+        <div class="grid-wrap fixed">
+          <table class="grid selectable" id="grdOi">
+            <colgroup><col class="col-check"><col class="col-no"><col style="width:200px"><col><col style="width:120px"><col style="width:120px"></colgroup>
+            <thead><tr><th class="col-check"><input type="checkbox"></th><th class="col-no">No.</th><th>Inv Lot Id</th><th>Material</th><th class="num">Qty</th><th class="center">Interlock</th></tr></thead>
+            <tbody>
+              <tr><td class="col-check"><input type="checkbox"></td><td class="col-no">1</td><td>LOT-A-0001</td><td>Acetaminophen API</td><td class="num">25,000</td><td class="center"><span class="status-dot red" title="차단"></span></td></tr>
+              <tr class="editing"><td class="col-check"><input type="checkbox"></td><td class="col-no">2</td><td>LOT-A-0002</td><td>Microcrystalline Cellulose</td><td class="num">8,400</td><td class="center"><span class="status-dot amber"></span></td></tr>
+              <tr><td class="col-check"><input type="checkbox"></td><td class="col-no">3</td><td>LOT-A-0003</td><td>Magnesium Stearate</td><td class="num">600</td><td class="center"><span class="status-dot navy"></span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="grid-summary"><span>합계</span><b>34,000</b><span class="muted">3 Lot</span></div>
+      </div>
+    </div>
+
+    <div class="ctx-label" style="margin-top:16px">PDA: 헤더 배경 투명 / 테두리 #61666f, 행 42</div>
+    <div class="shell shell-pda ctx" style="width:480px">
+      <div class="grid-block">
+        <div class="grid-wrap fixed">
+          <table class="grid selectable">
+            <colgroup><col style="width:60px"><col style="width:150px"><col style="width:80px"><col></colgroup>
+            <thead><tr><th class="center">No.</th><th>Inv Lot Id</th><th class="num">qty</th><th>Store</th></tr></thead>
+            <tbody>
+              <tr><td class="center">1</td><td>LOT-A-0001</td><td class="num">25,000</td><td>WH-01</td></tr>
+              <tr class="selected"><td class="center">2</td><td>LOT-A-0002</td><td class="num">8,400</td><td>WH-01</td></tr>
+              <tr><td class="center">3</td><td>LOT-A-0003</td><td class="num">600</td><td>WH-02</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ 배지 -->
+  <h2 id="badge">8. 배지 · 불릿 · 상태 배경</h2>
+  <div class="card">
+    <div class="shell shell-ui ctx">
+      <div class="demo-row">
+        <span class="badge ok">Approved</span><span class="badge warn">Deviation</span><span class="badge error">Rejected</span>
+        <span class="badge info">In Progress</span><span class="badge muted">Draft</span>
+        <span class="vbar"></span>
+        <span class="badge" id="badgeDemo">setBadge 데모</span>
+        <button class="btn inner" type="button" onclick="var s=['ok','warn','error','info','muted']; var b=document.getElementById('badgeDemo'); var i=(s.indexOf(b.dataset.s||'muted')+1)%s.length; b.dataset.s=s[i]; MesUI.setBadge(b, s[i], s[i].toUpperCase())">상태 순환</button>
+      </div>
+      <div class="demo-row">
+        <span class="dot info"></span> dot.info <span class="dot warn"></span> dot.warn <span class="dot error"></span> dot.error <span class="dot ok"></span> dot.ok
+        <span class="vbar"></span>
+        <span class="alarm-count">3</span> alarm-count
+      </div>
+      <div class="demo-row">
+        <span class="bc-good" style="padding:4px 10px">bc-good</span><span class="bc-alam" style="padding:4px 10px">bc-alam</span><span class="bc-faulty" style="padding:4px 10px">bc-faulty</span>
+        <span class="bc-plan" style="padding:4px 10px">bc-plan</span><span class="bc-quality" style="padding:4px 10px">bc-quality</span><span class="bc-offpump" style="padding:4px 10px">bc-offpump</span><span class="bc-gray" style="padding:4px 10px">bc-gray</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ 대화상자 -->
+  <h2 id="dialog">9. 대화상자 · 토스트 · 알림 바</h2>
+  <p class="desc">팝업 = 1100×700 .dialog(= .shell-popup 골격), 하단 .dialog-footer 는 search 계열 버튼 우측 정렬. Common.alert(UI) = 모달 메시지, OI = 상단 알림 바(notify).</p>
+  <div class="card">
+    <div class="shell shell-ui ctx">
+      <div class="demo-row">
+        <button class="btn search primary" type="button" data-dialog-open="dlgDemo">openDialog('dlgDemo')</button>
+        <button class="btn search" type="button" onclick="MesUI.alert('필수 항목이 입력되지 않았습니다.', 'Warning')">alert(Warning)</button>
+        <button class="btn search" type="button" onclick="MesUI.alert('저장되었습니다.', 'Information')">alert(Information)</button>
+        <button class="btn search" type="button" onclick="MesUI.confirm('선택한 3건을 삭제하시겠습니까?', function(){ MesUI.toast('삭제 완료', 'ok'); }, {title:'Delete'})">confirm(Delete)</button>
+        <span class="vbar"></span>
+        <button class="btn search" type="button" onclick="MesUI.toast('저장되었습니다.', 'ok')">toast ok</button>
+        <button class="btn search" type="button" onclick="MesUI.toast('수량이 허용 범위를 벗어났습니다.', 'warn')">toast warn</button>
+        <button class="btn search" type="button" onclick="MesUI.toast('서명 검증에 실패했습니다.', 'error')">toast error</button>
+        <button class="btn search" type="button" onclick="MesUI.toast('처리 중입니다.', 'info')">toast info</button>
+        <span class="vbar"></span>
+        <button class="btn search" type="button" onclick="MesUI.notify('MIC-00394 인터록: 선행 단계가 완료되지 않았습니다.', 'error')">notify error (OI 상단 바)</button>
+        <button class="btn search" type="button" onclick="MesUI.notify('배치 B-2026-0128 단계 3 완료', 'ok')">notify ok</button>
+      </div>
+    </div>
+    <h3>정적 팝업 마크업 (실제 PoC 에서는 body 끝에 둔다)</h3>
+<pre>&lt;div class="dialog-backdrop" id="dlgDemo"&gt;
+  &lt;div class="dialog"&gt;                        &lt;!-- .dialog.md 900 / .dialog.sm 600×480 / .dialog.msg 420 --&gt;
+    &lt;div class="popup-title"&gt;&lt;span class="text"&gt;제목&lt;/span&gt;&lt;button class="popup-close" data-dialog-close&gt;&lt;/button&gt;&lt;/div&gt;
+    &lt;div class="shell-body"&gt; ... .form-grid / .split &gt; .grid-block ... &lt;/div&gt;
+    &lt;div class="dialog-footer"&gt;&lt;button class="btn search secondary" data-dialog-close&gt;Cancel&lt;/button&gt;&lt;button class="btn search primary"&gt;Save&lt;/button&gt;&lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;</pre>
+  </div>
+
+  <!-- ============================================================ eMBR 보조 -->
+  <h2 id="embr">10. eMBR 전용 보조</h2>
+  <div class="card pair">
+    <div>
+      <h3>.status-dot — 인터록 등급 (red 차단 / amber 경고 / navy 정보 / gray 없음)</h3>
+      <div class="shell shell-ui ctx">
+        <div class="demo-row">
+          <span class="status-dot red"></span> red <span class="status-dot amber"></span> amber <span class="status-dot navy"></span> navy <span class="status-dot gray"></span> gray
+          <span class="vbar"></span><span class="status-dot red lg"></span> lg <span class="status-dot amber sm"></span> sm
+        </div>
+      </div>
+      <h3>.step-list — 단계 진행 (done / active / wait / blocked)</h3>
+      <div class="shell shell-oi ctx">
+        <div class="step-list">
+          <div class="step done"><span class="no">1</span><span class="name">원료 칭량</span><span class="meta">09:12 완료 · 김작업</span></div>
+          <div class="step done"><span class="no">2</span><span class="name">혼합 (Blending)</span><span class="meta">10:40 완료 · 김작업</span></div>
+          <div class="step active"><span class="no">3</span><span class="name">과립 (Granulation)</span><span class="meta">진행 중 · 11:05 시작</span></div>
+          <div class="step blocked"><span class="no">4</span><span class="name">건조 — IPC 수분 측정 대기</span><span class="meta"><span class="status-dot red sm"></span> 인터록</span></div>
+          <div class="step wait"><span class="no">5</span><span class="name">타정</span><span class="meta">대기</span></div>
+        </div>
+      </div>
+      <h3>.timeline — 가로 진행 바</h3>
+      <div class="shell shell-ui ctx">
+        <div class="timeline">
+          <div class="tl-step done"><span class="tl-dot"></span><span class="tl-label">작성</span><span class="tl-time">10-01 09:00</span></div>
+          <div class="tl-step done"><span class="tl-dot"></span><span class="tl-label">검토</span><span class="tl-time">10-02 14:20</span></div>
+          <div class="tl-step active"><span class="tl-dot"></span><span class="tl-label">QA 승인</span><span class="tl-time">진행 중</span></div>
+          <div class="tl-step"><span class="tl-dot"></span><span class="tl-label">배포</span><span class="tl-time">-</span></div>
+          <div class="tl-step"><span class="tl-dot"></span><span class="tl-label">유효</span><span class="tl-time">-</span></div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <h3>.pinpad — MesUI.pinpad(el, {length:4, onComplete})</h3>
+      <div class="shell shell-oi ctx">
+        <div class="demo-row" style="align-items:flex-start">
+          <div id="pinDemo"></div>
+          <div class="col">
+            <span class="muted">4자리 입력 시 onComplete. 1234 = 성공, 그 외 = error()</span>
+            <span class="log" id="pinLog"></span>
+            <div id="pinSmall"></div>
+          </div>
+        </div>
+      </div>
+      <h3>.kpi — 큰 숫자 카드 (tpl_info_board)</h3>
+      <div class="shell shell-oi ctx">
+        <div class="kpi-board">
+          <div class="kpi"><span class="kpi-label">계획 수량</span><span class="kpi-value">120,000<small>EA</small></span></div>
+          <div class="kpi"><span class="kpi-label">진행 단계</span><span class="kpi-value">3 / 7</span></div>
+          <div class="kpi warning"><span class="kpi-label">미해결 Deviation</span><span class="kpi-value">2</span></div>
+          <div class="kpi"><span class="kpi-label">경과 시간</span><span class="kpi-value" data-now="time" data-now-live>--:--:--</span></div>
+        </div>
+      </div>
+      <h3>시각 표시 — <code>data-now</code> / MesUI.nowStamp()</h3>
+      <div class="shell shell-ui ctx">
+        <div class="demo-row"><span class="label">현재</span><b data-now data-now-live></b><span class="label">날짜</span><b data-now="date"></b><span class="label">fmt(1234567.891, 2)</span><b id="fmtDemo"></b></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ 셸 -->
+  <h2 id="shells">11. 셸 골격 (축소 미리보기)</h2>
+  <p class="desc">실제 PoC 는 축소 없이 <code>&lt;body&gt;&lt;div class="shell shell-ui"&gt;…</code> 로 배치한다. 아래는 <code>.shell-scale</code> 로 비율만 줄인 것.</p>
+  <div class="card">
+    <h3>UI 1920×1080 — .title-bar → .shell-body( .search-box → .grid-block ) <span class="muted">scale .45</span></h3>
+    <div class="preview-wrap">
+      <div class="shell-scale ui" style="--scale:.45">
+        <div class="shell shell-ui">
+          <div class="title-bar">
+            <span class="main-title">eMBR 배치 기록 조회</span>
+            <span class="breadcrumb"><span>Home</span><span class="sep">&rsaquo;</span><span>eMBR</span><span class="sep">&rsaquo;</span><span class="current">eMBR 배치 기록 조회</span></span>
+          </div>
+          <div class="shell-body">
+            <div class="search-box">
+              <div class="search-control"><span class="label">Product</span><span class="codeview full"><input class="input code" type="text"><button class="cv-btn" type="button"></button><input class="input desc" type="text" readonly></span></div>
+              <div class="search-control"><span class="label">Batch No</span><input class="input" type="text"></div>
+              <div class="search-control"><span class="label">Status</span><select class="input"><option>All</option></select></div>
+              <div class="search-control"><span class="label">Period</span><span class="field"><input class="input" type="date"><span>~</span><input class="input" type="date"></span></div>
+              <div class="search-control empty"></div>
+              <div class="search-actions"><button class="btn search">Reset</button><button class="btn search secondary">Search</button></div>
+            </div>
+            <div class="grid-block">
+              <div class="grid-title-area">
+                <span class="group-title">Batch List</span>
+                <div class="grid-toolbar">
+                  <span class="total-text" data-total-for="grdShellUi"></span><span class="vbar"></span>
+                  <select class="input page-size"><option>Views 20</option></select>
+                  <span class="spacer"></span>
+                  <button class="btn search">Excel</button><button class="btn search">Delete</button><button class="btn search primary">New</button>
+                </div>
+              </div>
+              <div class="grid-wrap">
+                <table class="grid selectable" id="grdShellUi">
+                  <colgroup><col class="col-check"><col class="col-no"><col class="col-icon"><col style="width:160px"><col><col style="width:140px"><col style="width:120px"><col style="width:120px"><col style="width:160px"></colgroup>
+                  <thead><tr><th class="col-check"><input type="checkbox"></th><th class="col-no">No.</th><th class="col-icon">Detail</th><th>Batch No</th><th>Product</th><th>Step</th><th class="num">Qty</th><th class="center">Status</th><th>Updated</th></tr></thead>
+                  <tbody id="grdShellUiBody"></tbody>
+                </table>
+              </div>
+              <div class="paging">
+                <button class="pg-btn pg-first" type="button" disabled></button><button class="pg-btn pg-prev" type="button" disabled></button>
+                <button class="pg-no current" type="button">1</button><button class="pg-no" type="button">2</button><button class="pg-no" type="button">3</button>
+                <button class="pg-btn pg-next" type="button"></button><button class="pg-btn pg-last" type="button"></button>
+                <input class="input pg-input" type="text" value="1"><button class="btn pg-go" type="button">GO</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3>OI 1920×1080 — .title-bar → .oi-body( .grid-block → .search-box ) → .tran-buttons <span class="muted">scale .45 · 규칙 문서 순서(그리드 → 검색 → 트랜잭션)</span></h3>
+    <div class="preview-wrap">
+      <div class="shell-scale oi" style="--scale:.45">
+        <div class="shell shell-oi">
+          <div class="title-bar"><span class="main-title">공정 단계 실행 — 과립</span><button class="btn search btn-close">Close</button></div>
+          <div class="oi-body">
+            <div class="kpi-board">
+              <div class="kpi"><span class="kpi-label">Batch</span><span class="kpi-value">B-2026-0128</span></div>
+              <div class="kpi"><span class="kpi-label">단계</span><span class="kpi-value">3 / 7</span></div>
+              <div class="kpi warning"><span class="kpi-label">인터록</span><span class="kpi-value">1</span></div>
+            </div>
+            <div class="grid-block">
+              <div class="grid-toolbar"><span class="group-title">Step Parameter</span><span class="total-text" data-total-for="grdShellOi"></span><span class="spacer"></span><button class="btn search">Delete</button></div>
+              <div class="grid-wrap">
+                <table class="grid selectable" id="grdShellOi">
+                  <colgroup><col class="col-check"><col class="col-no"><col style="width:260px"><col style="width:160px"><col style="width:160px"><col style="width:160px"><col style="width:140px"><col></colgroup>
+                  <thead><tr><th class="col-check"><input type="checkbox"></th><th class="col-no">No.</th><th>Parameter</th><th class="num">Lower</th><th class="num">Upper</th><th class="num">Actual</th><th class="center">Result</th><th>Remark</th></tr></thead>
+                  <tbody id="grdShellOiBody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="search-box">
+              <div class="search-control"><span class="label required">Parameter</span><span class="codeview full"><input class="input code" type="text"><button class="cv-btn" type="button"></button><input class="input desc" type="text" readonly></span></div>
+              <div class="search-control"><span class="label required">Actual</span><input class="input num" type="text"></div>
+              <div class="search-control"><span class="label">Remark</span><input class="input" type="text"></div>
+              <div class="search-actions"><button class="btn search">Reset</button><button class="btn search secondary">Add</button></div>
+            </div>
+          </div>
+          <div class="tran-buttons">
+            <button class="btn normal">Print Option</button>
+            <label class="checkbox"><input type="checkbox"> Print Label</label>
+            <span class="spacer"></span>
+            <button class="btn normal secondary">Hold</button>
+            <button class="btn normal primary">Step Complete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3>팝업 1100×700 · PDA 480×700 <span class="muted">scale .5 / .6</span></h3>
+    <div class="preview-wrap">
+      <div class="shell-scale popup" style="--scale:.5">
+        <div class="shell shell-popup">
+          <div class="popup-title"><span class="text">Inv Mat Load</span><button class="popup-close" type="button"></button></div>
+          <div class="shell-body">
+            <div class="form-grid cols-2 readonly">
+              <span class="label">Order No</span><span class="field"><input class="input" type="text" value="WO-2026-00128" readonly></span>
+              <span class="label">Ord Line</span><span class="field"><input class="input" type="text" value="10 | Acetaminophen 500mg" readonly></span>
+              <span class="label">Material</span><span class="field"><input class="input" type="text" value="FG-0001 | Acetaminophen 500mg Tab" readonly></span>
+              <span class="label">Qty</span><span class="field"><input class="input num" type="text" value="120,000" readonly></span>
+            </div>
+            <div class="form-grid cols-2">
+              <span class="label required">Oper Code</span><span class="field"><span class="codeview"><input class="input code" type="text"><button class="cv-btn" type="button"></button><input class="input desc" type="text" readonly></span></span>
+              <span class="label">Equip Code</span><span class="field"><span class="codeview"><input class="input code" type="text"><button class="cv-btn" type="button"></button><input class="input desc" type="text" readonly></span></span>
+              <span class="label required">INP Inv Label Id</span><span class="field"><input class="input" type="text"><button class="btn inner">Add</button></span>
+              <span class="label"></span><span class="field"></span>
+            </div>
+            <div class="split">
+              <div class="grid-block">
+                <div class="grid-toolbar"><span class="group-title">Inp Inv Mat List</span><span class="total-text">Total <b>2</b></span></div>
+                <div class="grid-wrap"><table class="grid"><thead><tr><th>Material</th><th class="num">Req</th><th class="num">Loaded</th></tr></thead>
+                  <tbody><tr><td>Acetaminophen API</td><td class="num">60,000</td><td class="num">25,000</td></tr><tr><td>MCC</td><td class="num">30,000</td><td class="num">0</td></tr></tbody></table></div>
+              </div>
+              <div class="grid-block">
+                <div class="grid-toolbar"><span class="group-title">Inp Inv Label List</span><span class="total-text">Total <b>3</b></span></div>
+                <div class="grid-wrap"><table class="grid"><colgroup><col class="col-check"><col><col style="width:90px"><col style="width:90px"></colgroup><thead><tr><th class="col-check"><input type="checkbox"></th><th>Label Id</th><th class="num">Qty</th><th class="center">State</th></tr></thead>
+                  <tbody><tr><td class="col-check"><input type="checkbox"></td><td>LBL-0001</td><td class="num">25,000</td><td class="center"><span class="badge ok">OK</span></td></tr><tr><td class="col-check"><input type="checkbox"></td><td>LBL-0002</td><td class="num">25,000</td><td class="center"><span class="badge muted">Wait</span></td></tr><tr><td class="col-check"><input type="checkbox"></td><td>LBL-0003</td><td class="num">10,000</td><td class="center"><span class="badge warn">Hold</span></td></tr></tbody></table></div>
+              </div>
+            </div>
+          </div>
+          <div class="dialog-footer"><button class="btn search secondary">Unload</button><button class="btn search primary">Load</button></div>
+        </div>
+      </div>
+
+      <div class="shell-scale pda" style="--scale:.6">
+        <div class="shell shell-pda">
+          <div class="search-box">
+            <div class="search-control"><span class="label required">Inv Lot Id</span><span class="barcode"><input class="input" type="text" placeholder="Scan"><button class="kb-btn" type="button"></button></span></div>
+            <div class="search-control"><span class="label required">Qty</span><input class="input num" type="text" value="0"></div>
+            <div class="search-control"><span class="label">Inv Mat Code</span><input class="input" type="text" disabled></div>
+            <div class="search-control"><span class="label">Store Code</span><input class="input" type="text" disabled></div>
+            <div class="search-actions full"><button class="btn search secondary">Add</button></div>
+          </div>
+          <div class="shell-body">
+            <div class="grid-block">
+              <div class="grid-wrap">
+                <table class="grid selectable"><colgroup><col style="width:50px"><col style="width:140px"><col style="width:80px"><col></colgroup>
+                  <thead><tr><th class="center">No.</th><th>Inv Lot Id</th><th class="num">qty</th><th>Store</th></tr></thead>
+                  <tbody><tr><td class="center">1</td><td>LOT-A-0001</td><td class="num">25,000</td><td>WH-01</td></tr><tr><td class="center">2</td><td>LOT-A-0002</td><td class="num">8,400</td><td>WH-01</td></tr></tbody></table>
+              </div>
+            </div>
+          </div>
+          <div class="pda-buttons"><button class="btn normal">Delete</button><button class="btn normal primary">Complete</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ 정적 팝업 (데모) -->
+<div class="dialog-backdrop" id="dlgDemo">
+  <div class="dialog sm">
+    <div class="popup-title"><span class="text">전자서명</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+    <div class="shell-body">
+      <div class="form-grid readonly">
+        <span class="label">대상</span><span class="field"><input class="input" type="text" value="B-2026-0128 / 단계 3 과립 완료" readonly></span>
+        <span class="label">의미</span><span class="field"><input class="input" type="text" value="수행(Performed by)" readonly></span>
+      </div>
+      <div class="form-grid">
+        <span class="label required">User ID</span><span class="field"><input class="input" type="text" value="demo.user"></span>
+        <span class="label required">Password</span><span class="field"><input class="input" type="password"></span>
+        <span class="label">Comment</span><span class="field"><input class="input" type="text"></span>
+      </div>
+      <span class="sub-info">서명 시각은 서버 시각으로 기록됩니다. <b data-now data-now-live></b></span>
+    </div>
+    <div class="dialog-footer"><button class="btn search secondary" type="button" data-dialog-close>Cancel</button><button class="btn search primary" type="button" onclick="MesUI.closeDialog('dlgDemo'); MesUI.toast('서명이 기록되었습니다.', 'ok')">Sign</button></div>
+  </div>
+</div>
+
+<script src="./mesui.js"></script>
+<script>
+  /* ---- 가이드 페이지 데모 스크립트 ---- */
+  // 색상 스와치
+  (function () {
+    var tokens = [
+      ['primary', '#2C59D9'], ['primary active', '#00207a'], ['secondary hover', '#E6EAEE'], ['hover / active', '#f7f7f7'],
+      ['text', '#333333'], ['text touch', '#111111'], ['text disabled', '#999999'], ['breadcrumb', '#707070'],
+      ['bg light', '#edf0f5'], ['bg disabled', '#f5f5f5'], ['border 01', '#61666f'], ['border 02', '#afb2b6'],
+      ['border 03', '#bbbdc1'], ['border 04', '#d2d3d6'], ['border 05', '#dedfe1'], ['border touch', '#90939a'],
+      ['row selected', 'rgba(44,89,217,.2)'], ['row editing', 'rgba(44,89,217,.08)'], ['error', '#ff5858'], ['warn', '#ffb100'],
+      ['ok', '#37b284'], ['info', '#0091eb'], ['navy', '#062470'], ['alarm', '#A80000'],
+      ['board normal', '#eaeefb'], ['board warn', '#ffeeee'], ['bc-good', '#E2F8CC'], ['bc-alam', '#FFEEDA'],
+      ['bc-faulty', '#F9D5D1'], ['bc-plan', '#CCEBFF'], ['bc-quality', '#EBE0F7'], ['bc-gray', '#e6e6e7']
+    ];
+    var host = document.getElementById('swatches');
+    tokens.forEach(function (t) {
+      var d = document.createElement('div'); d.className = 'swatch';
+      d.innerHTML = '<i style="background:' + t[1] + '"></i><span>' + t[0] + '<b>' + t[1] + '</b></span>';
+      host.appendChild(d);
+    });
+  })();
+
+  // 그리드 데모 행
+  function fillBatchRows(tbodyId, n, withIcons) {
+    var tb = document.getElementById(tbodyId), st = ['ok', 'info', 'warn', 'error', 'muted'], stText = ['Approved', 'In Progress', 'Deviation', 'Rejected', 'Draft'];
+    var steps = ['칭량', '혼합', '과립', '건조', '타정', '코팅', '포장'];
+    for (var i = 1; i <= n; i++) {
+      var s = (i * 3) % 5, tr = document.createElement('tr');
+      tr.innerHTML = '<td class="col-check"><input type="checkbox"></td><td class="col-no">' + i + '</td>' +
+        (withIcons ? '<td class="col-icon"><button class="ic-detail" type="button" title="Detail"></button></td>' : '') +
+        '<td>B-2026-0' + (100 + i) + '</td><td>Acetaminophen 500mg Tab</td><td>' + steps[i % 7] + '</td>' +
+        '<td class="num">' + MesUI.fmt(120000 - i * 1375) + '</td><td class="center"><span class="badge ' + st[s] + '">' + stText[s] + '</span></td>' +
+        '<td>' + MesUI.nowStamp(new Date(Date.now() - i * 3600000)) + '</td>';
+      tb.appendChild(tr);
+    }
+  }
+  fillBatchRows('grdDemoBody', 12, true);
+  fillBatchRows('grdShellUiBody', 24, true);
+  (function () {
+    var tb = document.getElementById('grdShellOiBody'), names = ['Inlet Temp', 'Outlet Temp', 'Spray Rate', 'Atomizing Air', 'LOD(%)'];
+    names.forEach(function (nm, i) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td class="col-check"><input type="checkbox"></td><td class="col-no">' + (i + 1) + '</td><td>' + nm + '</td><td class="num">' + (50 + i * 5) + '</td><td class="num">' + (70 + i * 5) + '</td><td class="num">' + (i === 2 ? '' : 60 + i * 5) + '</td>' +
+        '<td class="center">' + (i === 2 ? '<span class="badge muted">Wait</span>' : i === 3 ? '<span class="badge error">OOS</span>' : '<span class="badge ok">Pass</span>') + '</td><td></td>';
+      tb.appendChild(tr);
+    });
+  })();
+
+  // rowselect 이벤트 로그
+  document.getElementById('grdDemo').addEventListener('rowselect', function (e) {
+    document.getElementById('rowLog').textContent = 'rowselect index=' + e.detail.index + ' data=' + JSON.stringify(e.detail.data);
+  });
+
+  // PIN 패드
+  MesUI.pinpad('pinDemo', { length: 4, onComplete: function (pin, api) {
+    var log = document.getElementById('pinLog');
+    if (pin === '1234') { log.textContent = 'OK: ' + MesUI.nowStamp(); MesUI.toast('PIN 확인', 'ok'); api.reset(); }
+    else { log.textContent = 'PIN 불일치'; api.error(); MesUI.notify('PIN 이 일치하지 않습니다.', 'error'); }
+  } });
+  MesUI.pinpad('pinSmall', { length: 6 }).reset();
+  document.getElementById('pinSmall').classList.add('sm');
+
+  document.getElementById('fmtDemo').textContent = MesUI.fmt(1234567.891, 2);
+</script>
+</body>
+</html>

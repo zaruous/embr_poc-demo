@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-ebr-equipment-state-ui  (EBR · 설비 상태 마스터)
+  역할         : 사용자가 관리하는 설비 상태 코드 · 명칭 · 플래그(사용가능/세척/격리 등) · 활성/비활성
+  공용 자산     : ./assets/mesui.css · ./assets/mesui.js · ./eq-state-event-store.js
+  저장         : localStorage 'ebr.equipmentState.v1'
+  연계         : 설비 이벤트 마스터 · 프로세스 트리 디자이너 검사기
+  UI-13 E8     : 런타임 구역 열 kind · roomId · calDue · 일상 점검(오늘 합격 토글) · 용량, RT_SEED 저울 kind/roomId(BAL-205 R-202) · 칭량실 행 R-201/R-202
+                 판정 = EbrDispense(dateDue · NEAR_CAL_DAYS) 읽기, 토글 = EbrDispense.setDailyCheck(현재 사용자 필요, 없으면 비활성)
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>설비 상태 마스터 — eBR 기준정보 PoC</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  body { margin: 0; }
+  .callout {
+    display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+    padding: 8px 14px; border: 1px solid #6952db; background: #f7f5fe; border-radius: 4px;
+    font-size: 12px; color: #4433a8;
+  }
+  .callout .tag {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+    border-radius: 11px; background: #6952db; color: #fff; font-weight: bold; white-space: nowrap;
+  }
+  .callout a { color: #4433a8; font-weight: bold; }
+  .split-eq {
+    display: flex; flex-direction: row; gap: 0;
+    flex: 1 1 auto; min-height: 0; width: 100%; max-width: 100%; overflow: hidden;
+  }
+  .split-eq > .col.rs-pane {
+    display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 160px; overflow: hidden;
+  }
+  #paneEqList { flex: 0 0 780px; width: 780px; }
+  #paneEqDetail { flex: 1 1 auto; min-width: 200px; gap: var(--body-gap); }
+  /* P0-2: right pane — detail auto, hold fills; P0-4 hold input R-01 */
+  #paneEqDetail > .grid-block { flex: 0 0 auto; }
+  #paneEqDetail > #rtEquipBlock { flex: 1 1 auto; min-height: 0; }
+  #grdRtEquip td input[data-f="hold"] { width: 100%; min-width: 0; }
+  #grdRtEquip td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #grdRtEquip td .badge { margin-left: 4px; }
+  #grdRtEquip td.rt-dc { overflow: visible; }
+  #grdRtEquip td.rt-dc .badge { margin: 0 4px 0 0; }
+  #grdRtEquip td.rt-dc .btn.inner { min-width: 0; }
+  #grdRtEquip tr.rt-room td { background: var(--bc-gray-light); }
+  /* ---- resizable split gutters (rs-*) — do not collide with mesui .split ---- */
+  .rs-gutter {
+    flex: 0 0 6px; width: 6px; min-width: 6px; cursor: col-resize; /* R-S4: col-resize gutter 6px (order/customer-setup와 동일) */
+    background: #e8edf5; border: none; padding: 0; margin: 0;
+    align-self: stretch; position: relative;
+  }
+  .rs-gutter:hover, .rs-gutter.is-drag { background: #2C59D9; }
+  .rs-gutter::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px;
+  }
+  body.is-resizing { cursor: col-resize; user-select: none; }
+  body.is-resizing .rs-pane { pointer-events: none; }
+
+  .flag-chip {
+    display: inline-flex; align-items: center; height: 20px; padding: 0 8px; margin: 1px 2px;
+    border-radius: 10px; font-size: 11px; font-weight: bold; border: 1px solid #cbd5e1; background: #f1f5f9; color: #334155;
+  }
+  .flag-chip.usable { background: #dcfce7; border-color: #86efac; color: #166534; }
+  .flag-chip.cleaning { background: #cffafe; border-color: #67e8f9; color: #155e75; }
+  .flag-chip.quarantine { background: #fef9c3; border-color: #fde047; color: #854d0e; }
+  .flag-chip.calDue { background: #ffedd5; border-color: #fdba74; color: #9a3412; }
+  .flag-chip.down { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+  .flag-chip.inUse { background: #dbeafe; border-color: #93c5fd; color: #1e40af; }
+  .color-swatch {
+    display: inline-block; width: 12px; height: 12px; border-radius: 2px;
+    border: 1px solid rgba(0,0,0,.2); vertical-align: middle; margin-right: 6px;
+  }
+  #grdState tbody tr.is-selected td { background: #eef2ff; }
+  #grdState tbody tr.is-disabled td { color: #94a3b8; }
+  .editor-title { display: flex; align-items: center; gap: 8px; }
+  .editor-title .mode { font-size: 11px; padding: 1px 7px; border-radius: 8px; background: #fff4d6; color: #8a5a00; border: 1px solid #f0c75e; }
+  .flag-grid { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 6px 0; }
+  .form-grid .hint { font-size: 11px; color: var(--c-text-disabled); margin-left: 6px; }
+  .form-grid > .field.multi { align-items: flex-start; min-height: auto; }
+  .form-grid > .field > textarea.input {
+    height: auto;
+    min-height: calc(var(--ctrl-h-form) * 2 + 12px);
+  }
+  .flag-on { color: #0a7a3e; font-weight: bold; }
+  .flag-off { color: #a33; }
+
+  /* 카탈로그/iframe 맞춤: mesui .shell-scale — 1920×1080 미만 뷰포트면 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+</style>
+</head>
+<body>
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="title-left">
+      <span class="main-title"><span class="mod-tag">EBR</span>설비 상태 마스터</span>
+      <span class="sub-info"><i class="ic-info"></i>STATE code · name · flags — 이벤트 전이 · 트리 노드 상태 변경에 바인딩</span>
+    </span>
+    <span class="breadcrumb">
+      <span>eBR</span><span class="sep">&rsaquo;</span><span>기준정보</span><span class="sep">&rsaquo;</span><span class="current">설비 상태</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+
+  <div class="shell-body">
+    <div class="callout" role="note">
+      <span class="tag">STATE</span>
+      <span>사용자 관리 상태: <b>추가 · 수정 · 비활성</b> · 플래그 usable / cleaning / quarantine / calDue / down / inUse</span>
+      <span class="vbar"></span>
+      <span>localStorage <code>ebr.equipmentState.v1</code></span>
+      <span class="spacer"></span>
+      <a href="./s-ebr-equipment-event-ui.html">설비 이벤트 마스터 ↗</a>
+      <a href="./s-ebmr-process-tree-designer-ui.html">트리 디자이너 ↗</a>
+    </div>
+
+    <div class="search-box cols-3" id="sbState">
+      <div class="search-control"><span class="label">상태 코드</span>
+        <span class="input-clear"><input class="input" type="text" id="schCode" placeholder="CLEAN" aria-label="상태 코드"><button class="clear" type="button" data-clear="schCode" title="지우기"></button></span></div>
+      <div class="search-control"><span class="label">상태명</span>
+        <span class="input-clear"><input class="input" type="text" id="schName" placeholder="세척" aria-label="상태명"><button class="clear" type="button" data-clear="schName" title="지우기"></button></span></div>
+      <div class="search-control"><span class="label">플래그</span>
+        <select class="input" id="schFlag" aria-label="플래그"><option value="">전체</option></select></div>
+      <div class="search-control"><span class="label">활성</span>
+        <select class="input" id="schEnabled" aria-label="활성">
+          <option value="">전체</option>
+          <option value="1" selected>활성</option>
+          <option value="0">비활성</option>
+        </select></div>
+      <div class="search-actions">
+        <button class="btn search" type="button" id="btnReset">Reset</button>
+        <button class="btn search secondary" type="button" id="btnSearch">Search</button>
+      </div>
+    </div>
+
+    <div class="split-eq" id="eqSplit">
+      <div class="col rs-pane" id="paneEqList">
+        <div class="grid-block fill">
+          <div class="grid-title-area">
+            <div class="title-row">
+              <span class="group-title">상태 목록</span>
+              <span class="sub-info">시드 8건 · 비활성은 이벤트/트리 선택에서 제외</span>
+            </div>
+            <div class="grid-toolbar">
+              <span class="total-text" data-total-for="grdState"></span>
+              <span class="spacer"></span>
+              <button class="btn search secondary" type="button" id="btnSeed">시드 복원</button>
+              <button class="btn search" type="button" id="btnNew">New</button>
+              <button class="btn search secondary" type="button" id="btnDisable" disabled>비활성</button>
+            </div>
+          </div>
+          <div class="grid-wrap">
+            <table class="grid selectable" id="grdState">
+              <colgroup>
+                <col class="col-no"><col style="width:110px"><col style="width:120px">
+                <col><col style="width:70px"><col style="width:64px">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th class="col-no">No.</th>
+                  <th>코드<span class="th-note">code</span></th>
+                  <th>명칭<span class="th-note">name</span></th>
+                  <th>플래그<span class="th-note">flags</span></th>
+                  <th class="center">정렬</th>
+                  <th class="center">활성</th>
+                </tr>
+              </thead>
+              <tbody id="grdStateBody"></tbody>
+            </table>
+            <div class="nodata hidden" id="stateNodata">조건에 맞는 상태가 없습니다</div>
+          </div>
+        </div>
+      </div>
+
+      <button type="button" class="rs-gutter" id="gutterMain" aria-label="패널 너비 조절" title="드래그하여 너비 조절"></button>
+
+      <div class="col rs-pane" id="paneEqDetail">
+        <div class="grid-block auto">
+          <div class="grid-toolbar">
+            <span class="editor-title">
+              <span class="group-title" id="edTitle">상태 상세</span>
+              <span class="mode" id="edMode">신규</span>
+            </span>
+            <span class="spacer"></span>
+            <button class="btn search secondary" type="button" id="btnCancel">취소</button>
+            <button class="btn search primary" type="button" id="btnSave">Save</button>
+          </div>
+          <form id="stateForm">
+            <div class="form-grid cols-2" id="stateFields">
+              <label class="label required" for="code">상태 코드</label>
+              <span class="field"><input class="input" id="code" required maxlength="20" pattern="[A-Za-z][A-Za-z0-9_]{0,19}" title="영문 시작 · 영문숫자밑줄" placeholder="CLEANING"><span class="hint">저장 후 변경 불가</span></span>
+
+              <label class="label required" for="name">상태명</label>
+              <span class="field"><input class="input" id="name" required maxlength="40" placeholder="세척중"></span>
+
+              <label class="label" for="sortOrder">정렬</label>
+              <span class="field"><input class="input" id="sortOrder" type="number" min="0" max="9999" value="100" style="width:100px"></span>
+
+              <label class="label" for="color">표시색</label>
+              <span class="field"><input class="input" id="color" type="color" value="#64748b" style="width:56px;padding:2px"><span class="hint" id="colorHint">#64748b</span></span>
+
+              <label class="label" for="enabled">활성</label>
+              <span class="field span-2"><label class="checkbox"><input type="checkbox" id="enabled" checked> 사용 (비활성 시 이벤트·트리 선택 제외)</label></span>
+
+              <label class="label">플래그</label>
+              <span class="field span-2"><div class="flag-grid" id="flagGrid"></div></span>
+
+              <label class="label" for="note">비고</label>
+              <span class="field span-2 multi"><textarea class="input" id="note" rows="3" maxlength="200" placeholder="상태 의미 · 인터록 힌트"></textarea></span>
+            </div>
+          </form>
+        </div>
+
+        <div class="grid-block auto">
+          <div class="grid-toolbar">
+            <span class="group-title">이 상태를 쓰는 이벤트</span>
+            <span class="spacer"></span>
+            <span class="sub-info">from / to 참조</span>
+          </div>
+          <div class="grid-wrap">
+            <table class="grid" id="grdRefEv">
+              <colgroup><col class="col-no"><col style="width:120px"><col><col style="width:100px"><col style="width:100px"></colgroup>
+              <thead><tr><th class="col-no">No.</th><th>이벤트</th><th>명칭</th><th>from</th><th>to</th></tr></thead>
+              <tbody id="grdRefEvBody"></tbody>
+            </table>
+            <div class="nodata hidden" id="refNodata">참조 이벤트 없음</div>
+          </div>
+        </div>
+
+        <div class="grid-block auto" id="rtEquipBlock">
+          <div class="grid-toolbar">
+            <span class="group-title">설비 런타임 · cleanHoldUntil (P0-3) · 저울 · 칭량실 (UI-13 E8)</span>
+            <span class="spacer"></span>
+            <span class="sub-info">Equip.items — 생산 Phase/USE 게이트</span>
+            <button class="btn search secondary" type="button" id="btnSeedRt">데모 설비 시드</button>
+            <button class="btn search primary" type="button" id="btnSaveRt">Save hold</button>
+          </div>
+          <div class="grid-wrap">
+            <table class="grid" id="grdRtEquip">
+              <colgroup>
+                <col class="col-no"><col style="width:104px"><col style="width:64px"><col style="width:76px"><col style="width:90px">
+                <col style="width:100px"><col style="width:130px"><col style="width:150px"><col style="width:80px"><col>
+              </colgroup>
+              <thead>
+                <tr>
+                  <th class="col-no">No.</th>
+                  <th>equipmentId</th>
+                  <th>kind</th>
+                  <th>roomId</th>
+                  <th>status</th>
+                  <th>cleanHoldUntil</th>
+                  <th>calDue</th>
+                  <th>일상 점검</th>
+                  <th class="right">용량</th>
+                  <th>비고</th>
+                </tr>
+              </thead>
+              <tbody id="grdRtEquipBody"></tbody>
+            </table>
+          </div>
+          <p class="sub-info">마스터 <code>states[]</code> 와 런타임 <code>items[]</code> 동일 키 공존 · hold 과거면 생산 Absolute · 저울 calDue 지남 = G10 차단 · 7일 이내 = G11 경고 · 오늘 일상 점검 합격 없으면 G12 차단 · 칭량실 행 = G15</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+
+<script src="./assets/mesui.js"></script>
+<script src="./eq-state-event-store.js"></script>
+<script src="./assets/ebr-p0-stores.js"></script>
+<script src="./assets/ebr-user-session.js"></script>   <!-- DEVELOPER1 사용자 헬퍼 — 일상 점검 토글의 현재 사용자 (UI-13 E8) -->
+<script src="./assets/ebr-dispense-store.js"></script>   <!-- DEVELOPER1 칭량 저장소 — 저울 · 칭량실 시드 · dateDue · setDailyCheck (UI-13 E8) -->
+<script>
+(function () {
+  'use strict';
+  var EQ = window.EqStateEvent;
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = EQ.esc;
+  var state = { rows: [], selected: null, mode: 'new' };
+
+  function load() {
+    state.rows = EQ.loadStates();
+  }
+
+  function persist() {
+    EQ.saveStates(state.rows);
+  }
+
+  function filtered() {
+    var code = ($('schCode').value || '').trim().toUpperCase();
+    var name = ($('schName').value || '').trim();
+    var flag = $('schFlag').value;
+    var en = $('schEnabled').value;
+    return state.rows.filter(function (r) {
+      if (code && String(r.code || '').toUpperCase().indexOf(code) < 0) return false;
+      if (name && String(r.name || '').indexOf(name) < 0) return false;
+      if (flag && !(r.flags && r.flags[flag])) return false;
+      if (en === '1' && r.enabled === false) return false;
+      if (en === '0' && r.enabled !== false) return false;
+      return true;
+    }).slice().sort(function (a, b) { return (a.sortOrder || 0) - (b.sortOrder || 0); });
+  }
+
+  function renderGrid() {
+    var list = filtered();
+    var body = $('grdStateBody');
+    body.innerHTML = list.map(function (r, i) {
+      var sel = state.selected && state.selected.code === r.code ? ' is-selected' : '';
+      var dis = r.enabled === false ? ' is-disabled' : '';
+      return '<tr data-code="' + esc(r.code) + '" class="' + (sel + dis).trim() + '">' +
+        '<td class="col-no">' + (i + 1) + '</td>' +
+        '<td><span class="color-swatch" style="background:' + esc(r.color || '#64748b') + '"></span><b>' + esc(r.code) + '</b></td>' +
+        '<td>' + esc(r.name) + '</td>' +
+        '<td>' + (EQ.flagBadges(r.flags) || '<span class="unit">—</span>') + '</td>' +
+        '<td class="center">' + (r.sortOrder != null ? r.sortOrder : '') + '</td>' +
+        '<td class="center ' + (r.enabled !== false ? 'flag-on' : 'flag-off') + '">' + (r.enabled !== false ? 'Y' : 'N') + '</td>' +
+        '</tr>';
+    }).join('');
+    $('stateNodata').classList.toggle('hidden', list.length > 0);
+    MesUI.setTotal('grdState', list.length);
+    $('btnDisable').disabled = !state.selected;
+    $('btnDisable').textContent = state.selected && state.selected.enabled === false ? '활성' : '비활성';
+  }
+
+  function buildFlagGrid() {
+    $('flagGrid').innerHTML = EQ.FLAG_DEFS.map(function (d) {
+      return '<label class="checkbox"><input type="checkbox" data-flag="' + d.key + '"> ' + esc(d.label) +
+        ' <span class="hint">' + esc(d.key) + '</span></label>';
+    }).join('');
+  }
+
+  function emptyForm() {
+    $('code').value = '';
+    $('code').readOnly = false;
+    $('name').value = '';
+    $('sortOrder').value = '100';
+    $('color').value = '#64748b';
+    $('colorHint').textContent = '#64748b';
+    $('enabled').checked = true;
+    $('note').value = '';
+    EQ.FLAG_DEFS.forEach(function (d) {
+      var el = document.querySelector('[data-flag="' + d.key + '"]');
+      if (el) el.checked = false;
+    });
+  }
+
+  function fillForm(r) {
+    $('code').value = r.code || '';
+    $('code').readOnly = state.mode === 'edit';
+    $('name').value = r.name || '';
+    $('sortOrder').value = r.sortOrder != null ? r.sortOrder : 100;
+    $('color').value = r.color || '#64748b';
+    $('colorHint').textContent = r.color || '#64748b';
+    $('enabled').checked = r.enabled !== false;
+    $('note').value = r.note || '';
+    EQ.FLAG_DEFS.forEach(function (d) {
+      var el = document.querySelector('[data-flag="' + d.key + '"]');
+      if (el) el.checked = !!(r.flags && r.flags[d.key]);
+    });
+  }
+
+  function formToRow() {
+    var flags = {};
+    EQ.FLAG_DEFS.forEach(function (d) {
+      var el = document.querySelector('[data-flag="' + d.key + '"]');
+      flags[d.key] = !!(el && el.checked);
+    });
+    return {
+      code: ($('code').value || '').trim().toUpperCase(),
+      name: ($('name').value || '').trim(),
+      sortOrder: parseInt($('sortOrder').value, 10) || 0,
+      color: $('color').value || '#64748b',
+      enabled: $('enabled').checked,
+      flags: flags,
+      note: ($('note').value || '').trim()
+    };
+  }
+
+  function setMode(mode, row) {
+    state.mode = mode;
+    state.selected = row || null;
+    $('edMode').textContent = mode === 'edit' ? '수정' : '신규';
+    $('edTitle').textContent = mode === 'edit' ? '상태 상세 · ' + row.code : '상태 상세 · 신규';
+    if (mode === 'edit' && row) fillForm(row); else emptyForm();
+    renderGrid();
+    renderRefs(row && row.code);
+  }
+
+  function renderRefs(code) {
+    var evs = EQ.loadEvents().filter(function (ev) {
+      if (!code) return false;
+      var from = ev.fromStates || [];
+      if (from.indexOf('*') >= 0 || from.indexOf(code) >= 0) return true;
+      return ev.toState === code;
+    });
+    var body = $('grdRefEvBody');
+    body.innerHTML = evs.map(function (ev, i) {
+      var from = (ev.fromStates || []).join(', ');
+      return '<tr><td class="col-no">' + (i + 1) + '</td><td><b>' + esc(ev.code) + '</b></td><td>' + esc(ev.name) +
+        '</td><td class="mono">' + esc(from) + '</td><td class="mono">' + esc(ev.toState) + '</td></tr>';
+    }).join('');
+    $('refNodata').classList.toggle('hidden', evs.length > 0);
+  }
+
+  function onSave() {
+    var row = formToRow();
+    if (!row.code || !/^[A-Z][A-Z0-9_]*$/.test(row.code)) {
+      MesUI.alert('상태 코드는 영문 대문자로 시작하고 영문·숫자·밑줄만 허용합니다.', 'Warning');
+      return;
+    }
+    if (!row.name) {
+      MesUI.alert('상태명을 입력하세요.', 'Warning');
+      return;
+    }
+    if (state.mode === 'new') {
+      if (state.rows.some(function (r) { return r.code === row.code; })) {
+        MesUI.alert('이미 존재하는 코드입니다: ' + row.code, 'Warning');
+        return;
+      }
+      state.rows.push(row);
+    } else {
+      var idx = -1;
+      for (var i = 0; i < state.rows.length; i++) if (state.rows[i].code === row.code) { idx = i; break; }
+      if (idx < 0) { MesUI.alert('대상 상태를 찾을 수 없습니다.', 'Error'); return; }
+      state.rows[idx] = row;
+    }
+    persist();
+    MesUI.toast('저장됨: ' + row.code, 'ok', 1600);
+    setMode('edit', row);
+  }
+
+  function onDisable() {
+    if (!state.selected) return;
+    var r = state.selected;
+    r.enabled = r.enabled === false;
+    persist();
+    MesUI.toast((r.enabled ? '활성' : '비활성') + ': ' + r.code, 'info', 1400);
+    setMode('edit', r);
+  }
+
+  function bind() {
+    buildFlagGrid();
+    $('schFlag').innerHTML = '<option value="">전체</option>' + EQ.FLAG_DEFS.map(function (d) {
+      return '<option value="' + d.key + '">' + esc(d.label) + '</option>';
+    }).join('');
+
+    $('btnSearch').onclick = renderGrid;
+    $('btnReset').onclick = function () {
+      $('schCode').value = ''; $('schName').value = ''; $('schFlag').value = ''; $('schEnabled').value = '1';
+      renderGrid();
+    };
+    $('btnNew').onclick = function () { setMode('new', null); };
+    $('btnSave').onclick = onSave;
+    $('btnCancel').onclick = function () {
+      if (state.selected) setMode('edit', state.selected); else setMode('new', null);
+    };
+    $('btnDisable').onclick = onDisable;
+    $('btnSeed').onclick = function () {
+      MesUI.confirm('시드 상태로 복원하시겠습니까? (이벤트 시드도 함께 복원)', function () {
+        var pack = EQ.restoreSeeds();
+        state.rows = pack.states;
+        MesUI.toast('시드 복원 · 상태 ' + pack.states.length + ' · 이벤트 ' + pack.events.length, 'ok', 1800);
+        setMode('new', null);
+      });
+    };
+    $('color').oninput = function () { $('colorHint').textContent = $('color').value; };
+    $('grdStateBody').onclick = function (e) {
+      var tr = e.target.closest('tr[data-code]');
+      if (!tr) return;
+      var code = tr.getAttribute('data-code');
+      var row = null;
+      for (var i = 0; i < state.rows.length; i++) if (state.rows[i].code === code) { row = state.rows[i]; break; }
+      if (row) setMode('edit', row);
+    };
+    document.querySelectorAll('[data-clear]').forEach(function (btn) {
+      btn.onclick = function () { var id = btn.getAttribute('data-clear'); if ($(id)) { $(id).value = ''; $(id).focus(); } };
+    });
+    $('btnCopyLink').onclick = function () {
+      try { navigator.clipboard.writeText(location.href); MesUI.toast('링크 복사', 'ok', 1200); } catch (e) { /* ignore */ }
+    };
+    ['schCode', 'schName'].forEach(function (id) {
+      $(id).addEventListener('keydown', function (e) { if (e.key === 'Enter') renderGrid(); });
+    });
+  }
+
+  load();
+  bind();
+  setMode('new', null);
+  if (state.rows.length) {
+    var first = filtered()[0] || state.rows[0];
+    if (first) setMode('edit', first);
+  }
+
+  /* —— resizable split panes (2-col) —— */
+  /* localStorage shape: {"left": <px>}  key=ebr.equipmentState.split.v1 */
+  var SPLIT_KEY = 'ebr.equipmentState.split.v1';
+  var SPLIT_DEFAULT_LEFT = 780;
+  function rsLogicalPx(visualPx) {
+    var wrap = document.getElementById('shellScale');
+    var s = 1;
+    try {
+      if (wrap) s = parseFloat(getComputedStyle(wrap).getPropertyValue('--scale')) || 1;
+    } catch (err) { s = 1; }
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    return visualPx / s;
+  }
+  function applySplitWidths(left) {
+    var split = document.getElementById('eqSplit');
+    if (!split) return;
+    var splitW = rsLogicalPx(split.getBoundingClientRect().width) || 1200;
+    var gutter = 6;
+    var minL = 160, minR = 200;
+    var maxL = Math.max(minL, Math.floor(splitW * 0.7));
+    maxL = Math.min(maxL, splitW - gutter - minR);
+    /* also keep right from exceeding ~55% by forcing left floor */
+    var minLByRight = Math.max(minL, Math.ceil(splitW - gutter - Math.floor(splitW * 0.55)));
+    if (minLByRight > maxL) minLByRight = minL;
+    var lo = Math.max(minLByRight, Math.min(maxL, left | 0));
+    var paneL = document.getElementById('paneEqList');
+    if (!paneL) return;
+    paneL.style.flex = '0 0 ' + lo + 'px';
+    paneL.style.width = lo + 'px';
+  }
+  function loadSplit() {
+    try {
+      var s = JSON.parse(localStorage.getItem(SPLIT_KEY) || 'null');
+      if (s && s.left) applySplitWidths(s.left);
+    } catch (e) {}
+  }
+  function saveSplit() {
+    var paneL = document.getElementById('paneEqList');
+    if (!paneL) return;
+    localStorage.setItem(SPLIT_KEY, JSON.stringify({
+      left: rsLogicalPx(paneL.getBoundingClientRect().width)
+    }));
+  }
+  function bindGutter(gutterId) {
+    var gut = document.getElementById(gutterId);
+    if (!gut) return;
+    gut.addEventListener('mousedown', function (ev) {
+      ev.preventDefault();
+      var startX = ev.clientX;
+      var startL = rsLogicalPx(document.getElementById('paneEqList').getBoundingClientRect().width);
+      gut.classList.add('is-drag');
+      document.body.classList.add('is-resizing');
+      function onMove(e) {
+        applySplitWidths(startL + rsLogicalPx(e.clientX - startX));
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        gut.classList.remove('is-drag');
+        document.body.classList.remove('is-resizing');
+        saveSplit();
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    gut.addEventListener('dblclick', function () {
+      applySplitWidths(SPLIT_DEFAULT_LEFT);
+      saveSplit();
+    });
+  }
+  loadSplit();
+  bindGutter('gutterMain');
+
+  /* ---- P0-3 runtime equipment items (cleanHoldUntil) via EbrP0.Equip ---- */
+  var Equip = (window.EbrP0 && window.EbrP0.Equip) || null;
+  var RT_SEED = [
+    { equipmentId: 'BAL-205', kind: 'balance', roomId: 'R-202', status: 'CLEANED', cleanHoldUntil: null, note: '분석저울' },
+    { equipmentId: 'R-201', kind: 'room', status: 'READY', cleanHoldUntil: null, note: '칭량실 1' },
+    { equipmentId: 'R-202', kind: 'room', status: 'READY', cleanHoldUntil: null, note: '칭량실 2' },
+    { equipmentId: 'MX-01', status: 'CLEANED', cleanHoldUntil: null, note: '습식혼합기' },
+    { equipmentId: 'ML-03', status: 'READY', cleanHoldUntil: null, note: '정립기' }
+  ];
+  function rtSeedRec(s, hold) {
+    var r = { equipmentId: s.equipmentId, status: s.status, cleanHoldUntil: hold, note: s.note };
+    if (s.kind) r.kind = s.kind;
+    if (s.roomId) r.roomId = s.roomId;
+    return r;
+  }
+  function rtIsoPlusHours(h) {
+    var d = new Date(Date.now() + (Number(h) || 24) * 3600 * 1000);
+    try { return d.toISOString().replace('Z', '+00:00'); } catch (e) { return d.toISOString(); }
+  }
+  function rtLoadItems() {
+    if (!Equip) return [];
+    var out = [];
+    RT_SEED.forEach(function (s) {
+      var rec = Equip.getState(s.equipmentId);
+      if (rec) out.push(Object.assign({}, s, rec));
+      else out.push(Object.assign({}, s));
+    });
+    /* include any extra items not in seed */
+    try {
+      var raw = JSON.parse(localStorage.getItem(Equip.KEY || 'ebr.equipmentState.v1') || '{}');
+      var items = (raw && raw.items) || [];
+      items.forEach(function (it) {
+        var id = it.equipmentId || it.id || it.eqId;
+        if (!id) return;
+        if (out.some(function (x) { return String(x.equipmentId) === String(id); })) return;
+        out.push(it);
+      });
+    } catch (e2) {}
+    return out;
+  }
+  function renderRtEquip() {
+    var tb = $('grdRtEquipBody');
+    if (!tb) return;
+    var rows = rtLoadItems();
+    var canToggle = !!(Dsp && Dsp.setDailyCheck && window.EbrUserSession && EbrUserSession.getCurrentUser && EbrUserSession.getCurrentUser());
+    tb.innerHTML = rows.map(function (r, i) {
+      var id = r.equipmentId || r.id || '';
+      var st = r.status || r.state || 'READY';
+      var hold = r.cleanHoldUntil || '';
+      var kind = r.kind || '';
+      return '<tr data-eq="' + esc(id) + '"' + (kind === 'room' ? ' class="rt-room"' : '') + '>' +
+        '<td class="col-no">' + (i + 1) + '</td>' +
+        '<td class="mono" title="' + esc(id + (r.eqClass ? ' · ' + r.eqClass : '')) + '">' + esc(id) + '</td>' +
+        '<td title="' + esc(kind) + '">' + esc(kind || '—') + '</td>' +
+        '<td class="mono">' + esc(r.roomId || (kind === 'room' ? id : '—')) + '</td>' +
+        '<td><input class="input" data-f="status" value="' + esc(st) + '" style="width:100%;min-width:0"></td>' +
+        '<td><input class="input" data-f="hold" value="' + esc(hold) + '" placeholder="ISO or blank" style="width:100%;min-width:0"></td>' +
+        rtCalCell(r) + rtDailyCell(r, canToggle) + rtCapCell(r) +
+        '<td class="muted" title="' + esc(r.note || '') + '">' + esc(r.note || '') +
+        ' <button class="btn inner" type="button" data-rt="future" data-eq="' + esc(id) + '">+24h</button>' +
+        ' <button class="btn inner" type="button" data-rt="past" data-eq="' + esc(id) + '">과거</button>' +
+        '</td></tr>';
+    }).join('');
+  }
+  /* UI-13 E8: 저울 calDue · 일상 점검 · 용량 (판정 = EbrDispense.dateDue / NEAR_CAL_DAYS, 화면은 표시만) */
+  var Dsp = window.EbrDispense || null;
+  function rtToday() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function rtBadges(bs) { return bs.map(function (b) { return '<span class="badge ' + b[0] + '">' + esc(b[1]) + '</span>'; }).join(''); }
+  function rtCalCell(r) {
+    if (r.kind !== 'balance') return '<td class="muted">—</td>';
+    if (!r.calDue) return '<td title="교정일 없음 — G10 차단"><span class="badge error">없음</span></td>';
+    var due = Dsp && Dsp.dateDue ? Dsp.dateDue(r.calDue, rtToday(), Dsp.NEAR_CAL_DAYS) : null, bs = [];
+    if (due && due.state === 'passed') bs.push(['error', '만료', '교정 만료 (' + (-due.days) + '일 경과) — G10 차단']);
+    else if (due && due.state === 'near') bs.push(['warn', due.days + '일', '교정 ' + due.days + '일 남음 (' + Dsp.NEAR_CAL_DAYS + '일 이내) — G11 경고']);
+    var title = ['교정일 ' + r.calDue].concat(bs.map(function (b) { return b[2]; })).join(' · ') + (Dsp ? '' : ' · 판정 불가(칭량 저장소 미로드)');
+    return '<td title="' + esc(title) + '">' + esc(r.calDue) + rtBadges(bs) + '</td>';
+  }
+  /* 감사 · 서명 uid 표시 — 자동 처리 'SYSTEM' 은 '시스템' */
+  function uidLabel(id) { return String(id == null ? '' : id).toUpperCase() === 'SYSTEM' ? '시스템' : String(id == null ? '' : id); }
+  function rtDailyCell(r, canToggle) {
+    if (r.kind !== 'balance') return '<td class="muted">—</td>';
+    var dc = r.dailyCheck || null, today = rtToday(), on = !!(dc && dc.date === today && dc.result === 'pass');
+    var b = on ? ['ok', '오늘 합격'] : (dc && dc.date === today ? ['error', '오늘 불합격'] : ['error', '없음']);
+    var title = (dc ? '마지막 ' + dc.date + ' · ' + dc.result + ' · ' + uidLabel(dc.by) : '일상 점검 기록 없음') + (on ? '' : ' — G12 차단');
+    var tip = canToggle ? (on ? '오늘 합격 해제(불합격 기록)' : '오늘 합격 기록') : '현재 사용자가 없습니다 — 상단 사용자 선택기가 있는 화면(배치 발행 등)에서 선택 후 다시 여세요';
+    return '<td class="rt-dc" title="' + esc(title + (canToggle ? '' : ' · ' + tip)) + '">' + rtBadges([b]) +
+      '<button class="btn inner" type="button" data-dc="' + (on ? 'fail' : 'pass') + '" data-eq="' + esc(r.equipmentId) + '"' + (canToggle ? ' title="' + esc(tip) + '"' : ' disabled') + '>' + (on ? '해제' : '합격') + '</button></td>';
+  }
+  function rtCapCell(r) {
+    if (r.kind !== 'balance' || r.capMax == null) return '<td class="muted right">—</td>';
+    var txt = r.capMin + '–' + r.capMax + ' kg';
+    return '<td class="right" title="' + esc(txt + (r.eqClass ? ' · ' + r.eqClass : '')) + '">' + esc(txt) + '</td>';
+  }
+  function seedRtIfNeeded() {
+    if (!Equip) return;
+    RT_SEED.forEach(function (s) {
+      if (!Equip.getState(s.equipmentId)) {
+        Equip.saveState(rtSeedRec(s, s.kind === 'room' ? null : rtIsoPlusHours(24)));
+      }
+    });
+  }
+  function saveRtFromGrid() {
+    if (!Equip) { MesUI.alert('EbrP0.Equip 미로드', 'Error'); return; }
+    var rows = $('grdRtEquipBody').querySelectorAll('tr');
+    rows.forEach(function (tr) {
+      var id = tr.getAttribute('data-eq');
+      var st = (tr.querySelector('[data-f="status"]') || {}).value || 'CLEANED';
+      var hold = (tr.querySelector('[data-f="hold"]') || {}).value || '';
+      hold = String(hold).trim() || null;
+      Equip.saveState({ equipmentId: id, status: st, cleanHoldUntil: hold });
+    });
+    MesUI.toast('런타임 설비 ' + rows.length + '건 저장 (cleanHoldUntil)', 'ok');
+    renderRtEquip();
+  }
+  if ($('btnSeedRt')) {
+    $('btnSeedRt').onclick = function () {
+      if (!Equip) return MesUI.alert('EbrP0.Equip 미로드', 'Error');
+      RT_SEED.forEach(function (s) {
+        Equip.saveState(rtSeedRec(s, s.kind === 'room' ? null : rtIsoPlusHours(24)));
+      });
+      if (Dsp && Dsp.seedEquipment) Dsp.seedEquipment();   /* 저울 calDue · 용량 · 일상 점검 빈 칸만 채움 (멱등) */
+      renderRtEquip();
+      MesUI.toast('데모 설비 시드 · hold +24h', 'ok');
+    };
+  }
+  if ($('btnSaveRt')) $('btnSaveRt').onclick = saveRtFromGrid;
+  if ($('grdRtEquipBody')) {
+    $('grdRtEquipBody').addEventListener('click', function (e) {
+      var dcb = e.target.closest('[data-dc]');
+      if (dcb && Dsp && Dsp.setDailyCheck) {
+        var bid = dcb.getAttribute('data-eq'), res = Dsp.setDailyCheck(bid, { result: dcb.getAttribute('data-dc') });
+        if (!res.ok) { MesUI.alert(res.message || '일상 점검을 기록하지 못했습니다.', 'Warning'); return; }
+        renderRtEquip();
+        MesUI.toast(bid + ' 일상 점검 ' + res.dailyCheck.date + ' · ' + res.dailyCheck.result, res.dailyCheck.result === 'pass' ? 'ok' : 'warn');
+        return;
+      }
+      var b = e.target.closest('[data-rt]');
+      if (!b || !Equip) return;
+      var id = b.getAttribute('data-eq');
+      var kind = b.getAttribute('data-rt');
+      var hold = kind === 'past'
+        ? (function () { var d = new Date(Date.now() - 3600 * 1000); try { return d.toISOString().replace('Z', '+00:00'); } catch (e) { return d.toISOString(); } })()
+        : rtIsoPlusHours(24);
+      Equip.saveState({ equipmentId: id, status: 'CLEANED', cleanHoldUntil: hold });
+      renderRtEquip();
+      MesUI.toast(id + ' hold ' + (kind === 'past' ? '과거(만료)' : '+24h'), kind === 'past' ? 'warn' : 'ok');
+    });
+  }
+  seedRtIfNeeded();
+  renderRtEquip();
+  if (window.EbrUserSession && typeof EbrUserSession.onChange === 'function') EbrUserSession.onChange(function () { renderRtEquip(); });   /* 다른 탭 사용자 전환 → 토글 활성 반영 */
+
+  
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-adm-user-role-ui  (ADM 모듈 · S-41 사용자 · 역할)
+  클래스       : CAdmSetupUserRoleMain   템플릿 T-02 + T-10 (900)  — 배치 발행 전자서명 P0 (ui-items UI-05 · UI-06)
+  모듈 폴더    : adm/  (경로 · 클래스명 PM 승인 2026-10-09)
+  구조         : master-t02.js MT.mountT02 · injectDialog 와 같은 DOM · 클래스를 화면 안에서 그림
+                 (사용자 상태 active/inactive/locked 는 MBR 수명주기와 달라 전이 버튼 · Delete 없음. master-t02.js 는 수정하지 않음)
+  저장         : localStorage 'ebmr.userRole.v1' {users, roles, userRoles} — 읽기·쓰기는 EbrUserSession(UI-09 ebr-user-session.js) 로만
+  P0 전자서명  : 상단 현재 사용자 선택기 — UI-04
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>S-41 사용자 · 역할 — eMBR 기준정보 PoC</title>
+<link rel="stylesheet" href="../assets/mesui.css">
+<link rel="stylesheet" href="../assets/master-setup.css">
+<style>
+
+  /* 카탈로그/iframe 맞춤: Elephant .shell-scale — 1920×1080 미만 뷰포트면 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+  /* 비활성 버튼 툴팁 래퍼 (배치 발행 화면 .tip 선례) */
+  .tip { display: inline-flex; }
+  /* S-41 상세 팝업 (UI-05 표) — fieldset UA reset (선례 s-ebmr-creation-workflow-ui.html 23행) */
+  #dlgUser fieldset { margin: 0; padding: 0; border: 0; min-width: 0; min-inline-size: 0; }
+  /* textarea 60 = 단행 2줄 + 상하 6 (고객 설정 선례 .field.multi, §13-7) — master-setup.css 52px 대신 */
+  #dlgUser .form-grid > .field.multi { align-items: flex-start; min-height: auto; padding-top: 6px; padding-bottom: 6px; }
+  #dlgUser .form-grid > .field > textarea.input { height: auto; min-height: calc(var(--ctrl-h-form) * 2 + 12px); margin: 0; }
+  #dlgUser .form-grid > .field > .checkbox-group .checkbox { margin-right: 24px; }   /* §13-6 체크박스 그룹 24 */
+  #grd-user td.roles .badge + .badge { margin-left: 4px; }
+  /* ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 (공통 블록 — 기준정보 화면 + 배치 발행 동일) ====
+     위치: .title-bar 안 .breadcrumb 바로 앞, margin-left:auto (DESIGN §11-3 grpTitle: title │ 1fr │ 브레드크럼)
+     역할 배지 매핑: ui-items UI-04 (PM 승인 P5) — 기존 .badge 변형 + --bc-* 토큰만, 라벨 항상 표시 */
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }   /* UI-04: 24 (--title-h 29 안) — 키인 폼 컨트롤 높이 토큰 */
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  /* 선택 없음: 편집·서명 버튼 비활성 표시 (opacity = §13-1 disabled) + 툴팁 "사용자를 선택하세요" (클릭은 스크립트가 차단) */
+  body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
+</style>
+</head>
+<body data-root="../">
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="main-title"><span class="mod-tag adm">ADM</span>사용자 · 역할</span>
+    <span class="user-switch" id="userSwitch"></span>
+    <span class="breadcrumb">
+      <span>eMBR</span><span class="sep">&rsaquo;</span><span>설정 · 관리</span><span class="sep">&rsaquo;</span><a href="../index.html">기준정보</a><span class="sep">&rsaquo;</span><span class="current">S-41 사용자 · 역할</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+  <div class="shell-body">
+    <div class="ms-layout">
+      <div class="ms-main"><section class="view" id="view-user">
+        <div class="search-box cols-3">
+          <div class="search-control"><span class="label">사용자 ID · 이름</span><span class="input-clear"><input class="input" type="text" id="qText" aria-label="사용자 ID · 이름"><button class="clear" type="button" data-clear="qText" title="지우기"></button></span></div>
+          <div class="search-control"><span class="label">역할</span><select class="input" id="qRole" aria-label="역할"></select></div>
+          <div class="search-control"><span class="label">상태</span><select class="input" id="qStatus" aria-label="상태"></select></div>
+          <div class="search-actions"><button class="btn search" type="button" data-act="reset">Reset</button><button class="btn search secondary" type="button" data-act="search">Search</button></div>
+        </div>
+        <div class="grid-block">
+          <div class="grid-title-area">
+            <div class="title-row"><span class="group-title">사용자 · 역할 <span class="sub-info">S-41 · CAdmSetupUserRoleMain</span></span><span class="lc-legend" id="legend"></span></div>
+            <div class="grid-toolbar"><span class="total-text" data-total-for="grd-user"></span><span class="vbar"></span>
+              <select class="input page-size" data-pagesize><option>Views 20</option><option>Views 50</option><option>Views 100</option></select>
+              <span class="sub-info sel-info" id="selInfo"></span><span class="spacer"></span>
+              <span class="tip" id="tipSeed"><button class="btn search" type="button" data-act="seed" data-p0-edit>시드 복원</button></span>
+              <button class="btn search" type="button" data-act="excel">Excel</button>
+              <span class="tip" id="tipNew"><button class="btn search primary" type="button" data-act="new" id="btnNew">New</button></span>
+            </div>
+          </div>
+          <div class="grid-wrap"><table class="grid selectable" id="grd-user">
+            <colgroup><col class="col-check"><col class="col-no"><col class="col-icon"><col style="width:120px"><col style="width:110px"><col style="width:140px"><col><col style="width:84px"><col style="width:64px"><col style="width:150px"></colgroup>
+            <thead><tr><th class="col-check"><input type="checkbox" aria-label="전체 선택"></th><th class="col-no">No.</th><th class="col-icon">Detail</th>
+              <th>사용자 ID</th><th>이름</th><th>부서</th><th>역할</th><th class="center">상태</th><th class="num" title="연속 인증 실패 (5회 시 잠금)">실패</th><th>수정일</th></tr></thead>
+            <tbody></tbody></table>
+            <div class="nodata hidden" id="nodata">조회 결과가 없습니다</div></div>
+          <div class="paging" id="paging"></div>
+        </div>
+        <div class="plan-banner bc-plan"><span class="status-dot navy"></span><span>저장 키 <b>ebmr.userRole.v1</b></span>
+          <span class="sub-info">PoC 전용 비밀번호 검증 — 실서비스는 LDAP(AM-IDPW). 사용자 ID는 재사용하지 않고(비활성 포함) 삭제 대신 상태 「비활성」으로 관리합니다.</span></div>
+      </section></div>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+
+<!-- ==== S-41 상세 팝업 (T-10 900×700 — T-02 #dlgMaster 구조) ==== -->
+<div class="dialog-backdrop" id="dlgUser"><div class="dialog md" id="duBox">
+  <div class="popup-title"><span class="text" id="duTitle">사용자 상세</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+  <div class="dlg-meta" id="duMeta"></div>
+  <div class="dlg-scroll">
+    <div class="form-grid cols-2" id="duForm">
+      <span class="label required">사용자 ID</span><span class="field"><input class="input" type="text" id="fUserId" autocomplete="off" placeholder="예) SV-0003"></span>
+      <span class="label required">이름</span><span class="field"><input class="input" type="text" id="fName" autocomplete="off"></span>
+      <span class="label">부서</span><span class="field"><input class="input" type="text" id="fDept" autocomplete="off"></span>
+      <span class="label">인증 수단</span><span class="field"><input class="input plain" type="text" id="fAuth" value="AM-IDPW" readonly title="PoC 전용 비밀번호 검증 — 실서비스는 LDAP(AM-IDPW)"></span>
+      <span class="label required" id="lblPw">초기 비밀번호</span><span class="field" id="fldPw"><input class="input" type="password" id="fPw" autocomplete="new-password" placeholder="신규 등록 시에만 입력"></span>
+      <span class="label">상태</span><span class="field"><select class="input" id="fStatus"></select></span>
+      <span class="label">비고</span><span class="field span-2 multi"><textarea class="input" rows="2" id="fNote"></textarea></span>
+    </div>
+    <fieldset class="form-grid cols-2" id="duRoles">
+      <span class="label required">역할</span><span class="field span-2"><span class="checkbox-group" id="fRoles"></span></span>
+    </fieldset>
+    <div class="plan-banner bc-alam hidden" id="duSegWarn"><span class="badge warn">직무 분리 경고</span><span>관리자(ADMIN)와 GMP 서명 역할을 함께 가지고 있습니다. P0는 저장을 허용하고 감사기록에 남깁니다(P1 차단).</span></div>
+    <div class="form-grid cols-2 readonly" id="duAccount">
+      <span class="label">상태</span><span class="field"><span class="text" id="aStatus"></span></span>
+      <span class="label">실패</span><span class="field"><span class="text" id="aFail"></span></span>
+      <span class="label">잠금 시각</span><span class="field"><span class="text" id="aLocked"></span></span>
+      <span class="label">해제 이력</span><span class="field"><span class="text" id="aUnlock"></span></span>
+    </div>
+  </div>
+  <div class="dialog-footer">
+    <span class="tip hidden" id="tipUnlock"><button class="btn search" type="button" id="duUnlock" data-p0-edit>잠금 해제</button></span>
+    <span class="spacer"></span>
+    <button class="btn search secondary" type="button" data-dialog-close>닫기</button>
+    <span class="tip" id="tipSave"><button class="btn search primary" type="button" id="duSave" data-p0-edit>저장</button></span>
+  </div>
+</div></div>
+
+<script src="../assets/mesui.js"></script>
+<script src="../assets/shared-store.js"></script>
+<script src="../assets/ebr-user-session.js"></script>   <!-- UI-09 DEVELOPER1 헬퍼 (window.EbrUserSession) -->
+<!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 + 배치 발행 동일) ==== -->
+<script>
+/* DEVELOPER1 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+ *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
+ *   hasSodConflict(roles) · onChange(fn) → unsub
+ * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
+ * 헬퍼가 없으면(파일 미배포) 선택기는 「사용자 API 미연결」로 비활성 표시만 하고 화면 기존 동작은 그대로 둔다(게이트 미적용, 오류 없음). */
+(function (global) {
+  'use strict';
+  var WATCH_KEYS = ['ebmr.currentUser.v1', 'ebmr.userRole.v1'];   /* onChange 가 없을 때만: 다른 탭 변경 감지용 키 이름 (값은 헬퍼로만 읽음) */
+  var ROLE = { QP: ['QP', 'role-qp'], QA: ['QA', 'role-qa'], SV: ['감독자', 'ok'], OP: ['작업자', 'info'], ADMIN: ['관리자', ''] };
+  var ROLE_ORDER = ['QP', 'QA', 'SV', 'OP', 'ADMIN'];   /* 배지 우선순위 QP>QA>SV>OP>ADMIN (기획 마스터 §3.1) */
+  var GATE_SEL = '[data-p0-edit],[data-act="new"],[data-act="delete"],[data-act="submit"],[data-act="approve"],[data-act="activate"],[data-act="reject"],[data-act="retire"],#dmSave,#dmNewVer';
+  var GATE_TIP = '사용자를 선택하세요';
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var listeners = [], readyQ = [], isReady = false;
+
+  function api() { return global.EbrUserSession || null; }
+  function call(fn) {
+    var a = api(); if (!a || typeof a[fn] !== 'function') return undefined;
+    try { return a[fn].apply(a, Array.prototype.slice.call(arguments, 1)); } catch (e) { if (global.console) console.error('[EbrUserSession] ' + fn, e); return undefined; }
+  }
+  function sortRoles(roles) { return (roles || []).slice().sort(function (a, b) { return ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b); }); }
+  function roleBadge(code) { var r = ROLE[code] || [code, 'muted']; return '<span class="badge' + (r[1] ? ' ' + r[1] : '') + '" title="' + esc(code) + '">' + esc(r[0]) + '</span>'; }
+  function roleBadges(roles) { return sortRoles(roles).map(roleBadge).join(''); }
+  function statusBadge(st) { return st === 'locked' ? '<span class="badge error">잠김</span>' : st === 'inactive' ? '<span class="badge muted">비활성</span>' : ''; }
+  function rolesOfUser(u) { return !u ? [] : (Array.isArray(u.roles) ? u.roles : (call('rolesOf', u.userId) || [])); }
+  function users(filter) { var l = call('listUsers', filter || {}); return Array.isArray(l) ? l : []; }
+  function current() { return call('getCurrentUser') || null; }
+  function connected() { var a = api(); return !!(a && typeof a.getCurrentUser === 'function' && typeof a.listUsers === 'function'); }
+  function hasRole(u, code) { return rolesOfUser(u).indexOf(code) >= 0; }
+  function sod(roles) { var v = call('hasSodConflict', roles || []); return typeof v === 'boolean' ? v : false; }
+  function gateOn() { return connected() && !current(); }
+  function userLabel(u) { return u ? u.name + ' (' + u.userId + ')' : '—'; }
+
+  function render() {
+    var host = document.getElementById('userSwitch');
+    if (host) {
+      if (!connected()) {
+        host.innerHTML = '<span class="tip" title="ebr-user-session.js (DEVELOPER1) 가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+      } else {
+        var cur = current(), list = users();
+        var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
+          var bad = u.status === 'locked' ? ' — 잠김' : u.status === 'inactive' ? ' — 비활성' : '';
+          return '<option value="' + esc(u.userId) + '"' + (bad ? ' disabled' : '') + (cur && cur.userId === u.userId ? ' selected' : '') + '>' + esc(userLabel(u) + bad) + '</option>';
+        }).join('');
+        host.innerHTML = '<select class="input w-200" id="userSwitchSel" aria-label="현재 사용자" title="현재 사용자 (인증 아님 — 서명 시 ID · 비밀번호 재입력)">' + opts + '</select>' +
+          '<span class="us-roles">' + (cur ? roleBadges(rolesOfUser(cur)) + statusBadge(cur.status) : '<span class="badge warn">' + GATE_TIP + '</span>') + '</span>';
+        var sel = document.getElementById('userSwitchSel');
+        sel.addEventListener('change', function () {
+          var r = call('setCurrentUser', sel.value || null);
+          if (r && r.ok === false && global.MesUI) {
+            MesUI.toast(r.message || (r.code === 'LOCKED' ? '잠긴 계정은 선택할 수 없습니다 — 관리자(ADMIN)에게 해제를 요청하세요.'
+              : r.code === 'INACTIVE' ? '비활성 계정은 선택할 수 없습니다.' : r.code === 'SAVE_ERROR' ? '감사 기록을 저장하지 못해 사용자를 전환하지 못했습니다.' : '사용자를 찾을 수 없습니다.'),
+              r.code === 'SAVE_ERROR' ? 'error' : 'warn', 2600);   /* SAVE_ERROR: 헬퍼가 변경을 되돌림 → 선택값도 아래 refresh 로 되돌림 */
+          }
+          if (!hasOnChange || (r && r.ok === false)) refresh();   /* onChange 는 성공 시 헬퍼가 발생 — 거부(LOCKED 등)면 선택 되돌림 */
+        });
+      }
+    }
+    applyGate();
+  }
+  function applyGate() {
+    var on = gateOn();
+    document.body.classList.toggle('p0-no-user', on);
+    Array.prototype.forEach.call(document.querySelectorAll(GATE_SEL), function (b) { b.classList.toggle('p0-gated', on); });
+  }
+  function refresh() { render(); listeners.forEach(function (fn) { try { fn(current()); } catch (e) { if (global.console) console.error(e); } }); }
+
+  /* 선택 없음 게이트: 편집 버튼 클릭 차단 + 툴팁 (동적으로 그려지는 T-02 버튼 포함) */
+  document.addEventListener('click', function (e) {
+    if (!gateOn()) return;
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    if (global.MesUI) MesUI.toast(GATE_TIP + ' — 상단 사용자 선택기에서 현재 사용자를 고른 뒤 다시 시도하세요.', 'warn', 2200);
+  }, true);
+  document.addEventListener('mouseover', function (e) {
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    if (gateOn()) { if (!b.hasAttribute('data-p0-tip')) b.setAttribute('data-p0-tip', b.getAttribute('title') || ''); b.setAttribute('title', GATE_TIP); b.classList.add('p0-gated'); }
+    else if (b.hasAttribute('data-p0-tip')) { b.setAttribute('title', b.getAttribute('data-p0-tip')); b.removeAttribute('data-p0-tip'); b.classList.remove('p0-gated'); }
+  }, true);
+
+  var hasOnChange = false;
+  function start() {
+    isReady = true;
+    var a = api();
+    if (a && typeof a.onChange === 'function') { hasOnChange = true; call('onChange', function () { refresh(); }); }
+    else global.addEventListener('storage', function (e) { if (WATCH_KEYS.indexOf(e.key) >= 0) refresh(); });
+    render();
+    readyQ.splice(0).forEach(function (fn) { try { fn(); } catch (e) { if (global.console) console.error(e); } });
+  }
+
+  global.P0Ui = {
+    api: api, call: call, connected: connected, users: users, current: current, hasRole: hasRole, rolesOf: rolesOfUser, sod: sod, userLabel: userLabel,
+    roleBadge: roleBadge, roleBadges: roleBadges, statusBadge: statusBadge, sortRoles: sortRoles, ROLE: ROLE, ROLE_ORDER: ROLE_ORDER,
+    gateOn: gateOn, refresh: refresh, applyGate: applyGate, esc: esc, GATE_TIP: GATE_TIP,
+    onUserChange: function (fn) { listeners.push(fn); },
+    ready: function (fn) { if (isReady) fn(); else readyQ.push(fn); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})(window);
+</script>
+<script src="../assets/master-t02.js"></script>
+<script>
+/* ==== S-41 — EbrUserSession(UI-09, DEVELOPER1) 어댑터 (화면 → 헬퍼 호출은 이 구역 + 공통 블록 P0Ui 만) ====
+ *   listUsers({q,role,status})  → PublicUser[] (pwHash 없음, roles[] 포함)
+ *   saveUser({userId,name,dept,status,roles,note,password?, mode:'create'|'update'}, {screen}) → {ok,user,isNew,sodWarning} | {ok:false,code:NOT_ADMIN|DUP_ID|REQUIRED|NO_ROLE|BAD_STATUS|NOT_FOUND,message}
+ *                               (create + 기존 ID → DUP_ID 덮어쓰기 없음 · update + 없는 ID → NOT_FOUND)
+ *   unlockUser(id)              → ADMIN 만 (codes NOT_ADMIN|NOT_LOCKED|NOT_FOUND) — status=active · failCount=0 · 감사 USER_UNLOCK (헬퍼)
+ *   resetSeed({screen}) · hasSodConflict(roles) · MAX_FAIL · onChange(같은 탭 setCurrentUser/saveUser/unlock + 다른 탭) → 공통 블록 P0Ui.onUserChange 로 목록 재표시
+ * 판정·저장·감사는 헬퍼. 화면은 입력 모양 검사(필수 · 신규 ID 중복 사전 확인)와 결과 표시만.
+ * 「해제 이력」: PublicUser.lastUnlockAt / lastUnlockBy (해제 이력 없으면 null → —).
+ * 헬퍼가 없으면 목록은 「사용자 API 미연결」, 팝업은 레이아웃 확인용(저장·해제 비활성)으로만 열린다. */
+var S41Api = {
+  ok: function () { return !!(window.P0Ui && P0Ui.connected()); },
+  list: function (filter) { return window.P0Ui ? P0Ui.users(filter) : []; },
+  save: function (user) { var r = window.P0Ui && P0Ui.call('saveUser', user, { screen: 'S-41' }); return r || { ok: false, code: 'API_MISSING' }; },
+  unlock: function (userId) { var r = window.P0Ui && P0Ui.call('unlockUser', userId); return r || { ok: false, code: 'API_MISSING' }; },
+  lastUnlock: function (u) { return u && u.lastUnlockAt ? { at: u.lastUnlockAt, by: u.lastUnlockBy || '' } : null; },
+  canSeed: function () { var a = window.P0Ui && P0Ui.api(); return !!(a && typeof a.resetSeed === 'function'); },
+  seed: function () { return window.P0Ui && P0Ui.call('resetSeed', { screen: 'S-41' }); },
+  maxFail: function () { var a = window.P0Ui && P0Ui.api(); return (a && a.MAX_FAIL) || 5; }
+};
+</script>
+<script>
+(function () {
+  'use strict';
+  var $ = MS.$, $$ = MS.$$, esc = MS.esc;
+  MS.load();
+  MT.shell('user-role');
+  $('#paging').innerHTML = MT.PAGING_HTML;
+
+  var ROLES = ['OP', 'SV', 'QA', 'QP', 'ADMIN'], GMP = ['OP', 'SV', 'QA', 'QP'];
+  var ROLE_T = { OP: '작업자 (OP)', SV: '감독자 (SV)', QA: 'QA', QP: 'QP', ADMIN: '관리자 (ADMIN)' };
+  var ST = [{ v: 'active', t: '활성' }, { v: 'inactive', t: '비활성' }, { v: 'locked', t: '잠김' }];
+  var API_OFF = 'ebr-user-session.js (DEVELOPER1) 미로드 — 로드 후 편집할 수 있습니다';
+  var rows = [], F = null;   /* F = { isNew, orig } */
+
+  function isAdmin() { var u = P0Ui.current(); return !!u && P0Ui.hasRole(u, 'ADMIN'); }
+  /* 겸직 판정은 헬퍼 hasSodConflict (없을 때만 같은 규칙으로 표시용 판정: ADMIN + GMP 서명 역할) */
+  function segregated(roles) { roles = roles || []; var a = P0Ui.api(); if (a && typeof a.hasSodConflict === 'function') return P0Ui.sod(roles); return roles.indexOf('ADMIN') >= 0 && roles.some(function (r) { return GMP.indexOf(r) >= 0; }); }
+  function failText(u) { return (u.failCount || 0) + '/' + S41Api.maxFail(); }
+  function stText(st) { return st === 'locked' ? '잠김' : st === 'inactive' ? '비활성' : '활성'; }
+  /* 시각 표시: 자체 오프셋(Z · ±hh:mm)이 있는 값은 KST 로 변환, 없으면 그대로 */
+  function kst(v) {
+    if (!v) return '—';
+    if (!/[zZ]$|[+-]\d\d:?\d\d$/.test(String(v))) return String(v);
+    var t = Date.parse(v); if (isNaN(t)) return String(v);
+    var d = new Date(t + 9 * 3600000), p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return d.getUTCFullYear() + '-' + p(d.getUTCMonth() + 1) + '-' + p(d.getUTCDate()) + ' ' + p(d.getUTCHours()) + ':' + p(d.getUTCMinutes()) + ':' + p(d.getUTCSeconds()) + ' KST';
+  }
+  function rolesHtml(roles) {
+    return (roles && roles.length ? P0Ui.roleBadges(roles) : '<span class="muted">—</span>') +
+      (segregated(roles) ? '<span class="badge warn" title="관리자(ADMIN)와 GMP 서명 역할 겸직 — P0 경고만(P1 차단)">직무 분리</span>' : '');
+  }
+  function rolesTitle(roles) { return P0Ui.sortRoles(roles).map(function (r) { return ROLE_T[r] || r; }).join(' · ') + (segregated(roles) ? ' · 직무 분리' : ''); }
+
+  /* ---------------------------------------------------------------- 목록 (T-02) */
+  function fillSearch() {
+    $('#qRole').innerHTML = '<option value="">전체</option>' + ROLES.map(function (r) { return '<option value="' + r + '">' + esc(ROLE_T[r]) + '</option>'; }).join('');
+    $('#qStatus').innerHTML = '<option value="">전체</option>' + ST.map(function (o) { return '<option value="' + o.v + '">' + o.t + '</option>'; }).join('');
+    $('#legend').innerHTML = '<span>역할</span>' + ROLES.map(P0Ui.roleBadge).join('');
+  }
+  function render(notify) {
+    rows = S41Api.list();   /* 전체 (신규 ID 중복 사전 확인 · 상세 열기용) */
+    var f = {}, q = $('#qText').value.trim(), qr = $('#qRole').value, qs = $('#qStatus').value;
+    if (q) f.q = q; if (qr) f.role = qr; if (qs) f.status = qs;
+    var list = S41Api.list(f).slice().sort(function (a, b) { return a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0; });
+    $('#grd-user tbody').innerHTML = list.map(function (u, i) {
+      var roles = P0Ui.rolesOf(u);
+      return '<tr data-id="' + esc(u.userId) + '"' + (u.status === 'inactive' ? ' class="disabled"' : '') + '><td class="col-check"><input type="checkbox" aria-label="선택"></td><td class="col-no">' + (i + 1) + '</td>' +
+        '<td class="center"><button class="ic-detail" type="button" title="Detail"></button></td>' +
+        '<td title="' + esc(u.userId) + '">' + esc(u.userId) + '</td><td title="' + esc(u.name) + '">' + esc(u.name) + '</td>' +
+        '<td title="' + esc(u.dept || '') + '">' + (u.dept ? esc(u.dept) : '<span class="muted">—</span>') + '</td>' +
+        '<td class="roles" title="' + esc(rolesTitle(roles)) + '">' + rolesHtml(roles) + '</td>' +
+        '<td class="center" title="' + stText(u.status) + '">' + P0Ui.statusBadge(u.status) + '</td>' +
+        '<td class="num">' + failText(u) + '</td><td title="' + esc(u.updBy || '') + '">' + esc(kst(u.upd)) + '</td></tr>';
+    }).join('');
+    var nd = $('#nodata');
+    nd.textContent = S41Api.ok() ? '조회 결과가 없습니다' : '사용자 API 미연결 — ebr-user-session.js 로드 후 조회됩니다';
+    nd.classList.toggle('hidden', list.length > 0);
+    MesUI.setTotal('grd-user', list.length);
+    updateSel(); applyAuth();
+    if (notify) MesUI.toast('조회 완료 — ' + list.length + '건', 'info', 1500);
+  }
+  function updateSel() { var n = $$('#grd-user tbody td.col-check input:checked').length; $('#selInfo').textContent = n ? n + '건 선택' : ''; }
+  /* 권한 표시 (PM 승인 — UI-05 표 「권한」): ADMIN 만 New · 저장 · 시드 복원. 선택 없음 게이트는 공통 블록(P0Ui) 이 처리 */
+  function setTip(wrap, btn, disabled, tip) { btn.disabled = !!disabled; wrap.title = disabled ? tip : ''; }
+  function applyAuth() {
+    var off = !S41Api.ok(), adm = !off && isAdmin(), noUser = !off && !P0Ui.current();
+    var tip = off ? API_OFF : noUser ? P0Ui.GATE_TIP : '관리자(ADMIN)만 편집할 수 있습니다';
+    setTip($('#tipNew'), $('#btnNew'), !adm && !noUser, tip);
+    /* 시드 복원: ADMIN 일 때만 활성 (헬퍼 resetSeed 도 ADMIN 전용 — 사용자 없음 · 비ADMIN 이면 비활성 + 툴팁). onChange → render → 여기서 재평가 */
+    setTip($('#tipSeed'), $('[data-act=seed]'), !adm || !S41Api.canSeed(),
+      off ? API_OFF : !S41Api.canSeed() ? 'resetSeed 미제공 (ebr-user-session.js)' : noUser ? P0Ui.GATE_TIP : '관리자(ADMIN)만 시드를 복원할 수 있습니다');
+    P0Ui.applyGate();
+  }
+
+  var host = $('#view-user');
+  host.addEventListener('click', function (e) {
+    var t;
+    if ((t = e.target.closest('[data-clear]'))) { $('#' + t.dataset.clear).value = ''; return; }
+    if (e.target.closest('.ic-detail')) { openForm(find(e.target.closest('tr').dataset.id)); return; }
+    if (e.target.closest('[data-pg-go]')) { MesUI.toast('1 / 1 페이지', 'info', 1200); return; }
+    if (e.target.closest('th.col-check input')) { setTimeout(updateSel, 0); return; }
+    if (!(t = e.target.closest('[data-act]'))) return;
+    var act = t.dataset.act;
+    if (act === 'search') render(true);
+    else if (act === 'reset') { $('#qText').value = ''; $('#qRole').value = ''; $('#qStatus').value = ''; render(); MesUI.toast('조회 조건을 초기화했습니다.', 'info', 1500); }
+    else if (act === 'new') openForm(null);
+    else if (act === 'excel') MesUI.toast('(데모) 사용자 · 역할 목록 Excel 다운로드는 PoC 범위 밖입니다.', 'info');
+    else if (act === 'seed') MesUI.confirm('사용자 · 역할을 시드 데이터로 복원합니다.\n잠금 · 실패 횟수가 초기화되고 시드에 없는 사용자는 삭제됩니다. (저장 키 \'ebmr.userRole.v1\')', function () {
+      var rs = S41Api.seed();
+      if (!rs || rs.ok === false) {   /* NOT_ADMIN · SAVE_ERROR → 오류 (변경 없음) */
+        MesUI.alert((rs && rs.message) || (rs && rs.code === 'NOT_ADMIN' ? '관리자(ADMIN)만 시드를 복원할 수 있습니다.' : '시드 복원에 실패했습니다 (변경 없음)'), 'Error'); render(); return;
+      }
+      var nU = (rs.unlocked || []).length, nR = (rs.removed || []).length;
+      render(); MesUI.toast('사용자 · 역할 시드로 복원했습니다 — ' + (rs.count != null ? rs.count + '명' : '') + (nU ? ' · 잠금/실패 초기화 ' + nU + '명' : '') + (nR ? ' · 시드 외 삭제 ' + nR + '명' : '') + '.', 'ok', 3000);
+    }, { okText: '복원', cancelText: '취소' });
+  });
+  host.addEventListener('dblclick', function (e) { var tr = e.target.closest('tbody tr[data-id]'); if (tr && !e.target.closest('input,button,a')) openForm(find(tr.dataset.id)); });
+  host.addEventListener('change', function (e) {
+    if (e.target.closest('.col-check')) updateSel();
+    if (e.target.matches('[data-pagesize]')) MesUI.toast(e.target.value + ' — 페이지 크기 변경 (데모: 단일 페이지)', 'info', 1500);
+  });
+  host.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.id === 'qText') render(true); });
+  function find(id) { return rows.filter(function (u) { return u.userId === id; })[0] || null; }
+
+  /* ---------------------------------------------------------------- 상세 팝업 (T-10 900) */
+  function roleChecks(sel, dis) {
+    return ROLES.map(function (r) {
+      return '<label class="checkbox"><input type="checkbox" value="' + r + '"' + (sel.indexOf(r) >= 0 ? ' checked' : '') + (dis ? ' disabled' : '') + '> ' + esc(ROLE_T[r]) + '</label>';
+    }).join('');
+  }
+  function checkedRoles() { return $$('#fRoles input:checked').map(function (c) { return c.value; }); }
+  function syncSeg() { $('#duSegWarn').classList.toggle('hidden', !segregated(checkedRoles())); }
+  function openForm(u) {
+    var isNew = !u, off = !S41Api.ok(), adm = !off && isAdmin(), ro = off || !adm;
+    var d = u || { userId: '', name: '', dept: '', status: 'active', failCount: 0, lockedAt: '', roles: [], note: '' };
+    var roles = isNew ? [] : P0Ui.rolesOf(d);
+    F = { isNew: isNew, orig: u };
+    $('#duTitle').textContent = isNew ? '사용자 신규' : '사용자 상세 — ' + d.userId;
+    var cur = P0Ui.current();
+    $('#duMeta').innerHTML = (isNew ? '<span class="badge info">신규</span><span>등록자 <b>' + esc(cur ? cur.name + ' (' + cur.userId + ')' : '—') + '</b></span>'
+        : (P0Ui.statusBadge(d.status) || '<span class="badge ok">활성</span>') + '<span>실패 <b>' + failText(d) + '</b></span>' +
+          (d.status === 'locked' ? '<span>잠금 시각 <b>' + esc(kst(d.lockedAt)) + '</b></span>' : '') +
+          '<span>수정 ' + esc(kst(d.upd)) + (d.updBy ? ' · ' + esc(d.updBy) : '') + '</span>') +
+      (off ? '<span class="sub-info"><i class="ic-lock"></i>사용자 API 미연결 — 레이아웃 확인용(저장 불가)</span>'
+        : ro ? '<span class="sub-info"><i class="ic-lock"></i>관리자(ADMIN)만 편집할 수 있습니다</span>' : '') +
+      '<span class="spacer"></span><span class="sub-info">S-41 · CAdmSetupUserRoleMain</span>';
+    var idEl = $('#fUserId');
+    idEl.value = d.userId; idEl.readOnly = ro || !isNew;
+    $('#fName').value = d.name || ''; $('#fName').readOnly = ro;
+    $('#fDept').value = d.dept || ''; $('#fDept').readOnly = ro;
+    $('#fNote').value = d.note || ''; $('#fNote').readOnly = ro;
+    $('#fPw').value = ''; $('#fPw').disabled = ro || !isNew;
+    $('#fPw').placeholder = isNew ? '신규 등록 시에만 입력' : '변경 불가 — 재설정은 P1';
+    $('#lblPw').classList.toggle('required', isNew);
+    var st = d.status || 'active';
+    $('#fStatus').innerHTML = '<option value="active">활성</option><option value="inactive">비활성</option>' + (st === 'locked' ? '<option value="locked" disabled>잠김 (잠금 해제로만 변경)</option>' : '');
+    $('#fStatus').value = st; $('#fStatus').disabled = ro || st === 'locked' || isNew;
+    $('#fRoles').innerHTML = roleChecks(roles, ro);
+    syncSeg();
+    $('#aStatus').innerHTML = isNew ? '<span class="muted">—</span>' : (P0Ui.statusBadge(st) || '활성');
+    $('#aFail').textContent = isNew ? '—' : failText(d);
+    $('#aLocked').textContent = isNew || st !== 'locked' ? '—' : kst(d.lockedAt);
+    var lu = isNew ? null : S41Api.lastUnlock(d);
+    $('#aUnlock').textContent = lu ? kst(lu.at) + (lu.by ? ' · ' + lu.by : '') : '—';
+    /* 잠금 해제: locked 일 때만 표시, ADMIN 만 활성 (UI-06 D2) */
+    $('#tipUnlock').classList.toggle('hidden', isNew || st !== 'locked');
+    setTip($('#tipUnlock'), $('#duUnlock'), ro, off ? API_OFF : '관리자(ADMIN)만 해제할 수 있습니다');
+    setTip($('#tipSave'), $('#duSave'), ro, off ? API_OFF : '관리자(ADMIN)만 편집할 수 있습니다');
+    P0Ui.applyGate();
+    MesUI.openDialog('dlgUser');
+    if (!ro) setTimeout(function () { (isNew ? idEl : $('#fName')).focus(); }, 0);
+  }
+  $('#fRoles').addEventListener('change', syncSeg);
+
+  function warn(msg, focusEl) { MesUI.alert(msg, 'Warning'); if (focusEl && focusEl.focus) focusEl.focus(); }
+  $('#duSave').addEventListener('click', function () {
+    if (!F || $('#duSave').disabled) return;
+    var user = {
+      userId: $('#fUserId').value.trim(), name: $('#fName').value.trim(), dept: $('#fDept').value.trim(),
+      status: $('#fStatus').value, roles: checkedRoles(), note: $('#fNote').value.trim(), authMethod: 'AM-IDPW'
+    };
+    if (F.isNew) user.status = 'active';
+    if (!user.userId) return warn('필수 입력 항목입니다: 사용자 ID', $('#fUserId'));
+    if (!user.name) return warn('필수 입력 항목입니다: 이름', $('#fName'));
+    if (F.isNew && rows.some(function (u) { return String(u.userId).toUpperCase() === user.userId.toUpperCase(); })) return warn('ID는 재사용할 수 없습니다', $('#fUserId'));
+    var pw = $('#fPw').value;
+    if (F.isNew && !pw) return warn('필수 입력 항목입니다: 초기 비밀번호', $('#fPw'));
+    if (!user.roles.length) return warn('역할을 1개 이상 선택하세요');
+    function commit() {
+      user.mode = F.isNew ? 'create' : 'update';   /* 헬퍼가 신규/수정을 추정하지 않도록 명시 */
+      if (F.isNew) user.password = pw;
+      var res = S41Api.save(user);
+      $('#fPw').value = ''; delete user.password;   /* 비밀번호 값은 화면 · 변수에 남기지 않음 */
+      if (!res || !res.ok) {
+        var code = res && res.code;
+        var m = res && res.message ? res.message : code === 'DUP_ID' ? 'ID는 재사용할 수 없습니다' : code === 'NO_ROLE' ? '역할을 1개 이상 선택하세요'
+          : code === 'NOT_ADMIN' ? '관리자(ADMIN)만 편집할 수 있습니다' : code === 'SAVE_ERROR' ? '감사 기록을 저장하지 못해 저장이 취소되었습니다 — 다시 시도하세요.' : code === 'API_MISSING' ? '사용자 API 미연결 — ebr-user-session.js 로드 후 저장할 수 있습니다.' : '저장하지 못했습니다' + (code ? ' (' + code + ')' : '');
+        /* SAVE_ERROR(감사 저장 실패 → 헬퍼가 되돌림): 오류로 표시, 팝업 유지 · 저장 완료 처리 안 함 */
+        MesUI.alert(m, code === 'SAVE_ERROR' ? 'Error' : 'Warning'); render(); return;
+      }
+      MesUI.closeDialog('dlgUser'); render();   /* 선택기 · 배지는 헬퍼 onChange → P0Ui 가 갱신 */
+      MesUI.toast(user.name + '(' + user.userId + ') 저장했습니다.', 'ok');
+    }
+    if (segregated(user.roles)) MesUI.confirm('관리자(ADMIN)와 GMP 서명 역할을 함께 가지고 있습니다.\nP0는 저장을 허용하고 감사기록에 남깁니다(P1 차단). 저장할까요?', commit, { title: '직무 분리 경고', okText: '저장', cancelText: '취소' });
+    else commit();
+  });
+  $('#duUnlock').addEventListener('click', function () {
+    var u = F && F.orig; if (!u || $('#duUnlock').disabled) return;
+    MesUI.confirm(u.name + '(' + u.userId + ') 계정 잠금을 해제합니다. 실패 횟수가 0으로 초기화됩니다.', function () {
+      var res = S41Api.unlock(u.userId);
+      if (!res || !res.ok) {
+        var code = res && res.code;
+        MesUI.alert(res && res.message ? res.message : code === 'NOT_ADMIN' ? '관리자(ADMIN)만 해제할 수 있습니다' : code === 'NOT_LOCKED' ? '잠긴 계정이 아닙니다' : code === 'SAVE_ERROR' ? '감사 기록을 저장하지 못해 잠금 해제가 취소되었습니다 — 다시 시도하세요.' : '잠금을 해제하지 못했습니다' + (code ? ' (' + code + ')' : ''),
+          code === 'SAVE_ERROR' ? 'Error' : 'Warning');
+        return;
+      }
+      render();
+      var nu = find(u.userId); MesUI.closeDialog('dlgUser'); if (nu) openForm(nu);
+      MesUI.toast(u.name + '(' + u.userId + ') 잠금을 해제했습니다.', 'ok');
+    }, { title: '잠금 해제', okText: '해제', cancelText: '취소' });
+  });
+
+  /* 현재 사용자 · 다른 탭 변경 → 목록 · 권한 재표시 */
+  fillSearch();
+  /* 팝업이 열린 중 현재 사용자가 바뀌면(다른 탭 포함) 권한 표시가 달라지므로 다시 연다 — 저장 · 해제로 인한 변경 알림은 제외 */
+  var lastCur = null;
+  P0Ui.onUserChange(function (cur) {
+    var id = cur ? cur.userId : null, changed = id !== lastCur; lastCur = id;
+    render();
+    if (changed && F && $('#dlgUser').classList.contains('open')) { var o = F.orig; MesUI.closeDialog('dlgUser'); openForm(o ? find(o.userId) : null); }
+  });
+  P0Ui.ready(function () { var c = P0Ui.current(); lastCur = c ? c.userId : null; });
+  P0Ui.ready(function () { render(); });
+  render();
+})();
+</script>
+<script>
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

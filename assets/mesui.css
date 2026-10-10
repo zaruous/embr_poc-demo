@@ -1,0 +1,1191 @@
+@charset "UTF-8";
+/* =====================================================================
+   mesui.css — Elephant UI UX 재현용 정적 PoC 스타일시트
+   -----------------------------------------------------------------
+   근거: Elephant UI theme(cleopatra-theme.less 실효 CSS: settings.part.less,
+         mrc/*.part.less, common.part.less) 조사 결과.
+   값은 조사 결과를 우선 사용하고, 조사에 없는 값은 "(추정)"으로 표시한다.
+   외부 의존 없음(폰트: Malgun Gothic + 시스템 폴백, 아이콘: 인라인 SVG data URI).
+
+   사용 골격
+     <div class="shell shell-ui">      UI  1920×1080 (root_layout 20px 30px)
+     <div class="shell shell-oi">      OI  1920×1080 (touch-style root_layout 16px 30px)
+     <div class="shell shell-popup">   팝업 1100×700 (popup_layout 24px 30px)
+     <div class="shell shell-pda">     PDA 480×700 (pda-style, 패딩 없음)
+   ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   1. 토큰 (:root)
+   --------------------------------------------------------------------- */
+:root {
+  /* 색상 — 브랜드/상호작용 */
+  --c-primary: #2C59D9;            /* @color-primary: primary 배경, secondary 글자·테두리, 포커스 */
+  --c-primary-active: #00207a;     /* primary 버튼 클릭 */
+  --c-secondary-hover: #E6EAEE;    /* secondary 버튼·페이지 인덱서 hover */
+  --c-hover: #f7f7f7;              /* 기본 버튼 hover */
+  --c-active: #eaeaea;             /* 기본 버튼 active */
+
+  /* 색상 — 텍스트 */
+  --c-text: #333333;               /* @default-text-color */
+  --c-text-touch: #111111;         /* @fc-touch-default: 인포보드 라벨·값 */
+  --c-text-sub: #5c5c5c;           /* sub_info */
+  --c-text-disabled: #999999;
+  --c-breadcrumb: #707070;
+
+  /* 색상 — 면 */
+  --c-bg: #ffffff;
+  --c-bg-light: #edf0f5;           /* @common-bgcolor: 그리드 헤더, 키인 라벨, pda search_box */
+  --c-bg-disabled: #f5f5f5;
+  --c-bg-scroll: #f1f1f1;
+  --c-bg-page: #f1f2f7;            /* 홈 탭 배경(데모 페이지용) */
+
+  /* 색상 — 선 (진함 → 연함) */
+  --c-border-01: #61666f;          /* 그리드 상단선, PDA 테두리, 키인 폼 상단선 */
+  --c-border-02: #afb2b6;
+  --c-border-03: #bbbdc1;          /* 그리드 하단·헤더선, touch 구분선, 세로바 */
+  --c-border-04: #d2d3d6;          /* 기본 컨트롤(버튼·입력) 테두리 */
+  --c-border-05: #dedfe1;          /* 셀 하단선, search_box 상·하단선 */
+  --c-border-touch: #90939a;       /* touch-style 버튼·입력 테두리 */
+  --c-border-pda: #61666f;
+  --c-border-pda-hover: #a0a0a0;
+  --c-border-go: #a5a5a5;          /* 페이지 인덱서 GO 버튼 */
+  --c-popup-line: #cccccc;         /* .mrc-popup-button-area 상단선 */
+  --c-dialog-border: #e0e0e0;
+
+  /* 색상 — 그리드 행 상태 */
+  --c-row-selected: rgba(44, 89, 217, 0.2);
+  --c-row-editing: rgba(44, 89, 217, 0.08);
+  --c-list-hover: rgba(0, 85, 185, 0.08);
+  --c-list-selected: #208AED;
+  --c-summary-bg: rgba(67, 157, 94, 0.2);
+  --c-summary-line: #407550;
+
+  /* 색상 — 상태 */
+  --c-error: #ff5858;
+  --c-warn: #ffb100;
+  --c-ok: #37b284;
+  --c-info: #0091eb;
+  --c-required: red;
+  --c-alarm: #A80000;
+  --c-navy: #062470;               /* 차트 팔레트 01 — 인터록 navy 등급에 사용 */
+  --c-bullet-green: #4fce67;
+
+  /* 색상 — GMP 서명 의미 (DESIGN §06-5 · GCM EBR_SIGN_MEANING.data1). 정의만 — 사용은 각 화면 */
+  --c-sign-performed: #2C59D9;     /* 수행 performed */
+  --c-sign-verified: #37b284;      /* 확인 verified */
+  --c-sign-approved: #0b043e;      /* 승인 approved */
+  --c-sign-read-understood: #0091eb; /* 읽고 이해함 read_understood */
+  --c-sign-reviewed: #6952db;      /* 검토 reviewed */
+
+  /* 색상 — 상태 배경 팔레트(.bc-*) */
+  --bc-good: #E2F8CC;
+  --bc-alam: #FFEEDA;
+  --bc-faulty: #F9D5D1;
+  --bc-plan: #CCEBFF;
+  --bc-quality: #EBE0F7;
+  --bc-offpump: #E0DFE1;
+  --bc-gray: #e6e6e7;
+  --bc-gray-light: #f6f6f8;
+
+  /* 색상 — 인포보드/KPI */
+  --c-board-normal: #eaeefb;
+  --c-board-warn: #ffeeee;
+
+  /* 색상 — 다이얼로그 */
+  --c-overlay: rgba(0, 0, 0, 0.4);
+  --sh-dialog: 0 6px 12px rgba(0, 0, 0, 0.12);
+
+  /* 폰트 */
+  --font: 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  --font-mono: Consolas, "D2Coding", monospace;   /* 용기 ID · 해시 등 고정폭 문자열 (칭량 UI-15 선행) */
+  --font-display-xl: 56px;         /* 칭량 현재 중량 큰 숫자 (T-07 현재 표시값 56px bold, 칭량 설계 §11.9 C6) */
+  --fs-base: 13px;                 /* @default-font */
+  --fs-input: 13px;
+  --fs-grid: 12px;                 /* UI 그리드 본문 */
+  --fs-grid-head: 12px;
+  --fs-title: 22px;                /* contents_title / popup_title */
+  --fs-group: 16px;                /* group_title */
+  --fs-total: 13px;                /* grid_total_text */
+  --fs-label: 13px;
+  --fs-btn: 16px;                  /* .cl-button 기본 */
+  --fs-btn-search: 13px;
+  --fs-btn-normal: 16px;
+  --fs-btn-inner: 13px;
+  --fs-paging: 13px;
+  --fw-btn: 500;
+
+  /* 크기 — 셸 */
+  --shell-w: 1920px;
+  --shell-h: 1080px;
+  --shell-pad: 20px 30px;          /* root_layout */
+  --title-h: 29px;                 /* UI 타이틀 행 */
+  --title-gap: 8px;                /* 타이틀 ↔ 본문 */
+  --body-gap: 20px;                /* 본문 블록 간 간격 */
+  --split-gutter: 6px;             /* 좌우 분할 거터(신규 화면용). 기존 .split gap:30px은 그대로 */
+
+  /* 크기 — 컨트롤 */
+  --ctrl-h: 28px;                  /* search_box 컨트롤 높이 */
+  --ctrl-h-form: 24px;             /* tpl-view-key-in 입력 높이 */
+  --label-w: 110px;                /* tpl-search-control 라벨 폭 */
+  --form-label-w: 130px;           /* tpl-view-key-in 라벨 폭 */
+  --form-row-h: 36px;
+  --search-row-h: 40px;
+  --search-col-gap: 120px;
+  --search-pad: 6px 20px;
+  --search-line: var(--c-border-05);
+  --search-bg: transparent;
+  --btn-search-w: 80px;
+  --btn-search-h: 28px;
+  --btn-normal-w: 100px;
+  --btn-normal-h: 40px;
+  --btn-inner-w: 70px;
+  --btn-inner-h: 24px;
+  --btn-border: var(--c-border-04);
+  --input-border: var(--c-border-04);
+  --radius: 2px;
+
+  /* 크기 — 그리드 */
+  --grid-head-h: 28px;
+  --grid-row-h: 30px;
+  --grid-cell-pad: 0 12px;
+  --grid-head-bg: var(--c-bg-light);
+  --grid-head-line: var(--c-border-03);
+  --grid-cell-line: var(--c-border-05);
+  --grid-top-line: var(--c-border-01);
+  --grid-bottom-line: var(--c-border-03);
+  --toolbar-h: 28px;
+  --paging-btn: 24px;
+  --paging-gap: 2px;
+  --tran-h: 40px;                  /* OI grpTranButtons 행 */
+  --footer-h: 44px;                /* 팝업 하단 버튼 영역 */
+  --icon-close: 24px;
+  --icon-codeview: 24px;
+  --icon-codeview-img: 16px;
+  --check-size: 16px;              /* (추정) 체크박스 크기 */
+}
+
+/* ---------------------------------------------------------------------
+   2. 아이콘 (SVG data URI) — theme/images/*.svg 를 단순 선형으로 재현
+   --------------------------------------------------------------------- */
+:root {
+  --ic-close: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M6 6l12 12M18 6L6 18' stroke='%23333333' stroke-width='1.6' stroke-linecap='round'/></svg>");
+  --ic-clear: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='6.5' fill='%23bbbdc1'/><path d='M5.5 5.5l5 5M10.5 5.5l-5 5' stroke='%23ffffff' stroke-width='1.4' stroke-linecap='round'/></svg>");
+  --ic-search: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='7' cy='7' r='4.5' fill='none' stroke='%23333333' stroke-width='1.4'/><path d='M10.5 10.5L14 14' stroke='%23333333' stroke-width='1.4' stroke-linecap='round'/></svg>");
+  --ic-detail: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect x='3' y='2' width='10' height='12' rx='1' fill='none' stroke='%23333333' stroke-width='1.2'/><path d='M5.5 6h5M5.5 8.5h5M5.5 11h3' stroke='%23333333' stroke-width='1.2' stroke-linecap='round'/></svg>");
+  --ic-workflow: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='3.5' cy='8' r='2' fill='none' stroke='%23333333' stroke-width='1.2'/><circle cx='12.5' cy='4' r='2' fill='none' stroke='%23333333' stroke-width='1.2'/><circle cx='12.5' cy='12' r='2' fill='none' stroke='%23333333' stroke-width='1.2'/><path d='M5.5 8h3l2.2-3M8.5 8l2.2 3' fill='none' stroke='%23333333' stroke-width='1.2'/></svg>");
+  --ic-keyboard: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><rect x='2' y='5' width='16' height='10' rx='1.5' fill='none' stroke='%23333333' stroke-width='1.3'/><path d='M5 8h1M8 8h1M11 8h1M14 8h1M5 11h1M8 11h4M14 11h1' stroke='%23333333' stroke-width='1.3' stroke-linecap='round'/></svg>");
+  --ic-prev: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M14.5 6.5L9 12l5.5 5.5' fill='none' stroke='%23333333' stroke-width='1.6' stroke-linecap='round'/></svg>");
+  --ic-next: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M9.5 6.5L15 12l-5.5 5.5' fill='none' stroke='%23333333' stroke-width='1.6' stroke-linecap='round'/></svg>");
+  --ic-first: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M16 6.5L10.5 12 16 17.5M8 6.5v11' fill='none' stroke='%23333333' stroke-width='1.6' stroke-linecap='round'/></svg>");
+  --ic-last: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M8 6.5l5.5 5.5L8 17.5M16 6.5v11' fill='none' stroke='%23333333' stroke-width='1.6' stroke-linecap='round'/></svg>");
+  --ic-chevron-down: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M4 6l4 4 4-4' fill='none' stroke='%23333333' stroke-width='1.4' stroke-linecap='round'/></svg>");
+  --ic-link: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'><path d='M7.5 10.5a3 3 0 0 0 4.2 0l2.3-2.3a3 3 0 0 0-4.2-4.2L8.6 5.2M10.5 7.5a3 3 0 0 0-4.2 0L4 9.8a3 3 0 0 0 4.2 4.2l1.2-1.2' fill='none' stroke='%23333333' stroke-width='1.3' stroke-linecap='round'/></svg>");
+}
+
+/* ---------------------------------------------------------------------
+   3. 셸(Shell) — 타이틀 → 본문 → 하단 골격
+   --------------------------------------------------------------------- */
+.shell,
+.shell * ,
+.shell *::before,
+.shell *::after { box-sizing: border-box; }
+
+/* 다이얼로그 — .dialog-backdrop 은 .shell 밖(body 끝)에 있어 위 규칙을 받지 않는다(content-box → 1100×700 이 1162×750).
+   .shell 과 같은 border-box 로 맞춘다 (DESIGN §14 R-06 · §16 M-10) */
+.dialog-backdrop,
+.dialog-backdrop *,
+.dialog-backdrop *::before,
+.dialog-backdrop *::after { box-sizing: border-box; }
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  width: var(--shell-w);
+  height: var(--shell-h);
+  padding: var(--shell-pad);
+  gap: var(--title-gap);
+  background: var(--c-bg);
+  color: var(--c-text);
+  font: var(--fs-base) var(--font);
+  letter-spacing: -0.05em;         /* root_layout. popup/pda 는 (추정) 동일 적용 */
+  line-height: 1.3;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 3-1. UI (WipSetupMaterialMain 대응) */
+.shell-ui {
+  --shell-pad: 20px 30px;
+  --title-h: 29px;
+  --title-gap: 8px;
+  --body-gap: 20px;
+}
+
+/* 3-2. OI 터치 (touch-style root_layout) */
+.shell-oi {
+  --shell-pad: 16px 30px;
+  --title-h: 36px;
+  --title-gap: 16px;
+  --body-gap: 16px;
+  --fs-base: 16px;
+  --fs-input: 15px;
+  --fs-grid: 16px;
+  --fs-grid-head: 15px;
+  --fs-title: 24px;
+  --fs-group: 18px;
+  --fs-total: 16px;
+  --fs-label: 16px;
+  --fs-btn-search: 16px;
+  --fs-btn-normal: 24px;
+  --fs-btn-inner: 16px;
+  --fs-paging: 16px;
+  --ctrl-h: 32px;
+  --ctrl-h-form: 28px;
+  --label-w: 140px;
+  --form-label-w: 160px;
+  --form-row-h: 40px;
+  --search-line: var(--c-border-03);
+  --btn-search-w: 100px;
+  --btn-search-h: 32px;
+  --btn-normal-w: 120px;
+  --btn-normal-h: 48px;
+  --btn-inner-h: 28px;
+  --btn-border: var(--c-border-touch);
+  --input-border: var(--c-border-touch);
+  --grid-head-h: 36px;             /* 규칙 문서 기준(파일 관찰 36/40) */
+  --grid-row-h: 30px;
+  --grid-cell-pad: 0 12px;
+  --paging-btn: 30px;
+  --paging-gap: 4px;
+  --tran-h: 48px;                  /* (추정) 파일은 40px 행이나 touch .normal min-height 48px 수용 */
+  --icon-close: 32px;
+  --icon-codeview: 28px;
+  --icon-codeview-img: 20px;
+  --check-size: 20px;              /* (추정) */
+}
+
+/* 3-3. 팝업 (popup_layout, touch-style 아님) */
+.shell-popup {
+  --shell-w: 1100px;
+  --shell-h: 700px;
+  --shell-pad: 24px 30px;
+  --title-h: 36px;
+  --title-gap: 16px;
+  --body-gap: 20px;
+  --grid-head-h: 36px;             /* 규칙 문서 OI팝업 36/30 (파일 관찰 28/40) */
+  --grid-row-h: 30px;
+  border: 1px solid var(--c-dialog-border);
+  box-shadow: var(--sh-dialog);
+}
+
+/* 3-4. PDA (pda-style, root_layout 없음) */
+.shell-pda {
+  --shell-w: 480px;
+  --shell-h: 700px;
+  --shell-pad: 0;
+  --title-gap: 0;
+  --body-gap: 8px;
+  --fs-base: 15px;
+  --fs-input: 14px;
+  --fs-grid: 15px;
+  --fs-grid-head: 15px;
+  --fs-label: 15px;
+  --fs-btn-search: 18px;
+  --fs-btn-normal: 20px;
+  --ctrl-h: 40px;
+  --label-w: 114px;
+  --search-row-h: 48px;
+  --search-col-gap: 0px;
+  --search-pad: 8px 12px;
+  --search-line: transparent;
+  --search-bg: var(--c-bg-light);
+  --btn-search-w: 100px;
+  --btn-search-h: 40px;
+  --btn-normal-w: 120px;
+  --btn-normal-h: 46px;
+  --btn-border: var(--c-border-pda);
+  --input-border: var(--c-border-pda);
+  --grid-head-h: 40px;             /* 파일 관찰 40 / 규칙 42 — 행은 42 */
+  --grid-row-h: 42px;
+  --grid-head-bg: transparent;
+  --grid-head-line: var(--c-border-01);
+  --grid-cell-line: var(--c-border-03);
+  --grid-top-line: var(--c-border-01);
+  --check-size: 20px;              /* (추정) */
+}
+
+/* 공통 본문 컨테이너: 남는 높이를 모두 차지 */
+.shell-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--body-gap);
+}
+.shell-body > .grid-block { flex: 1 1 auto; min-height: 0; }
+
+/* OI 본문: 그리드(FRACTION) → 검색(고정) 순서가 자연스럽게 쌓이도록 */
+.oi-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--body-gap);
+}
+.oi-body > .grid-block { flex: 1 1 auto; min-height: 0; }
+.oi-body > .search-box { flex: 0 0 auto; }
+
+/* OI 하단 트랜잭션 버튼 영역 (tplTouchTranButton, PIXEL 고정) */
+.tran-buttons {
+  flex: 0 0 var(--tran-h);
+  height: var(--tran-h);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tran-buttons .spacer { flex: 1 1 auto; }
+.tran-buttons .checkbox { margin: 0 8px; }
+
+/* PDA 하단 고정 버튼 영역 (Delete 1fr : Complete 2fr) */
+.pda-buttons {
+  flex: 0 0 70px;
+  height: 70px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 6px;
+  align-items: center;
+}
+.pda-buttons .btn { width: 100%; min-width: 0; }
+
+/* 좌우 분할(팝업 좌 2fr : 우 3fr, hspace 30) */
+.split {
+  display: grid;
+  grid-template-columns: 2fr 3fr;
+  gap: 30px;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.split > .grid-block { min-height: 0; }
+.split.even { grid-template-columns: 1fr 1fr; }
+
+/* ---------------------------------------------------------------------
+   4. 타이틀
+   --------------------------------------------------------------------- */
+.title-bar {
+  flex: 0 0 var(--title-h);
+  height: var(--title-h);
+  display: flex;
+  align-items: flex-end;           /* contents_title vertical-align bottom */
+  justify-content: space-between;
+  gap: 12px;
+}
+.main-title,
+.contents_title {
+  font-size: var(--fs-title);
+  font-weight: bold;
+  line-height: 1;
+  white-space: nowrap;
+}
+/* OI 타이틀 우측 Close: 열 60px, height 24, valign BOTTOM (touch .search 100×32 보다 우선) */
+.shell .title-bar .btn.btn-close { height: 24px; min-height: 24px; width: 60px; min-width: 60px; padding: 0 8px; font-size: 13px; }
+
+/* 브레드크럼 (UI 전용, MrcBreadCrumbs) */
+.breadcrumb {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--c-breadcrumb);
+  white-space: nowrap;
+  line-height: 1;
+}
+.breadcrumb .sep { color: var(--c-breadcrumb); margin: 0 2px; }
+.breadcrumb .current { color: var(--c-text); font-weight: bold; }
+.breadcrumb .copy {
+  width: 18px; height: 18px; margin-left: 6px;
+  border: none; background: var(--ic-link) center / 18px no-repeat; cursor: pointer; padding: 0;
+}
+
+/* 팝업 타이틀 (popup_title + optClose) */
+.popup-title {
+  flex: 0 0 var(--title-h);
+  height: var(--title-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.popup-title .text { font-size: var(--fs-title); font-weight: bold; line-height: 1; }
+.popup-close,
+.ic-close {
+  width: var(--icon-close);
+  height: var(--icon-close);
+  min-width: var(--icon-close);
+  border: none;
+  padding: 0;
+  background: var(--ic-close) center / var(--icon-close) no-repeat;
+  cursor: pointer;
+}
+.shell-oi .popup-close, .shell-oi .ic-close { background-size: 30px; }
+
+/* 보조 제목류 */
+.sub-title { font-size: 18px; font-weight: bold; color: var(--c-text); }
+.sub-info  { font-size: 12px; color: var(--c-text-sub); }
+
+/* ---------------------------------------------------------------------
+   5. 검색 영역 (search_box / tpl-search-control)
+   --------------------------------------------------------------------- */
+.search-box {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);   /* UI 기본 3열, 4번째부터 다음 행 */
+  column-gap: var(--search-col-gap);
+  row-gap: 0;
+  padding: var(--search-pad);
+  border-top: 1px solid var(--search-line);
+  border-bottom: 1px solid var(--search-line);
+  background: var(--search-bg);
+}
+.shell-oi .search-box { grid-template-columns: repeat(2, 1fr); row-gap: 0; }
+.shell-pda .search-box { grid-template-columns: 1fr; }
+.search-box.cols-1 { grid-template-columns: 1fr; }
+.search-box.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.search-box.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.search-box.cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+/* 한 셀 = 라벨(고정폭) + 컨트롤(1fr), 라벨↔컨트롤 10px */
+.search-control {
+  height: var(--search-row-h);
+  display: grid;
+  grid-template-columns: var(--label-w) minmax(0, 1fr);
+  column-gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+}
+.shell-pda .search-control { padding: 4px 0; }
+.search-control .label { font-size: var(--fs-label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shell-pda .search-control .label { font-weight: bold; }
+.search-control .input,
+.search-control .codeview,
+.search-control select.input { height: var(--ctrl-h); }
+.search-control .field { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.search-control .field > .input { flex: 1 1 auto; min-width: 0; }
+.search-control.empty { visibility: hidden; }
+
+/* 우측 끝 버튼 영역: 항상 마지막 열, 우측 정렬, 버튼 간격 6px */
+.search-actions {
+  grid-column: -2 / -1;
+  height: var(--search-row-h);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px 0;
+}
+.search-actions.full { grid-column: 1 / -1; }
+.search-actions.full .btn { flex: 1 1 auto; }
+.shell-pda .search-actions { padding: 4px 0; }
+
+/* 필수 표시: 텍스트 뒤 빨간 ' *' */
+.label.required::after,
+.required > .label::after { content: ' *'; color: var(--c-required); }
+
+/* 체크박스 그룹: 항목 간격 24px */
+.checkbox-group { display: flex; align-items: center; flex-wrap: wrap; }
+.checkbox-group .checkbox { margin-right: 24px; }
+
+/* ---------------------------------------------------------------------
+   6. 버튼 (.cl-button 체계: search / normal × primary / secondary)
+   --------------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: inherit;
+  font-size: var(--fs-btn);
+  font-weight: var(--fw-btn);
+  line-height: 1;
+  color: var(--c-text);
+  background: var(--c-bg);
+  border: 1px solid var(--btn-border);
+  border-radius: var(--radius);
+  padding: 0 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  letter-spacing: inherit;
+  user-select: none;
+}
+.btn:hover  { background: var(--c-hover); }
+.btn:active { background: var(--c-active); }
+.btn:focus-visible { outline: 1px solid var(--c-primary); outline-offset: 1px; }
+.btn:disabled,
+.btn.disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+
+/* 조회·툴바·팝업 하단·OI Close */
+.btn.search {
+  font-size: var(--fs-btn-search);
+  min-width: var(--btn-search-w);
+  height: var(--btn-search-h);
+  min-height: var(--btn-search-h);
+}
+/* 하단 트랜잭션(OI grpTranButtons · PDA grpButtons) */
+.btn.normal {
+  font-size: var(--fs-btn-normal);
+  min-width: var(--btn-normal-w);
+  height: var(--btn-normal-h);
+  min-height: var(--btn-normal-h);
+}
+.shell-oi .btn.normal { font-weight: 400; }
+.shell-pda .btn.normal { font-weight: bold; padding: 10px 16px; }
+/* 입력 필드 옆 소형 버튼 */
+.btn.inner {
+  font-size: var(--fs-btn-inner);
+  min-width: var(--btn-inner-w);
+  height: var(--btn-inner-h);
+  min-height: var(--btn-inner-h);
+  padding: 0 8px;
+  border-radius: 1px;
+}
+.shell-oi .btn.inner { border-radius: 2px; font-weight: 500; }
+
+/* 2순위: 파란 외곽선 */
+.btn.secondary {
+  color: var(--c-primary);
+  background: var(--c-bg);
+  border-color: var(--c-primary);
+}
+.btn.secondary:hover  { background: var(--c-secondary-hover); }
+.btn.secondary:active { background: var(--c-primary); color: #fff; }
+.shell-oi .btn.normal.secondary:active { background: var(--c-secondary-hover); color: var(--c-primary); }
+
+/* 1순위: 파란 채움 (항상 최우측 배치) */
+.btn.primary {
+  color: #fff;
+  background: var(--c-primary);
+  border-color: var(--c-primary);
+}
+.btn.primary:hover  { background: var(--c-primary); }
+.btn.primary:active { background: var(--c-primary-active); border-color: var(--c-primary-active); }
+.shell-oi .btn.normal.primary,
+.shell-pda .btn.normal.primary { font-weight: 700; }
+.shell-oi .btn.normal.primary:active,
+.shell-pda .btn.normal.primary:active { background: var(--c-primary); border-color: var(--c-primary); }
+
+/* 아이콘 버튼 (그리드 셀 등): 배경 투명, 테두리 없음 */
+.btn.icon,
+.ic-detail, .ic-workflow {
+  width: 24px; height: 24px; min-width: 0; min-height: 0; padding: 0;
+  border: none; background-color: transparent; background-position: center; background-repeat: no-repeat;
+  background-size: 16px; cursor: pointer;
+}
+.ic-detail   { background-image: var(--ic-detail); }
+.ic-workflow { background-image: var(--ic-workflow); }
+.shell-oi .ic-detail { background-size: 24px; }
+.btn.icon:hover, .ic-detail:hover, .ic-workflow:hover { background-color: var(--c-hover); }
+
+/* ---------------------------------------------------------------------
+   7. 입력 요소
+   --------------------------------------------------------------------- */
+.input,
+.shell input[type="text"],
+.shell input[type="number"],
+.shell input[type="password"],
+.shell input[type="date"],
+.shell select,
+.shell textarea {
+  font-family: inherit;
+  font-size: var(--fs-input);
+  color: var(--c-text);
+  background: var(--c-bg);
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius);
+  height: var(--ctrl-h);
+  padding: 0 8px;
+  letter-spacing: inherit;
+  outline: none;
+  min-width: 0;
+}
+.shell textarea { height: auto; padding: 6px 8px; resize: vertical; }
+.input:focus,
+.shell input:focus,
+.shell select:focus,
+.shell textarea:focus { border-color: var(--c-primary); }
+.input:disabled,
+.shell input:disabled,
+.shell select:disabled,
+.shell textarea:disabled { background: var(--c-bg-disabled); color: var(--c-text-disabled); border-color: var(--c-border-04); }
+.input[readonly],
+.shell input[readonly],
+.shell textarea[readonly] { background: var(--c-bg-disabled); color: var(--c-text); }
+.input.num,
+.shell input.num { text-align: right; }
+.input.full { width: 100%; }
+
+/* 콤보박스 흉내 */
+.shell select,
+select.input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 28px;
+  background: var(--c-bg) var(--ic-chevron-down) right 8px center / 16px no-repeat;
+}
+
+/* 클리어 버튼 있는 입력 (showclearbutton) */
+.input-clear { position: relative; display: inline-flex; min-width: 0; }
+.input-clear > .input { width: 100%; padding-right: 24px; }
+.input-clear > .clear {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 24px;
+  border: none; background: var(--ic-clear) center / 16px no-repeat; cursor: pointer; padding: 0;
+}
+.shell-oi .input-clear > .clear, .shell-pda .input-clear > .clear { background-size: 20px; }
+
+/* 체크박스 / 라디오 */
+.checkbox, .radio {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-label); cursor: pointer; white-space: nowrap; user-select: none;
+}
+.shell input[type="checkbox"],
+.shell input[type="radio"] {
+  width: var(--check-size); height: var(--check-size); margin: 0;
+  accent-color: var(--c-primary); cursor: pointer;
+}
+.shell input[type="checkbox"]:disabled { cursor: default; }
+
+/* 코드뷰 흉내 (MrcCodeView: 코드 입력 + 돋보기 + 명칭) */
+.codeview { display: inline-flex; align-items: stretch; height: var(--ctrl-h); min-width: 0; }
+.codeview > .code {
+  width: 120px; flex: 0 0 auto;
+  border-radius: var(--radius) 0 0 var(--radius);
+  border-right: none;
+}
+.codeview > .cv-btn {
+  width: var(--icon-codeview); flex: 0 0 auto;
+  border: 1px solid var(--input-border); border-left: none;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--c-bg) var(--ic-search) center / var(--icon-codeview-img) no-repeat;
+  cursor: pointer; padding: 0;
+}
+.codeview > .cv-btn:hover { background-color: var(--c-bg); }
+.codeview > .desc {
+  flex: 1 1 auto; min-width: 0; margin-left: 4px;      /* (추정) 코드↔명칭 간격 */
+  background: var(--c-bg-disabled); color: var(--c-text);
+  border-color: var(--input-border);
+}
+.codeview > .desc:focus { border-color: var(--input-border); }
+.codeview.full { width: 100%; }
+
+/* 바코드 입력 흉내 (MrcBarcode: scanInput + ic-keyboard) */
+.barcode { display: inline-flex; align-items: stretch; height: var(--ctrl-h); }
+.barcode > .input { flex: 1 1 auto; border-radius: var(--radius) 0 0 var(--radius); border-right: none; }
+.barcode > .kb-btn {
+  width: var(--icon-codeview); border: 1px solid var(--input-border); border-left: none;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--c-bg) var(--ic-keyboard) center / var(--icon-codeview-img) no-repeat; cursor: pointer; padding: 0;
+}
+
+/* 라벨 단독 */
+.label { color: var(--c-text); font-size: var(--fs-label); }
+
+/* ---------------------------------------------------------------------
+   8. 폼 (tpl-view-key-in: 라벨 셀 #EDF0F5 + 입력)
+   --------------------------------------------------------------------- */
+.form-grid {
+  display: grid;
+  grid-template-columns: var(--form-label-w) minmax(0, 1fr);
+  border-top: 1px solid var(--c-border-01);
+  border-bottom: 1px solid var(--c-border-03);
+  flex: 0 0 auto;
+}
+.form-grid.cols-2 { grid-template-columns: var(--form-label-w) minmax(0, 1fr) var(--form-label-w) minmax(0, 1fr); }
+.form-grid.cols-3 { grid-template-columns: var(--form-label-w) minmax(0, 1fr) var(--form-label-w) minmax(0, 1fr) var(--form-label-w) minmax(0, 1fr); }
+.form-grid > .label,
+.form-grid > .field {
+  min-height: var(--form-row-h);
+  border-top: 1px solid var(--c-border-05);  /* 행 구분선 */
+  display: flex;
+  align-items: center;
+}
+.form-grid > :nth-child(-n+2) { border-top: none; }
+.form-grid.cols-2 > :nth-child(-n+4) { border-top: none; }
+.form-grid.cols-3 > :nth-child(-n+6) { border-top: none; }
+.form-grid > .label {
+  background: var(--c-bg-light);
+  padding: 6px 10px;
+  font-size: var(--fs-label);
+  white-space: nowrap;
+}
+.shell-oi .form-grid > .label { font-weight: bold; border-right: 1px solid var(--c-border-03); }
+.form-grid > .field { padding: 0 8px; gap: 8px; min-width: 0; }
+.form-grid > .field > .input,
+.form-grid > .field > .codeview,
+.form-grid > .field > select { height: var(--ctrl-h-form); flex: 1 1 auto; }
+.form-grid > .field > .codeview > .code { height: 100%; }
+.form-grid > .field > .btn.inner { flex: 0 0 auto; }
+.form-grid > .field.span-2 { grid-column: span 3; }         /* 라벨 1 + 필드가 다음 라벨·필드 자리까지 */
+.form-grid > .field > .text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 읽기전용 폼: 테두리·배경 제거하고 값만 */
+.form-grid.readonly > .field > .input,
+.form-grid > .field > .input.plain { border-color: transparent; background: transparent; padding-left: 0; }
+
+/* 헤더 셀 변형 (tpl-view-key-in-with-header) */
+.form-grid > .header {
+  grid-column: 1 / -1;
+  background: var(--c-bg-light);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--c-border-05);
+}
+
+/* ---------------------------------------------------------------------
+   9. 그리드 (table 기반)
+   --------------------------------------------------------------------- */
+.grid-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+/* 그리드 상단 제목 영역: UI는 제목(21px) 행 + 툴바(28px) 행, OI/팝업은 한 행 */
+.grid-title-area { display: flex; flex-direction: column; flex: 0 0 auto; }
+.group-title,
+.group_title { font-size: var(--fs-group); font-weight: bold; line-height: 21px; white-space: nowrap; }
+.grid-toolbar {
+  flex: 0 0 auto;
+  min-height: var(--toolbar-h);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.grid-toolbar .group-title { margin-right: 10px; }
+.grid-toolbar .spacer { flex: 1 1 auto; }
+.grid-toolbar .btn.search { min-width: var(--btn-search-w); }
+
+/* Total N (숫자만 bold) + 세로바 + 페이지 사이즈 */
+.total-text,
+.grid_total_text { font-size: var(--fs-total); white-space: nowrap; }
+.total-text b, .grid_total_text b { font-weight: bold; }
+.vbar, .mrc-vertical-bar { width: 1px; height: 10px; background: var(--c-border-03); margin: 0 8px; }
+.shell-oi .vbar { height: 12px; }
+.page-size { width: 90px; height: 24px; font-size: 12px; }
+
+/* 스크롤 영역: 외곽 상단 #61666f, 하단 #bbbdc1, 좌우 없음 */
+.grid-wrap {
+  flex: 1 1 auto;
+  min-height: 100px;
+  overflow: auto;
+  border-top: 1px solid var(--grid-top-line);
+  border-bottom: 1px solid var(--grid-bottom-line);
+  background: var(--c-bg);
+  scrollbar-color: rgba(0, 0, 0, 0.15) var(--c-bg-scroll);
+}
+.grid-wrap.fixed { flex: 0 0 auto; }
+
+table.grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--fs-grid);
+  color: var(--c-text);
+  background: var(--c-bg);
+}
+table.grid.auto { table-layout: auto; }
+.grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: var(--grid-head-h);
+  padding: var(--grid-cell-pad);
+  background: var(--grid-head-bg, var(--c-bg));
+  font-size: var(--fs-grid-head);
+  font-weight: bold;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid var(--c-border-05);
+  box-shadow: inset 0 -1px 0 var(--grid-head-line);  /* sticky 에서도 유지되는 헤더 하단선 */
+}
+.shell-oi .grid thead th { border-right-color: var(--c-border-03); }
+.shell-pda .grid thead th { border-right-color: var(--c-border-03); }
+.grid thead th:last-child { border-right: none; }
+.grid thead th.required::after { content: '*'; color: var(--c-required); margin-left: 2px; }
+.grid tbody td {
+  height: var(--grid-row-h);
+  padding: var(--grid-cell-pad);
+  border-bottom: 1px solid var(--grid-cell-line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+.shell-pda .grid tbody td { border-right: 1px solid var(--c-border-03); }
+.shell-pda .grid tbody td:last-child { border-right: none; }
+.grid tbody tr { cursor: default; }
+.grid.selectable tbody tr { cursor: pointer; }
+
+/* 행 상태 */
+.grid tbody tr.selected td,
+.grid tbody tr.checked td { background: var(--c-row-selected); }
+.grid tbody tr.editing td { background: var(--c-row-editing); }
+.grid tbody tr.disabled td,
+.grid tbody td.deleted { color: var(--c-text-disabled); }
+.grid tbody tr.deleted td { color: var(--c-text-disabled); text-decoration: none; }
+
+/* 정렬·고정 컬럼 */
+.grid .num,    .grid th.num    { text-align: right; }
+.grid .center, .grid th.center { text-align: center; }
+.grid .col-check { width: 40px; text-align: center; padding: 0; }
+.grid .col-no    { width: 50px; text-align: center; }
+.grid .col-icon  { width: 60px; text-align: center; padding: 0; }
+.grid td.col-check input, .grid th.col-check input { vertical-align: middle; }
+.grid td .input, .grid td select { height: calc(var(--grid-row-h) - 6px); font-size: inherit; width: 100%; }
+
+/* 데이터 없음 */
+.grid-wrap .nodata {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100px; color: var(--c-text-disabled); font-size: var(--fs-grid);
+}
+
+/* 합계 바 (tpl-grid-summary) */
+.grid-summary {
+  flex: 0 0 auto;
+  min-height: 30px;
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 12px;
+  background: var(--c-summary-bg);
+  border-top: 1px solid var(--c-summary-line);
+  font-size: var(--fs-grid);
+}
+.shell-oi .grid-summary { min-height: 40px; }
+.grid-summary b { color: var(--c-summary-line); font-weight: bold; }
+
+/* 페이징 (MrcPageIndexer: 그리드 아래 16px, 행 24px, 중앙) */
+.paging {
+  flex: 0 0 auto;
+  margin-top: 8px;                 /* grid-block gap 8 + 8 = vspace 16 */
+  height: var(--paging-btn);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--paging-gap);
+  font-size: var(--fs-paging);
+}
+.paging .pg-btn,
+.paging .pg-no {
+  width: var(--paging-btn); height: var(--paging-btn); min-width: var(--paging-btn);
+  border: none; border-radius: var(--radius); background: transparent center / var(--paging-btn) no-repeat;
+  color: var(--c-text); font: inherit; cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.paging .pg-btn:hover, .paging .pg-no:hover { background-color: var(--c-secondary-hover); }
+.paging .pg-btn:disabled { opacity: 0.5; cursor: default; background-color: transparent; }
+.paging .pg-first { background-image: var(--ic-first); }
+.paging .pg-prev  { background-image: var(--ic-prev); }
+.paging .pg-next  { background-image: var(--ic-next); }
+.paging .pg-last  { background-image: var(--ic-last); }
+.paging .pg-no.current { color: var(--c-primary); font-weight: bold; background: transparent; }
+.paging .pg-input {
+  width: 70px; height: var(--paging-btn); margin-left: 8px;
+  font-size: 12px; text-align: right; border-radius: var(--radius) 0 0 var(--radius);
+}
+.paging .pg-go {
+  width: 32px; height: var(--paging-btn); min-width: 32px; min-height: 0;
+  font-size: 12px; padding: 0; border-color: var(--c-border-go); border-left: none;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+/* ---------------------------------------------------------------------
+   10. 배지·불릿·상태 표시
+   --------------------------------------------------------------------- */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 20px; padding: 0 8px; border-radius: 10px;         /* (추정) 알약형 */
+  font-size: 12px; line-height: 1; color: var(--c-text);
+  background: var(--bc-gray); white-space: nowrap; vertical-align: middle;
+}
+.badge::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--c-text-disabled); flex: 0 0 auto; }
+.badge.ok    { background: var(--bc-good);   } .badge.ok::before    { background: var(--c-ok); }
+.badge.warn  { background: var(--bc-alam);   } .badge.warn::before  { background: var(--c-warn); }
+.badge.error { background: var(--bc-faulty); } .badge.error::before { background: var(--c-error); }
+.badge.info  { background: var(--bc-plan);   } .badge.info::before  { background: var(--c-info); }
+.badge.alarm { background: var(--bc-faulty); } .badge.alarm::before { background: var(--c-alarm); }   /* 잠금 상태 (S-42 J3) — 기존 토큰만 */
+.badge.muted { background: var(--bc-gray);   } .badge.muted::before { background: var(--c-text-disabled); }
+.shell-oi .badge, .shell-pda .badge { height: 24px; font-size: 14px; padding: 0 10px; }
+
+/* 원형 불릿(.dot-*/.bullet) */
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: middle; }
+.dot.info  { background: var(--c-info); }
+.dot.warn  { background: var(--c-warn); }
+.dot.error { background: var(--c-error); }
+.dot.ok    { background: var(--c-bullet-green); }
+
+/* 상태 배경 팔레트 (.bc-*) — 셀/카드 배경 */
+.bc-good { background: var(--bc-good); } .bc-alam { background: var(--bc-alam); }
+.bc-faulty { background: var(--bc-faulty); } .bc-plan { background: var(--bc-plan); }
+.bc-quality { background: var(--bc-quality); } .bc-offpump { background: var(--bc-offpump); }
+.bc-gray { background: var(--bc-gray); } .bc-gray-light { background: var(--bc-gray-light); }
+.fc-fail { color: var(--c-error); } .fc-primary { color: var(--c-primary); }
+
+/* 값 출처 태그 (.src-tag) — 생산 실행 · 칭량 화면 공용 (칭량 L8 · PM Q5). auto 스캔 · manual 수기 · iface 설비 · calc 계산 · sim 저울 시뮬레이터(PoC)
+   기준정보 화면의 연계 뱃지(.src-tag.ras/cmms/cfms)는 master-setup.css 가 높이 · 테두리 · 글꼴을 다시 정한다 */
+.src-tag {
+  display: inline-flex; align-items: center; height: 16px; padding: 0 5px; border-radius: 2px;
+  font-size: 10px; font-weight: bold; color: var(--c-text-sub); background: var(--bc-gray); white-space: nowrap;
+}
+.src-tag.auto   { color: var(--c-ok); background: var(--bc-good); }
+.src-tag.manual { color: var(--c-primary); background: transparent; border: 1px solid var(--c-primary); }
+.src-tag.iface  { color: var(--c-info); background: var(--bc-plan); }
+.src-tag.calc   { color: var(--c-summary-line); background: var(--bc-good); }
+.src-tag.mono   { font-family: var(--font-mono); }
+.src-tag.sim    { color: var(--c-text-sub); background: var(--bc-quality); }
+
+/* 입력 상태 반투명 배경 (.input_status) */
+.input.status-error  { background: rgba(255, 88, 88, 0.4); }
+.input.status-warning{ background: rgba(241, 231, 12, 0.4); }
+.input.status-normal { background: rgba(55, 178, 132, 0.4); }
+
+/* 알람 배지 */
+.alarm-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: var(--c-alarm); color: #fff; border: 1px solid #fff; font-size: 11px; font-weight: bold;
+}
+
+/* ---------------------------------------------------------------------
+   11. 대화상자 · 토스트 · 알림 바
+   --------------------------------------------------------------------- */
+.dialog-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  background: var(--c-overlay);
+  display: none; align-items: center; justify-content: center;
+}
+.dialog-backdrop.open { display: flex; }
+.dialog-backdrop.inline { position: absolute; }   /* 셸 내부 미리보기용 */
+
+/* .dialog 는 .shell-popup 과 같은 골격(popup_layout) */
+.dialog {
+  --dialog-w: 1100px;
+  --dialog-h: 700px;
+  width: var(--dialog-w); height: var(--dialog-h);
+  max-width: calc(100vw - 40px); max-height: calc(100vh - 40px);
+  display: flex; flex-direction: column; gap: 16px;
+  padding: 24px 30px;
+  background: var(--c-bg); color: var(--c-text);
+  border: 1px solid var(--c-dialog-border);
+  box-shadow: var(--sh-dialog);
+  font: var(--fs-base) var(--font);
+  letter-spacing: -0.05em;
+}
+.dialog.md { --dialog-w: 900px; }
+.dialog.sm { --dialog-w: 600px; --dialog-h: 480px; }
+.dialog.msg { --dialog-w: 420px; --dialog-h: auto; gap: 16px; }   /* (추정) 메시지 다이얼로그 */
+.dialog > .shell-body { flex: 1 1 auto; min-height: 0; }
+.dialog .msg-body { flex: 1 1 auto; padding: 8px 0 16px; font-size: var(--fs-base); line-height: 1.6; white-space: pre-line; }
+
+/* 하단 버튼 영역 (.mrc-popup-button-area): search 계열 버튼, 우측 정렬 */
+.dialog-footer,
+.mrc-popup-button-area {
+  flex: 0 0 var(--footer-h);
+  height: var(--footer-h);
+  padding-top: 16px;
+  border-top: 1px solid var(--c-popup-line);
+  display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+}
+.dialog-footer .spacer { flex: 1 1 auto; }
+
+/* 토스트: 우상단 카드 (추정 — 플랫폼 notifier 기본 테마 비어 있음) */
+.toast-area {
+  position: fixed; top: 16px; right: 16px; z-index: 1100;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.toast {
+  min-width: 280px; max-width: 420px;
+  padding: 10px 14px 10px 12px;
+  background: var(--c-bg); color: var(--c-text);
+  border: 1px solid var(--c-border-04); border-left: 4px solid var(--c-info);
+  box-shadow: var(--sh-dialog); font: 13px var(--font);
+  display: flex; align-items: flex-start; gap: 8px; pointer-events: auto;
+}
+.toast .t-title { font-weight: bold; margin-right: 4px; }
+.toast.ok    { border-left-color: var(--c-ok); }
+.toast.warn  { border-left-color: var(--c-warn); }
+.toast.error { border-left-color: var(--c-error); }
+.toast.info  { border-left-color: var(--c-info); }
+
+/* 알림 바: OI touch-index showMessage 상단 바 (색은 상태 팔레트 적용, 추정) */
+.notifier-area { position: fixed; top: 0; left: 0; right: 0; z-index: 1100; pointer-events: none; }
+.notifier {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 48px; padding: 0 30px;
+  background: var(--bc-plan); color: var(--c-text);
+  border-bottom: 1px solid var(--c-border-03);
+  font: 16px var(--font); pointer-events: auto;
+}
+.notifier::before { content: ''; width: 10px; height: 10px; border-radius: 50%; background: var(--c-info); }
+.notifier.ok    { background: var(--bc-good);   } .notifier.ok::before    { background: var(--c-ok); }
+.notifier.warn  { background: var(--bc-alam);   } .notifier.warn::before  { background: var(--c-warn); }
+.notifier.error { background: var(--bc-faulty); } .notifier.error::before { background: var(--c-error); }
+.notifier .n-close { margin-left: auto; width: 24px; height: 24px; border: none; background: var(--ic-close) center / 20px no-repeat; cursor: pointer; }
+.notifier-area.inline, .toast-area.inline { position: absolute; }
+
+/* ---------------------------------------------------------------------
+   12. eMBR 전용 보조 컴포넌트
+   --------------------------------------------------------------------- */
+/* 인터록 등급 점: red(차단) / amber(경고) / navy(정보) / gray(없음) */
+.status-dot {
+  display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--c-text-disabled); vertical-align: middle; flex: 0 0 auto;
+}
+.status-dot.red   { background: var(--c-error); }
+.status-dot.amber { background: var(--c-warn); }
+.status-dot.navy  { background: var(--c-navy); }
+.status-dot.gray  { background: var(--c-text-disabled); }
+.status-dot.lg { width: 16px; height: 16px; }
+.status-dot.sm { width: 8px; height: 8px; }
+
+/* PIN 패드 (MrcNumberPad 키패드 영역: 흰 배경 + 1px black 테두리) */
+.pinpad {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 64px);
+  gap: 8px;
+  padding: 10px;
+  background: var(--c-bg);
+  border: 1px solid #000;
+  font-family: var(--font);
+}
+.pinpad .pin-display {
+  grid-column: 1 / -1;
+  height: 44px;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  border: 1px solid var(--c-border-touch); border-radius: var(--radius);
+  font-size: 22px; letter-spacing: 0.3em; color: var(--c-text);
+  background: var(--c-bg);
+}
+.pinpad .pin-display .mask { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--c-border-03); }
+.pinpad .pin-display .mask.on { background: var(--c-text); }
+.pinpad .pin-display.error { border-color: var(--c-error); }
+.pinpad .key {
+  height: 56px;
+  font: 24px var(--font); font-weight: 500; color: var(--c-text);
+  background: var(--c-bg); border: 1px solid var(--c-border-touch); border-radius: var(--radius);
+  cursor: pointer; user-select: none;
+}
+.pinpad .key:hover  { background: var(--c-hover); }
+.pinpad .key:active { background: var(--c-active); }
+.pinpad .key.fn { font-size: 15px; color: var(--c-primary); border-color: var(--c-primary); }
+.pinpad .key.fn:hover { background: var(--c-secondary-hover); }
+.pinpad.sm { grid-template-columns: repeat(3, 48px); gap: 6px; padding: 8px; }
+.pinpad.sm .key { height: 40px; font-size: 18px; }
+.pinpad.sm .key.fn { font-size: 12px; }
+.pinpad.sm .pin-display { height: 36px; font-size: 18px; }
+
+/* 단계 진행 리스트: .step.done / .active / .wait */
+.step-list { display: flex; flex-direction: column; border-top: 1px solid var(--c-border-01); border-bottom: 1px solid var(--c-border-03); }
+.step {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px 0 8px;
+  border-top: 1px solid var(--c-border-05);
+  font-size: var(--fs-base);
+}
+.step:first-child { border-top: none; }
+.step .no {
+  width: 22px; height: 22px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--bc-gray); color: var(--c-text); font-size: 12px; font-weight: bold; position: relative;
+}
+.step .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step .meta { font-size: 12px; color: var(--c-text-sub); white-space: nowrap; }
+.step.done .no { background: var(--c-ok); color: transparent; }
+.step.done .no::after {                /* CSS 체크 표시 */
+  content: ''; position: absolute; left: 7px; top: 4px; width: 5px; height: 10px;
+  border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+.step.active { background: var(--c-row-editing); }
+.step.active .no { background: var(--c-primary); color: #fff; }
+.step.active .name { font-weight: bold; }
+.step.wait .no { color: var(--c-text-disabled); }
+.step.wait .name, .step.wait .meta { color: var(--c-text-disabled); }
+.step.blocked .no { background: var(--c-error); color: #fff; }
+.shell-oi .step { min-height: 48px; font-size: 16px; }
+
+/* KPI 카드 (tpl_info_board 카드) */
+.kpi-board { display: flex; gap: 12px; flex: 0 0 auto; }
+.kpi {
+  flex: 1 1 0; min-width: 140px;
+  padding: 10px 16px;
+  background: var(--c-board-normal); border-radius: 4px;
+  display: flex; flex-direction: column; justify-content: center; gap: 4px;
+  color: var(--c-text-touch);
+}
+.kpi .kpi-label { font-size: 16px; text-align: right; }
+.kpi .kpi-value { font-size: 24px; font-weight: bold; text-align: right; line-height: 1.1; }
+.kpi .kpi-value small { font-size: 14px; font-weight: normal; margin-left: 4px; }
+.kpi .kpi-code { font-size: 14px; color: var(--c-primary); text-align: right; }
+.kpi.warning { background: var(--c-board-warn); }
+.kpi.warning .kpi-value { color: var(--c-error); }
+.kpi.plain { background: transparent; border-left: 1px solid var(--c-border-touch); border-radius: 0; }
+.kpi.plain:first-child { border-left: none; }
+.shell-ui .kpi .kpi-label { font-size: 13px; }
+.shell-ui .kpi .kpi-value { font-size: 20px; }
+
+/* 가로 진행 바(타임라인): .tl-step.done / .active / (대기) */
+.timeline { display: flex; flex: 0 0 auto; padding: 4px 0; }
+.tl-step { flex: 1 1 0; position: relative; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 60px; }
+.tl-step::before, .tl-step::after {
+  content: ''; position: absolute; top: 7px; height: 2px; background: var(--c-border-05);
+}
+.tl-step::before { left: 0; right: 50%; }
+.tl-step::after  { left: 50%; right: 0; }
+.tl-step:first-child::before, .tl-step:last-child::after { display: none; }
+.tl-step .tl-dot {
+  position: relative; z-index: 1;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--c-bg); border: 2px solid var(--c-border-03);
+}
+.tl-step .tl-label { font-size: 12px; color: var(--c-text-sub); text-align: center; white-space: nowrap; }
+.tl-step .tl-time  { font-size: 11px; color: var(--c-text-disabled); }
+.tl-step.done::before, .tl-step.done::after, .tl-step.active::before { background: var(--c-primary); }
+.tl-step.done .tl-dot { background: var(--c-primary); border-color: var(--c-primary); }
+.tl-step.done .tl-label { color: var(--c-text); }
+.tl-step.active .tl-dot { border-color: var(--c-primary); box-shadow: 0 0 0 3px var(--c-row-selected); }
+.tl-step.active .tl-label { color: var(--c-primary); font-weight: bold; }
+.tl-step.error .tl-dot { background: var(--c-error); border-color: var(--c-error); }
+.shell-oi .tl-step .tl-label { font-size: 14px; }
+
+/* ---------------------------------------------------------------------
+   13. 유틸리티
+   --------------------------------------------------------------------- */
+.row { display: flex; align-items: center; gap: 8px; }
+.row.end { justify-content: flex-end; }
+.row.between { justify-content: space-between; }
+.col { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.spacer { flex: 1 1 auto; }
+.fill { flex: 1 1 auto; min-height: 0; min-width: 0; }
+.hidden { display: none !important; }
+.nowrap { white-space: nowrap; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.text-right { text-align: right; }
+.text-center { text-align: center; }
+.muted { color: var(--c-text-disabled); }
+.mt-8 { margin-top: 8px; } .mt-16 { margin-top: 16px; }
+.mb-8 { margin-bottom: 8px; } .mb-16 { margin-bottom: 16px; }
+.w-80 { width: 80px; } .w-120 { width: 120px; } .w-160 { width: 160px; } .w-200 { width: 200px; } .w-full { width: 100%; }
+
+/* 축소 미리보기(데모·문서용): <div class="shell-scale" style="--scale:.5"><div class="shell ...">
+   원본 크기를 유지한 채 transform 으로 축소 */
+.shell-scale {
+  --scale: 0.5;
+  position: relative;
+  overflow: hidden;
+  width: calc(var(--shell-w, 1920px) * var(--scale));
+  height: calc(var(--shell-h, 1080px) * var(--scale));
+}
+.shell-scale > .shell { transform: scale(var(--scale)); transform-origin: 0 0; }
+.shell-scale.ui, .shell-scale.oi { --shell-w: 1920px; --shell-h: 1080px; }
+.shell-scale.popup { --shell-w: 1100px; --shell-h: 700px; }
+.shell-scale.pda { --shell-w: 480px; --shell-h: 700px; }

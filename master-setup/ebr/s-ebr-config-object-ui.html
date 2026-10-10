@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-ebr-config-object-ui  (EBR 모듈 · S-07 설정 객체 관리 + S-08 설정 객체 편집 팝업)
+  클래스       : CEbrSetupConfigObjectMain (T-02) → CEbrSetupConfigObjectPopup (T-10, 1100×700, 인터록 등급 동작 정의표)
+  모듈 폴더    : ebr/  (eMBR 도메인 마스터 — GCM 아님)
+  사용 GCM     : EBR_CONFIG_KIND · EBR_AUTHORING_SCOPE · EBR_INTERLOCK_GRADE · EBR_AUTH_STRENGTH · EBR_MBR_STATUS
+  저장         : ../assets/shared-store.js  localStorage 'ebmr.masterSetup.v2'
+  단순화       : S-08 구조화 폼은 interlock kind 만. 나머지 5종은 본문 텍스트 스키마.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>S-07 설정 객체 — eMBR 기준정보 PoC</title>
+<link rel="stylesheet" href="../assets/mesui.css">
+<link rel="stylesheet" href="../assets/master-setup.css">
+<style>
+
+  /* 카탈로그/iframe 맞춤: mesui .shell-scale — 1920×1080 미만 뷰포트면 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+  /* S-08 상세 팝업 (border-box 후 안쪽 폭 1100→1038 대응)
+     - 헤더 폼: 키인 라벨 폭은 Elephant 기본 --form-label-w(130) 그대로 (DESIGN §13-7 DON'T: 130 외 값 금지). 넘치는 명칭은 아래 말줄임 + title
+     - 등급 동작 정의표 열 폭(colgroup)은 헤더 글자 · select 최장 옵션 기준 최소폭으로 재배분 → 남는 폭을 비고 열에
+     - 그래도 넘치는 입력값은 한 줄 말줄임 + title(전체 값) — 스크롤 없음 */
+  #dlgMaster input.input[type=text] { text-overflow: ellipsis; }
+  /* ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 (공통 블록 — 기준정보 화면 + 배치 발행 동일) ====
+     위치: .title-bar 안 .breadcrumb 바로 앞, margin-left:auto (DESIGN §11-3 grpTitle: title │ 1fr │ 브레드크럼)
+     역할 배지 매핑: ui-items UI-04 (PM 승인 P5) — 기존 .badge 변형 + --bc-* 토큰만, 라벨 항상 표시 */
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }   /* UI-04: 24 (--title-h 29 안) — 키인 폼 컨트롤 높이 토큰 */
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  /* 선택 없음: 편집·서명 버튼 비활성 표시 (opacity = §13-1 disabled) + 툴팁 "사용자를 선택하세요" (클릭은 스크립트가 차단) */
+  body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
+</style>
+</head>
+<body data-root="../">
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="main-title"><span class="mod-tag">EBR</span>설정 객체</span>
+    <span class="user-switch" id="userSwitch"></span>
+    <span class="breadcrumb">
+      <span>eMBR</span><span class="sep">&rsaquo;</span><span>설정 · 관리</span><span class="sep">&rsaquo;</span><a href="../index.html">기준정보</a><span class="sep">&rsaquo;</span><span class="current">S-07 설정 객체</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+  <div class="shell-body">
+    <div class="ms-layout">
+      <div class="ms-main"><section class="view" id="view-config"></section></div>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+<script src="../assets/mesui.js"></script>
+<script src="../assets/shared-store.js"></script>
+<script src="../assets/ebr-user-session.js"></script>   <!-- UI-09 DEVELOPER1 헬퍼 (window.EbrUserSession) -->
+<!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 + 배치 발행 동일) ==== -->
+<script>
+/* DEVELOPER1 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+ *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
+ *   hasSodConflict(roles) · onChange(fn) → unsub
+ * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
+ * 헬퍼가 없으면(파일 미배포) 선택기는 「사용자 API 미연결」로 비활성 표시만 하고 화면 기존 동작은 그대로 둔다(게이트 미적용, 오류 없음). */
+(function (global) {
+  'use strict';
+  var WATCH_KEYS = ['ebmr.currentUser.v1', 'ebmr.userRole.v1'];   /* onChange 가 없을 때만: 다른 탭 변경 감지용 키 이름 (값은 헬퍼로만 읽음) */
+  var ROLE = { QP: ['QP', 'role-qp'], QA: ['QA', 'role-qa'], SV: ['감독자', 'ok'], OP: ['작업자', 'info'], ADMIN: ['관리자', ''] };
+  var ROLE_ORDER = ['QP', 'QA', 'SV', 'OP', 'ADMIN'];   /* 배지 우선순위 QP>QA>SV>OP>ADMIN (기획 마스터 §3.1) */
+  var GATE_SEL = '[data-p0-edit],[data-act="new"],[data-act="delete"],[data-act="submit"],[data-act="approve"],[data-act="activate"],[data-act="reject"],[data-act="retire"],#dmSave,#dmNewVer';
+  var GATE_TIP = '사용자를 선택하세요';
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var listeners = [], readyQ = [], isReady = false;
+
+  function api() { return global.EbrUserSession || null; }
+  function call(fn) {
+    var a = api(); if (!a || typeof a[fn] !== 'function') return undefined;
+    try { return a[fn].apply(a, Array.prototype.slice.call(arguments, 1)); } catch (e) { if (global.console) console.error('[EbrUserSession] ' + fn, e); return undefined; }
+  }
+  function sortRoles(roles) { return (roles || []).slice().sort(function (a, b) { return ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b); }); }
+  function roleBadge(code) { var r = ROLE[code] || [code, 'muted']; return '<span class="badge' + (r[1] ? ' ' + r[1] : '') + '" title="' + esc(code) + '">' + esc(r[0]) + '</span>'; }
+  function roleBadges(roles) { return sortRoles(roles).map(roleBadge).join(''); }
+  function statusBadge(st) { return st === 'locked' ? '<span class="badge error">잠김</span>' : st === 'inactive' ? '<span class="badge muted">비활성</span>' : ''; }
+  function rolesOfUser(u) { return !u ? [] : (Array.isArray(u.roles) ? u.roles : (call('rolesOf', u.userId) || [])); }
+  function users(filter) { var l = call('listUsers', filter || {}); return Array.isArray(l) ? l : []; }
+  function current() { return call('getCurrentUser') || null; }
+  function connected() { var a = api(); return !!(a && typeof a.getCurrentUser === 'function' && typeof a.listUsers === 'function'); }
+  function hasRole(u, code) { return rolesOfUser(u).indexOf(code) >= 0; }
+  function sod(roles) { var v = call('hasSodConflict', roles || []); return typeof v === 'boolean' ? v : false; }
+  function gateOn() { return connected() && !current(); }
+  function userLabel(u) { return u ? u.name + ' (' + u.userId + ')' : '—'; }
+
+  function render() {
+    var host = document.getElementById('userSwitch');
+    if (host) {
+      if (!connected()) {
+        host.innerHTML = '<span class="tip" title="ebr-user-session.js (DEVELOPER1) 가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+      } else {
+        var cur = current(), list = users();
+        var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
+          var bad = u.status === 'locked' ? ' — 잠김' : u.status === 'inactive' ? ' — 비활성' : '';
+          return '<option value="' + esc(u.userId) + '"' + (bad ? ' disabled' : '') + (cur && cur.userId === u.userId ? ' selected' : '') + '>' + esc(userLabel(u) + bad) + '</option>';
+        }).join('');
+        host.innerHTML = '<select class="input w-200" id="userSwitchSel" aria-label="현재 사용자" title="현재 사용자 (인증 아님 — 서명 시 ID · 비밀번호 재입력)">' + opts + '</select>' +
+          '<span class="us-roles">' + (cur ? roleBadges(rolesOfUser(cur)) + statusBadge(cur.status) : '<span class="badge warn">' + GATE_TIP + '</span>') + '</span>';
+        var sel = document.getElementById('userSwitchSel');
+        sel.addEventListener('change', function () {
+          var r = call('setCurrentUser', sel.value || null);
+          if (r && r.ok === false && global.MesUI) {
+            MesUI.toast(r.message || (r.code === 'LOCKED' ? '잠긴 계정은 선택할 수 없습니다 — 관리자(ADMIN)에게 해제를 요청하세요.'
+              : r.code === 'INACTIVE' ? '비활성 계정은 선택할 수 없습니다.' : r.code === 'SAVE_ERROR' ? '감사 기록을 저장하지 못해 사용자를 전환하지 못했습니다.' : '사용자를 찾을 수 없습니다.'),
+              r.code === 'SAVE_ERROR' ? 'error' : 'warn', 2600);   /* SAVE_ERROR: 헬퍼가 변경을 되돌림 → 선택값도 아래 refresh 로 되돌림 */
+          }
+          if (!hasOnChange || (r && r.ok === false)) refresh();   /* onChange 는 성공 시 헬퍼가 발생 — 거부(LOCKED 등)면 선택 되돌림 */
+        });
+      }
+    }
+    applyGate();
+  }
+  function applyGate() {
+    var on = gateOn();
+    document.body.classList.toggle('p0-no-user', on);
+    Array.prototype.forEach.call(document.querySelectorAll(GATE_SEL), function (b) { b.classList.toggle('p0-gated', on); });
+  }
+  function refresh() { render(); listeners.forEach(function (fn) { try { fn(current()); } catch (e) { if (global.console) console.error(e); } }); }
+
+  /* 선택 없음 게이트: 편집 버튼 클릭 차단 + 툴팁 (동적으로 그려지는 T-02 버튼 포함) */
+  document.addEventListener('click', function (e) {
+    if (!gateOn()) return;
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    if (global.MesUI) MesUI.toast(GATE_TIP + ' — 상단 사용자 선택기에서 현재 사용자를 고른 뒤 다시 시도하세요.', 'warn', 2200);
+  }, true);
+  document.addEventListener('mouseover', function (e) {
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    if (gateOn()) { if (!b.hasAttribute('data-p0-tip')) b.setAttribute('data-p0-tip', b.getAttribute('title') || ''); b.setAttribute('title', GATE_TIP); b.classList.add('p0-gated'); }
+    else if (b.hasAttribute('data-p0-tip')) { b.setAttribute('title', b.getAttribute('data-p0-tip')); b.removeAttribute('data-p0-tip'); b.classList.remove('p0-gated'); }
+  }, true);
+
+  var hasOnChange = false;
+  function start() {
+    isReady = true;
+    var a = api();
+    if (a && typeof a.onChange === 'function') { hasOnChange = true; call('onChange', function () { refresh(); }); }
+    else global.addEventListener('storage', function (e) { if (WATCH_KEYS.indexOf(e.key) >= 0) refresh(); });
+    render();
+    readyQ.splice(0).forEach(function (fn) { try { fn(); } catch (e) { if (global.console) console.error(e); } });
+  }
+
+  global.P0Ui = {
+    api: api, call: call, connected: connected, users: users, current: current, hasRole: hasRole, rolesOf: rolesOfUser, sod: sod, userLabel: userLabel,
+    roleBadge: roleBadge, roleBadges: roleBadges, statusBadge: statusBadge, sortRoles: sortRoles, ROLE: ROLE, ROLE_ORDER: ROLE_ORDER,
+    gateOn: gateOn, refresh: refresh, applyGate: applyGate, esc: esc, GATE_TIP: GATE_TIP,
+    onUserChange: function (fn) { listeners.push(fn); },
+    ready: function (fn) { if (isReady) fn(); else readyQ.push(fn); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})(window);
+</script>
+<script src="../assets/master-t02.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = MS.$, $$ = MS.$$, esc = MS.esc, O = MS.OPTS;
+  MS.load();
+  MT.shell('config');
+
+  /* ------------------------------------------------------------------ S-08 인터록 등급 동작 정의표 */
+  var ABS_FIXED = ['칭량 원료 ID · LOT 불일치', '설비 교정 만료 · 미적격 설비 (장비 클래스 적격 목록 밖)', '자격 미보유 수행자 서명', '유효기간 경과 · 부적합 판정 LOT 투입'];
+  function ilrDefault() {
+    return { grades: MS.gRows('EBR_INTERLOCK_GRADE', true).map(function (g) {
+      var abs = g.key1 === 'Absolute', hq = g.key1 === 'Hard-QA';
+      return { grade: g.key1, override: !abs, role: abs ? 'none' : hq ? 'qa' : g.key1 === 'Warning' ? 'self' : 'supervisor', auth: abs ? '' : g.key1 === 'Warning' ? 'pin_session' : 'full_factor',
+               dev: hq, block: hq ? 'deviation' : g.key1 === 'Controlled' ? 'rbe' : 'none', scope: abs || hq ? 'product_floor' : 'site', limit: '', locked: abs || hq };
+    }), absolute: ABS_FIXED.slice() };
+  }
+  function sel(m, src, v, dis, blank) { return '<select class="input" data-m="' + m + '"' + (dis ? ' disabled' : '') + '>' + MS.optionsHtml(src, v, blank) + '</select>'; }
+  function ilrRender(d, ro) {
+    var body = d.body && d.body.grades ? d.body : ilrDefault();
+    var grades = MS.gRows('EBR_INTERLOCK_GRADE', true);
+    var rows = grades.map(function (g) {
+      var b = body.grades.filter(function (x) { return x.grade === g.key1; })[0] ||
+        { grade: g.key1, override: true, role: 'supervisor', auth: 'full_factor', dev: false, block: 'none', scope: 'site', limit: '', locked: false };
+      var dis = ro || b.locked;
+      return '<tr data-g="' + esc(g.key1) + '"' + (b.locked ? ' class="locked" data-locked="1"' : '') + '>' +
+        '<td><span class="status-dot ' + esc(g.data2) + '"></span> <b>' + esc(g.key1) + '</b>' + (b.locked ? '<i class="ic-lock" title="제품 하한 — 읽기전용 (MBR-06)"></i>' : '') + '</td>' +
+        '<td>' + esc(g.data1) + '</td>' +
+        '<td class="center"><input type="checkbox" data-m="override"' + (b.override ? ' checked' : '') + (dis ? ' disabled' : '') + ' aria-label="override 가능"></td>' +
+        '<td>' + sel('role', O.ROLE, b.role, dis) + '</td>' +
+        '<td>' + sel('auth', 'gcm:EBR_AUTH_STRENGTH', b.auth, dis, '—') + '</td>' +
+        '<td class="center"><input type="checkbox" data-m="dev"' + (b.dev ? ' checked' : '') + (dis ? ' disabled' : '') + ' aria-label="일탈 생성"></td>' +
+        '<td>' + sel('block', O.BLOCK, b.block, dis) + '</td>' +
+        '<td>' + sel('scope', O.SCOPE, b.scope, dis) + '</td>' +
+        '<td><input class="input" type="text" data-m="limit" value="' + esc(b.limit) + '"' + (dis ? ' readonly' : '') + ' aria-label="비고"></td></tr>';
+    }).join('');
+    var abs = (body.absolute || []).map(function (a, i) { return '<tr><td class="col-no">' + (i + 1) + '</td><td>' + esc(a) + '<i class="ic-lock" title="제품 하한 — 고객 설정으로 완화 불가"></i></td><td>Absolute · 멈춤 + P-52 대체 경로 안내</td></tr>'; }).join('');
+    return '<div class="grid-block sub-grid"><div class="grid-toolbar"><span class="group-title">인터록 등급 동작 정의표</span><span class="total-text">등급 ' + grades.length + ' (GCM EBR_INTERLOCK_GRADE)</span><span class="spacer"></span>' +
+      '<span class="sub-info" title="등급은 MBR 항목 속성, 등급별 동작은 이 설정 객체 (MBR-06)"><i class="ic-lock"></i>제품 하한 행(Absolute · Hard-QA)은 읽기전용</span></div>' +
+      '<div class="grid-wrap"><table class="grid edit" id="grdIlr"><colgroup><col style="width:104px"><col style="width:80px"><col style="width:104px"><col style="width:118px"><col style="width:128px"><col style="width:80px"><col style="width:148px"><col style="width:140px"><col></colgroup>' +
+      '<thead><tr><th>등급</th><th>화면 표시</th><th class="center">override 가능</th><th>승인 역할</th><th>인증 강도</th><th class="center">일탈 생성</th><th>출하 차단</th><th>적용 범위</th><th>비고</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
+      '<div class="grid-block sub-grid"><div class="grid-toolbar"><span class="group-title">Absolute 고정 목록</span><span class="total-text">Total <b>' + (body.absolute || []).length + '</b></span><span class="spacer"></span><span class="sub-info">제품 고정 최소 집합 — 버전 무관 항상 적용 (설비 항목은 장비 클래스 적격 목록 · CMMS 교정으로 판정)</span></div>' +
+      '<div class="grid-wrap"><table class="grid"><colgroup><col class="col-no"><col style="width:420px"><col></colgroup><thead><tr><th class="col-no">No.</th><th>차단 조건</th><th>동작</th></tr></thead><tbody>' + abs + '</tbody></table></div></div>';
+  }
+  function ilrCollect(host, prev) {
+    var absolute = (prev && prev.absolute) || ABS_FIXED.slice();
+    return { absolute: absolute, grades: $$('#grdIlr tbody tr', host).map(function (tr) {
+      var v = function (m) { return $('[data-m=' + m + ']', tr); };
+      return { grade: tr.dataset.g, override: v('override').checked, role: v('role').value, auth: v('auth').value, dev: v('dev').checked, block: v('block').value, scope: v('scope').value, limit: v('limit').value, locked: tr.dataset.locked === '1' };
+    }) };
+  }
+  function ilrValidate(body) {
+    if (!body || !body.grades) return;
+    for (var i = 0; i < body.grades.length; i++) {
+      var g = body.grades[i];
+      if (g.grade === 'Absolute' && g.override) return 'Absolute 등급은 override 할 수 없습니다 (MBR-06).';
+      if (g.override && g.role === 'none') return g.grade + ': override 를 허용하면 승인 역할을 지정해야 합니다.';
+      if ((g.role === 'qa' || g.role === 'supervisor') && g.auth === 'pin_session') return g.grade + ': 감독자 · QA 승인은 전 요소 인증이어야 합니다 (ES-03).';
+    }
+  }
+  function bodyTemplate(kind) { return 'id: \nkind: ' + kind + '\n# kind별 본문 스키마 (S-08) — PoC 에서는 텍스트로 단순화\n'; }
+  function bodyRender(d, ro) {
+    var g = MS.gRow('EBR_CONFIG_KIND', d.kind);
+    return '<div class="form-grid"><span class="label">본문 (' + esc(g ? g.keyDesc : 'kind') + ')</span><span class="field"><textarea class="input body-text" data-body spellcheck="false"' + (ro ? ' readonly' : '') + '>' +
+      esc(typeof d.body === 'string' ? d.body : '') + '</textarea></span></div>' +
+      '<span class="sub-info"><i class="ic-info"></i>kind별 구조화 폼은 interlock 만 PoC 구현 — 나머지 kind 는 본문 스키마를 텍스트로 표시합니다. 저장 시 콘텐츠 해시가 재계산됩니다.</span>';
+  }
+
+  var CFG = {
+    key: 'config', store: 'config', sid: 'S-07', clazz: 'CEbrSetupConfigObjectMain', title: '설정 객체', group: '설정 객체 목록 (1차 6종)', dialogW: 1100, formCols: 3, dialogSuffix: ' (S-08)',
+    gcm: [['EBR_CONFIG_KIND', 'kind'], ['EBR_AUTHORING_SCOPE', '저작 범위'], ['EBR_INTERLOCK_GRADE', 'S-08 등급'], ['EBR_AUTH_STRENGTH', 'S-08 인증 강도'], ['EBR_MBR_STATUS', '상태']],
+    note: 'Detail → S-08 설정 객체 편집 팝업. 헤더(공통 수명주기) + 본문(kind별 스키마) 분리 · 이관 필수 객체는 패키지 해시 대조 일치 시에만 효력전환.',
+    search: [{ t: 'text', label: '객체 ID · 명칭', keys: ['id', 'name'] }, { t: 'select', label: 'kind', k: 'kind', src: 'gcm:EBR_CONFIG_KIND' }, { t: 'select', label: '상태', k: 'status', src: 'gcm:EBR_MBR_STATUS' },
+      { t: 'select', label: '저작 범위', k: 'scope', src: 'gcm:EBR_AUTHORING_SCOPE' }, { t: 'select', label: '이관 패키지 대조', k: 'pkg', src: O.PKG }],
+    cols: [{ h: 'kind', k: 'kind', w: 120, src: 'gcm:EBR_CONFIG_KIND' }, { h: '객체 ID', k: 'id', w: 120 }, { h: '버전', k: 'ver', w: 56 }, { h: '명칭', k: 'name' }, { h: '상태', k: 'status', w: 96, cls: 'center' },
+      { h: '저작 범위', k: 'scope', w: 90, src: 'gcm:EBR_AUTHORING_SCOPE' }, { h: '콘텐츠 해시', k: 'hash', w: 100 }, { h: '이관 패키지 대조', k: 'pkg', w: 120, src: O.PKG, badge: true, cls: 'center' },
+      { h: '적용 범위', k: 'apply', w: 96, src: O.APPLY }, { h: '독립 검토자', k: 'reviewer', w: 90 }, { h: '효력일', k: 'effDate', w: 96 }, { h: '수정일', k: 'upd', w: 96 }, { h: '작성자', k: 'author', w: 70 }],
+    form: [{ k: 'kind', label: 'kind', type: 'select', src: 'gcm:EBR_CONFIG_KIND', req: true, lockOnEdit: true }, { k: 'id', label: '객체 ID', type: 'text', req: true, lockOnEdit: true },
+      { k: 'scope', label: '저작 범위', type: 'select', src: 'gcm:EBR_AUTHORING_SCOPE', req: true }, { k: 'name', label: '명칭', type: 'text', req: true },
+      { k: 'apply', label: '적용 범위', type: 'select', src: O.APPLY, req: true }, { k: 'reviewer', label: '독립 검토자', type: 'select', src: O.REVIEWER }],
+    blank: function () { return { kind: '', id: '', ver: 1, name: '', scope: 'runtime_ok', apply: 'site', reviewer: '', pkg: 'na', effDate: '', body: '' }; },
+    sortKey: function (r) { var g = MS.gRow('EBR_CONFIG_KIND', r.kind); return g ? g.seqNo || 0 : 0; },
+    legend: function (cfg) {
+      var rows = MT.rowsOf(cfg);
+      return '<span>kind</span><button class="gcm-chip" type="button" data-kind="">전체 <small>' + rows.length + '</small></button>' + MS.opts('gcm:EBR_CONFIG_KIND').map(function (o) {
+        return '<button class="gcm-chip" type="button" data-kind="' + esc(o.v) + '">' + esc(o.t) + ' <small>' + rows.filter(function (r) { return r.kind === o.v; }).length + '</small></button>';
+      }).join('');
+    },
+    validate: function (d) {
+      if (!/^[A-Z][A-Z0-9-]+$/.test(d.id)) return '객체 ID 는 대문자 · 숫자 · 하이픈 형식입니다 (예: ILR-STD).';
+      if (d.reviewer && d.reviewer === (d.author || MS.USER)) return '독립 검토자는 작성자와 달라야 합니다 (직무 분리).';
+      if (d.kind === 'interlock') return ilrValidate(d.body);
+    },
+    beforeTransition: function (act, rs) {
+      if (act !== 'submit') return;
+      var noRev = rs.filter(function (r) { return !r.reviewer; });
+      if (noRev.length) return '독립 검토자를 지정해야 검토요청할 수 있습니다 (S-08).\n대상: ' + noRev.map(function (r) { return r.id + ' v' + r.ver; }).join(', ');
+    },
+    onChange: function (k, form) {          /* kind 선택 → GCM data1(ID 접두) · data2(기본 저작 범위) 적용 + 본문 스키마 교체 */
+      if (k !== 'kind') return;
+      var g = MS.gRow('EBR_CONFIG_KIND', $('[data-f=kind]', form).value); if (!g) return;
+      var idEl = $('[data-f=id]', form);
+      if (!idEl.value || /^[A-Z]+-$/.test(idEl.value)) idEl.value = g.data1 + '-';
+      $('[data-f=scope]', form).value = g.data2;
+      var F = MT.form(); F.data.kind = g.key1; F.data.body = g.key1 === 'interlock' ? ilrDefault() : bodyTemplate(g.key1);
+      MT.renderExtra();
+    },
+    extra: { render: function (d, ro) { return d.kind === 'interlock' ? ilrRender(d, ro) : bodyRender(d, ro); },
+             collect: function (host, d) { if (d.kind === 'interlock') d.body = ilrCollect(host, d.body); else { var t = $('[data-body]', host); if (t) d.body = t.value; } } }
+  };
+  MT.mountT02(CFG, $('#view-config'));
+  /* 팝업 입력값이 칸보다 길면 title 에 전체 값 (말줄임 보완). master-t02 가 다시 그려도 위임이라 유지 */
+  function fitTitle(e) {
+    var el = e.target;
+    if (!el || !el.matches || !el.matches('#dlgMaster input.input[type=text]')) return;
+    if (el.scrollWidth > el.clientWidth + 1) el.title = el.value; else el.removeAttribute('title');
+  }
+  ['mouseover', 'focusin', 'input'].forEach(function (t) { document.addEventListener(t, fitTitle, true); });
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

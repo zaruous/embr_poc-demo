@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-ebr-order-ui  (P-02 · eBR 오더 생성 · 조회)
+  템플릿       : T-01 조회 보드 + 편집 패널 (검색 → 그리드 → 상세/생성)
+  CLIENT_TYPE  : UI (root_layout 1920×1080, .shell.shell-ui)
+  레퍼런스     : s-ebr-batch-issue-ui.html (배치 발행) · s-ebr-lot-trace-ui.html (조회 보드) · s-ebr-equipment-state-ui.html (그리드+폼)
+  공용 자산     : ./assets/mesui.css, ./assets/mesui.js
+  PoC 범위     :
+    - eBR 오더(배치 오더) 생성 · 조회 · 상태 필터 (GCM EBR_ORDER_STATUS)
+    - eMBR 참조 선택(효력 프로세스 트리 피커) · 계획수량/기간/라인 · 그리드 시드 반영
+    - localStorage ebr.order.v1 persist · 효력 트리 핀(processTreeId/ver/contentHash) · 릴리즈 → 배치 발행 CTA
+    - 배치 발행: s-ebr-batch-issue-ui.html?orderNo=ORD-…
+  미결         :
+    - 실 서버 조회 · 채번 · 전자서명
+    - 생산 실행 on_hold 게이트(P2)
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<link rel="icon" href="data:,">
+<title>eBR 오더 생성 · 조회 — eMBR/eBR PoC</title>
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  body { margin: 0; }
+  .lnk { color: var(--c-primary); cursor: pointer; text-decoration: none; }
+  .lnk:hover { color: var(--c-primary-active); }
+  .mono { font-family: Consolas, 'Courier New', monospace; }
+  .unit { color: var(--c-text-sub); white-space: nowrap; }
+  .muted { color: var(--c-text-disabled); }
+  .split-order {
+    display: flex; flex-direction: row; gap: 0;
+    flex: 1 1 auto; min-height: 0; width: 100%; max-width: 100%; overflow: hidden;
+  }
+  .split-order > .col.rs-pane {
+    display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 160px; overflow: hidden;
+  }
+  #paneOrderList { flex: 0 0 780px; width: 780px; }
+  #paneOrderDetail { flex: 1 1 auto; min-width: 200px; }
+  /* ---- resizable split gutters (rs-*) — do not collide with mesui .split ---- */
+  .rs-gutter {
+    flex: 0 0 6px; width: 6px; min-width: 6px; cursor: col-resize;
+    background: #e8edf5; border: none; padding: 0; margin: 0;
+    align-self: stretch; position: relative;
+  }
+  .rs-gutter:hover, .rs-gutter.is-drag { background: #2C59D9; }
+  .rs-gutter::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px;
+  }
+  body.is-resizing { cursor: col-resize; user-select: none; }
+  body.is-resizing .rs-pane { pointer-events: none; }
+
+  #grdOrder tbody tr { cursor: pointer; }
+  #grdOrder tbody tr.is-selected td { background: #eef2ff; }
+  .editor-title { display: flex; align-items: center; gap: 8px; }
+  .editor-title .mode {
+    font-size: 11px; padding: 1px 7px; border-radius: 8px;
+    background: #fff4d6; color: #8a5a00; border: 1px solid #f0c75e;
+  }
+  .form-grid .hint { font-size: 11px; color: var(--c-text-disabled); margin-left: 6px; }
+  .detail-kv { display: grid; grid-template-columns: 110px 1fr; gap: 4px 10px; font-size: 13px; padding: 4px 2px; }
+  .detail-kv .k { color: var(--c-text-sub); }
+  .detail-kv .v { color: var(--c-text); word-break: break-all; }
+  .callout-soft {
+    display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center;
+    padding: 7px 12px; border: 1px solid var(--c-border-04); background: var(--bc-gray-light);
+    border-radius: 4px; font-size: 12px; color: var(--c-text-sub);
+  }
+  .callout-soft b { color: var(--c-text); }
+  /* 오더 상태 뱃지 — GCM BADGE_CLASS 와 맞춤 */
+  .badge.os-draft      { background: var(--bc-gray); }
+  .badge.os-draft::before      { background: var(--c-text-disabled); }
+  .badge.os-planned    { background: var(--bc-plan); }
+  .badge.os-planned::before    { background: var(--c-info); }
+  .badge.os-released   { background: var(--bc-plan); border: 1px solid var(--c-info); }
+  .badge.os-released::before   { background: var(--c-info); }
+  .badge.os-in_progress { background: var(--bc-alam); }
+  .badge.os-in_progress::before { background: var(--c-warn); }
+  .badge.os-completed  { background: var(--bc-good); }
+  .badge.os-completed::before  { background: var(--c-ok); }
+  .badge.os-on_hold    { background: #ffedd5; }
+  .badge.os-on_hold::before    { background: #f56813; }
+  .badge.os-cancelled  { background: var(--bc-faulty); }
+  .badge.os-cancelled::before  { background: var(--c-error); }
+  .form-grid > .field > .codeview > .desc { height: 100%; min-width: 80px; }
+  .tip { display: inline-flex; }
+
+  /* 카탈로그/iframe 맞춤: mesui .shell-scale — 1920×1080 미만 뷰포트면 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+</style>
+</head>
+<body>
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="main-title">eBR 오더 생성 · 조회</span>
+    <span class="breadcrumb">
+      <span>eBR</span><span class="sep">&rsaquo;</span><span>오더</span><span class="sep">&rsaquo;</span><span class="current">생성 · 조회</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+
+  <div class="shell-body">
+    <div class="callout-soft" role="note">
+      <span>eMBR = 정의 · <b>Order/Batch</b> = 실행 인스턴스</span>
+      <span class="vbar"></span>
+      <span>상태: GCM <code>EBR_ORDER_STATUS</code> (soft-load · fallback 내장)</span>
+      <span class="spacer"></span>
+      <a class="lnk" href="./s-ebr-batch-issue-ui.html">배치 발행 화면 ↗</a><span class="vbar"></span><span>저장소: <code>ebr.order.v1</code></span>
+    </div>
+
+    <div class="search-box cols-3" id="sbOrder">
+      <div class="search-control">
+        <span class="label">오더번호</span>
+        <span class="input-clear">
+          <input class="input" type="text" id="schOrderNo" placeholder="ORD-" aria-label="오더번호">
+          <button class="clear" type="button" data-clear="schOrderNo" title="지우기"></button>
+        </span>
+      </div>
+      <div class="search-control">
+        <span class="label">상태</span>
+        <select class="input" id="schStatus" aria-label="상태">
+          <option value="">전체</option>
+        </select>
+      </div>
+      <div class="search-control">
+        <span class="label">eMBR / MBR ID</span>
+        <span class="input-clear">
+          <input class="input" type="text" id="schMbrId" placeholder="MBR-" aria-label="MBR ID">
+          <button class="clear" type="button" data-clear="schMbrId" title="지우기"></button>
+        </span>
+      </div>
+      <div class="search-control">
+        <span class="label">제품</span>
+        <span class="input-clear">
+          <input class="input" type="text" id="schProduct" placeholder="TAB-A / 정제" aria-label="제품">
+          <button class="clear" type="button" data-clear="schProduct" title="지우기"></button>
+        </span>
+      </div>
+      <div class="search-control">
+        <span class="label">계획 시작</span>
+        <input class="input" type="date" id="schFrom" aria-label="계획 시작">
+      </div>
+      <div class="search-control">
+        <span class="label">계획 종료</span>
+        <input class="input" type="date" id="schTo" aria-label="계획 종료">
+      </div>
+      <div class="search-actions">
+        <button class="btn search" type="button" id="btnReset">Reset</button>
+        <button class="btn search secondary" type="button" id="btnSearch">Search</button>
+      </div>
+    </div>
+
+    <div class="split-order" id="orderSplit">
+      <div class="col rs-pane" id="paneOrderList">
+        <div class="grid-block fill">
+          <div class="grid-title-area">
+            <div class="title-row">
+              <span class="group-title">오더 목록</span>
+              <span class="sub-info">ebr.order.v1 · 릴리즈+효력만 발행 CTA</span>
+            </div>
+            <div class="grid-toolbar">
+              <span class="total-text" data-total-for="grdOrder"></span>
+              <span class="spacer"></span>
+              <button class="btn search secondary" type="button" id="btnDetail" disabled>Detail</button>
+              <button class="btn search" type="button" id="btnNew">New</button>
+            </div>
+          </div>
+          <div class="grid-wrap">
+            <table class="grid selectable" id="grdOrder">
+              <colgroup>
+                <col class="col-no">
+                <col style="width:118px">
+                <col style="width:88px">
+                <col style="width:150px">
+                <col style="width:118px">
+                <col style="width:130px">
+                <col style="width:90px">
+                <col style="width:96px">
+                <col style="width:90px">
+                <col style="width:96px">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th class="col-no">No.</th>
+                  <th>오더번호</th>
+                  <th>상태</th>
+                  <th>eMBR 참조<span class="th-note">MBR · ver</span></th>
+                  <th>배치번호</th>
+                  <th>제품</th>
+                  <th class="right">계획수량</th>
+                  <th>계획일</th>
+                  <th>라인/사이트</th>
+                  <th>수정일</th>
+                </tr>
+              </thead>
+              <tbody id="grdOrderBody"></tbody>
+            </table>
+            <div class="nodata hidden" id="orderNodata">조건에 맞는 오더가 없습니다</div>
+          </div>
+        </div>
+      </div>
+
+      <button type="button" class="rs-gutter" id="gutterMain" aria-label="패널 너비 조절" title="드래그하여 너비 조절"></button>
+
+      <div class="col rs-pane" id="paneOrderDetail">
+        <div class="grid-block auto">
+          <div class="grid-toolbar">
+            <span class="editor-title">
+              <span class="group-title" id="edTitle">오더 상세 · 편집</span>
+              <span class="mode" id="edMode">조회</span>
+            </span>
+            <span class="spacer"></span>
+            <button class="btn search secondary" type="button" id="btnCancel">취소</button>
+            <button class="btn search primary" type="button" id="btnSave">Save</button>
+          </div>
+          <form id="orderForm">
+            <div class="form-grid cols-2" id="orderFields">
+              <label class="label required" for="ordNo">오더번호</label>
+              <span class="field">
+                <input class="input mono" id="ordNo" maxlength="24" placeholder="AUTO">
+                <span class="hint" id="ordNoHint">신규 시 공란 → AUTO 채번</span>
+              </span>
+
+              <label class="label required" for="ordMbrCode">eMBR (효력 트리)</label>
+              <span class="field">
+                <span class="codeview full">
+                  <input class="input code mono" type="text" id="ordMbrCode" placeholder="MBR-" aria-label="MBR 코드" required>
+                  <button class="cv-btn" type="button" id="btnMbrPick" title="효력 프로세스 트리 조회"></button>
+                  <input class="input desc" type="text" id="ordMbrDesc" readonly aria-label="MBR 설명" placeholder="버전 · 제품 · hash">
+                </span>
+                <span class="hint" id="ordPinHint">효력(effective) 트리만 바인딩 · processTreeId + ver + contentHash 필수</span>
+              </span>
+
+              <label class="label" for="ordPinHash">바인딩 해시</label>
+              <span class="field">
+                <input class="input mono" id="ordPinHash" readonly placeholder="contentHash (선택 시 자동)">
+                <span class="hint hidden" id="ordPinLockHint"></span>
+              </span>
+
+              <label class="label required" for="ordStatus">상태</label>
+              <span class="field"><select class="input" id="ordStatus" required></select></span>
+
+              <label class="label required" for="ordQty">계획수량</label>
+              <span class="field">
+                <input class="input" id="ordQty" type="number" min="1" step="1" style="width:110px" required>
+                <input class="input" id="ordUnit" maxlength="8" style="width:64px" value="kg" aria-label="단위">
+              </span>
+
+              <label class="label" for="ordPlanStart">계획 시작</label>
+              <span class="field"><input class="input" type="date" id="ordPlanStart"></span>
+
+              <label class="label" for="ordPlanEnd">계획 종료</label>
+              <span class="field"><input class="input" type="date" id="ordPlanEnd"></span>
+
+              <label class="label" for="ordLine">라인</label>
+              <span class="field">
+                <select class="input" id="ordLine">
+                  <option value="L-01">L-01 · 정제 1라인</option>
+                  <option value="L-02">L-02 · 정제 2라인</option>
+                  <option value="L-03">L-03 · 캡슐 라인</option>
+                  <option value="L-04">L-04 · 액제 라인</option>
+                </select>
+              </span>
+
+              <label class="label" for="ordSite">사이트</label>
+              <span class="field"><input class="input" id="ordSite" value="오송 공장" maxlength="40"></span>
+
+              <label class="label" for="ordNote">비고</label>
+              <span class="field span-2 multi"><textarea class="input" id="ordNote" rows="2" maxlength="200" placeholder="계획 메모 · 발행 전 비고"></textarea></span>
+            </div>
+          </form>
+        </div>
+
+        <div class="grid-block auto" id="pnlDetail">
+          <div class="grid-toolbar">
+            <span class="group-title">선택 오더 요약</span>
+            <span class="spacer"></span>
+            <span class="sub-info" id="sumHint">행을 선택하세요</span>
+            <span class="tip" id="btnIssueBatchWrap" title="릴리즈 · 효력 eMBR · 미발행 오더만 가능">
+              <button class="btn search primary" type="button" id="btnIssueBatch" disabled>배치 발행</button>
+            </span>
+            <button class="btn search secondary hidden" type="button" id="btnViewBatch">기발행 조회</button>
+          </div>
+          <div class="detail-kv" id="sumKv">
+            <span class="k">오더</span><span class="v muted">—</span>
+            <span class="k">배치</span><span class="v muted">—</span>
+            <span class="k">제품</span><span class="v muted">—</span>
+            <span class="k">eMBR</span><span class="v muted">—</span>
+            <span class="k">상태</span><span class="v muted">—</span>
+            <span class="k">연계</span><span class="v muted">배치 미발행</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+
+<!-- 효력 프로세스 트리 피커 (LS effective + mock effective) -->
+<div class="dialog-backdrop" id="dlgMbr">
+  <div class="dialog sm" style="--dialog-h:480px;width:720px">
+    <div class="popup-title"><span class="text">효력 프로세스 트리 조회</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+    <div class="shell-body">
+      <div class="grid-block">
+        <div class="grid-toolbar"><span class="group-title">효력(effective) 트리만 표시</span><span class="total-text" data-total-for="grdMbrPick"></span></div>
+        <div class="grid-wrap">
+          <table class="grid selectable" id="grdMbrPick">
+            <colgroup>
+              <col class="col-no"><col style="width:120px"><col style="width:48px"><col><col style="width:72px"><col style="width:100px">
+            </colgroup>
+            <thead>
+              <tr><th class="col-no">No.</th><th>트리 ID</th><th>버전</th><th>제품</th><th>상태</th><th>hash</th></tr>
+            </thead>
+            <tbody id="grdMbrPickBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn search secondary" type="button" data-dialog-close>취소</button>
+      <button class="btn search primary" type="button" id="btnMbrOk">선택</button>
+    </div>
+  </div>
+</div>
+
+<script src="./assets/mesui.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  function pad(n, w) { n = String(n); while (n.length < (w || 2)) n = '0' + n; return n; }
+  function today() {
+    var d = new Date();
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+
+  /* ---- GCM EBR_ORDER_STATUS soft-load (fallback 내장) ---- */
+  var FALLBACK_STATUS = [
+    { key1: 'draft',       keyDesc: '초안',   data1: 'os-draft',       data2: '#e6e6e7', data3: 'planned' },
+    { key1: 'planned',     keyDesc: '계획',   data1: 'os-planned',     data2: '#CCEBFF', data3: 'released' },
+    { key1: 'released',    keyDesc: '릴리즈', data1: 'os-released',    data2: '#CCEBFF', data3: 'in_progress' },
+    { key1: 'in_progress', keyDesc: '진행',   data1: 'os-in_progress', data2: '#FFF6D6', data3: 'completed' },
+    { key1: 'completed',   keyDesc: '완료',   data1: 'os-completed',   data2: '#E2F8CC', data3: '' },
+    { key1: 'on_hold',     keyDesc: '보류',   data1: 'os-on_hold',     data2: '#ffedd5', data3: 'in_progress' },
+    { key1: 'cancelled',   keyDesc: '취소',   data1: 'os-cancelled',   data2: '#F9D5D1', data3: '' }
+  ];
+  var STATUS = FALLBACK_STATUS.slice();
+  var statusSrc = 'inline-fallback';
+
+  function loadGcmStatuses() {
+    try {
+      var raw = localStorage.getItem('ebmr.masterSetup.v2');
+      if (!raw) return;
+      var db = JSON.parse(raw);
+      var rows = db && db.gcmData && db.gcmData.EBR_ORDER_STATUS;
+      if (rows && rows.length) {
+        STATUS = rows.filter(function (r) { return !r.disableFlag; });
+        statusSrc = 'localStorage ebmr.masterSetup.v2';
+      }
+    } catch (e) { /* file:// 등 */ }
+  }
+
+  function statusMeta(code) {
+    for (var i = 0; i < STATUS.length; i++) if (STATUS[i].key1 === code) return STATUS[i];
+    return { key1: code || '', keyDesc: code || '—', data1: 'muted' };
+  }
+  function statusBadge(code) {
+    var m = statusMeta(code);
+    return '<span class="badge ' + esc(m.data1 || 'muted') + '">' + esc(m.keyDesc) + '</span>';
+  }
+
+  /* ---- eMBR mock catalog (batch-issue 와 맞춤) + 고정 contentHash ---- */
+  var MBRS = [
+    { id: 'MBR-TAB-A', ver: '3.2', prodCode: 'TAB-A', product: '정제 A 10 mg', unit: 'kg', status: 'effective', contentHash: '9f3a7c1e4d2b8a0f6e1c9d7b5a3f2e1d' },
+    { id: 'MBR-TAB-A', ver: '3.1', prodCode: 'TAB-A', product: '정제 A 10 mg', unit: 'kg', status: 'superseded', contentHash: '4b02d9aa71c3e5f8d2b6a9c0e4f1d7b3' },
+    { id: 'MBR-CAP-B', ver: '1.4', prodCode: 'CAP-B', product: '캡슐 B 250 mg', unit: 'kg', status: 'effective', contentHash: 'c71e0f553a9d4b2e8f6c1d0a7b5e3f9c' },
+    { id: 'MBR-TAB-C', ver: '2.0', prodCode: 'TAB-C', product: '정제 C 5 mg', unit: 'kg', status: 'pending', contentHash: '0de91b3c6f2a8d4e1b7c5f3a9e0d2c8b' },
+    { id: 'MBR-SYR-D', ver: '5.0', prodCode: 'SYR-D', product: '시럽 D', unit: 'L', status: 'approved', contentHash: '77a4e2f0b5c9d1a3e8f4b2c6d0a9e7f1' }
+  ];
+
+  var MOCK_HASH_BY_KEY = {};
+  MBRS.forEach(function (m) { MOCK_HASH_BY_KEY[m.id + '@' + m.ver] = m.contentHash; });
+
+  function pinFields(id, ver, hash, statusAtBind) {
+    return {
+      processTreeId: id,
+      mbrId: id,
+      mbrVer: ver,
+      ver: ver,
+      contentHash: hash,
+      mbrStatusAtBind: statusAtBind || 'effective'
+    };
+  }
+
+  function seedOrders() {
+    var a32 = pinFields('MBR-TAB-A', '3.2', '9f3a7c1e4d2b8a0f6e1c9d7b5a3f2e1d', 'effective');
+    var a31 = pinFields('MBR-TAB-A', '3.1', '4b02d9aa71c3e5f8d2b6a9c0e4f1d7b3', 'effective');
+    var b14 = pinFields('MBR-CAP-B', '1.4', 'c71e0f553a9d4b2e8f6c1d0a7b5e3f9c', 'effective');
+    var s50 = pinFields('MBR-SYR-D', '5.0', '77a4e2f0b5c9d1a3e8f4b2c6d0a9e7f1', 'approved');
+    return [
+      Object.assign({ orderNo: 'ORD-2026-0101', status: 'in_progress', prodCode: 'TAB-A', product: '정제 A 10 mg', qty: 100, unit: 'kg', planStart: '2026-09-28', planEnd: '2026-10-05', line: 'L-01', site: '오송 공장', batchNo: 'BR-2026-0405', note: '진행 중 배치', upd: '2026-10-04' }, a32),
+      Object.assign({ orderNo: 'ORD-2026-0102', status: 'released',    prodCode: 'TAB-A', product: '정제 A 10 mg', qty: 80,  unit: 'kg', planStart: '2026-10-06', planEnd: '2026-10-12', line: 'L-02', site: '오송 공장', batchNo: '', note: '발행 대기', upd: '2026-10-03' }, a32),
+      Object.assign({ orderNo: 'ORD-2026-0098', status: 'completed',   prodCode: 'TAB-A', product: '정제 A 10 mg', qty: 120, unit: 'kg', planStart: '2026-09-10', planEnd: '2026-09-18', line: 'L-02', site: '오송 공장', batchNo: 'BR-2026-0398', note: '구판 MBR 보호 배치 종료', upd: '2026-09-20' }, a31),
+      Object.assign({ orderNo: 'ORD-2026-0105', status: 'planned',     prodCode: 'CAP-B', product: '캡슐 B 250 mg', qty: 60,  unit: 'kg', planStart: '2026-10-08', planEnd: '2026-10-15', line: 'L-03', site: '오송 공장', batchNo: '', note: '', upd: '2026-10-02' }, b14),
+      { orderNo: 'ORD-2026-0108', status: 'draft', mbrId: '', mbrVer: '', ver: '', processTreeId: '', contentHash: '', mbrStatusAtBind: '', prodCode: '', product: '', qty: 50,  unit: 'kg', planStart: '2026-10-20', planEnd: '2026-10-27', line: 'L-01', site: '오송 공장', batchNo: '', note: '효력 트리 바인딩 대기 초안', upd: '2026-10-05' },
+      Object.assign({ orderNo: 'ORD-2026-0095', status: 'on_hold',     prodCode: 'CAP-B', product: '캡슐 B 250 mg', qty: 40,  unit: 'kg', planStart: '2026-09-22', planEnd: '2026-09-29', line: 'L-03', site: '오송 공장', batchNo: 'BR-2026-0388', note: 'QA 보류', upd: '2026-09-25' }, b14),
+      Object.assign({ orderNo: 'ORD-2026-0088', status: 'cancelled',   prodCode: 'SYR-D', product: '시럽 D', qty: 200, unit: 'L',  planStart: '2026-09-01', planEnd: '2026-09-08', line: 'L-04', site: '오송 공장', batchNo: '', note: '수요 취소', upd: '2026-09-02' }, s50),
+      Object.assign({ orderNo: 'ORD-2026-0110', status: 'planned',     prodCode: 'TAB-A', product: '정제 A 10 mg', qty: 90,  unit: 'kg', planStart: '2026-10-14', planEnd: '2026-10-21', line: 'L-01', site: '오송 공장', batchNo: '', note: '다음 주 계획', upd: '2026-10-05' }, a32)
+    ];
+  }
+
+  var ORDER_LS_KEY = 'ebr.order.v1';
+  var PROCESS_TREE_LS_KEY = 'ebmr.processTree.v1';
+
+  function loadOrders() {
+    try {
+      var raw = localStorage.getItem(ORDER_LS_KEY);
+      if (!raw) return null;
+      var arr = JSON.parse(raw);
+      return Array.isArray(arr) && arr.length ? arr : null;
+    } catch (e) { return null; }
+  }
+  function saveOrders() {
+    try {
+      localStorage.setItem(ORDER_LS_KEY, JSON.stringify(state.rows));
+    } catch (e) { /* file:// quota */ }
+  }
+  function ensureOrderSeq(rows) {
+    var max = 110;
+    rows.forEach(function (r) {
+      var m = String(r.orderNo || '').match(/(\d+)$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    });
+    return max;
+  }
+
+  function shortHash(h) {
+    h = String(h || '');
+    return h ? (h.slice(0, 8) + (h.length > 8 ? '…' : '')) : '—';
+  }
+
+  /** Load single LS process tree if present. */
+  function loadLsTree() {
+    try {
+      var raw = localStorage.getItem(PROCESS_TREE_LS_KEY);
+      if (!raw) return null;
+      var tree = JSON.parse(raw);
+      return tree || null;
+    } catch (e) { return null; }
+  }
+
+  /**
+   * Effective tree picker rows: LS (if status===effective) + mock effective.
+   * Dedupe by id+ver; LS hash wins when both exist.
+   */
+  function listEffectiveTrees() {
+    var rows = [];
+    var seen = {};
+    var ls = loadLsTree();
+    if (ls && String(ls.status) === 'effective') {
+      var lid = ls.processTreeId || ls.id || '';
+      var lver = ls.ver != null ? String(ls.ver) : '';
+      var lhash = ls.contentHash || '';
+      if (lid && lver && lhash) {
+        var prodCode = (ls.product && ls.product.productCode) || '';
+        var productName = (ls.product && (ls.product.name || ls.product.productName)) || ls.name || prodCode;
+        rows.push({
+          id: lid, ver: lver, prodCode: prodCode, product: productName,
+          unit: 'kg', status: 'effective', contentHash: lhash, source: 'process-tree'
+        });
+        seen[lid + '@' + lver] = true;
+      }
+    }
+    MBRS.forEach(function (m) {
+      if (m.status !== 'effective') return;
+      var key = m.id + '@' + m.ver;
+      if (seen[key]) return; /* LS already present — LS hash already used */
+      rows.push({
+        id: m.id, ver: m.ver, prodCode: m.prodCode, product: m.product,
+        unit: m.unit || 'kg', status: 'effective', contentHash: m.contentHash, source: 'demo'
+      });
+      seen[key] = true;
+    });
+    return rows;
+  }
+
+  function findEffectiveTree(id, ver) {
+    id = String(id || '');
+    ver = ver != null ? String(ver) : '';
+    var list = listEffectiveTrees();
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === id && (!ver || list[i].ver === ver)) return list[i];
+    }
+    return null;
+  }
+
+  /** Live hash for id+ver: LS first (any status), else mock. */
+  function liveContentHash(id, ver) {
+    id = String(id || '');
+    ver = ver != null ? String(ver) : '';
+    var ls = loadLsTree();
+    if (ls) {
+      var tid = ls.processTreeId || ls.id || '';
+      var tver = ls.ver != null ? String(ls.ver) : '';
+      if (tid === id && (!ver || !tver || tver === ver) && ls.contentHash) {
+        return { hash: ls.contentHash, status: ls.status || '', source: 'process-tree' };
+      }
+    }
+    var m = findMbr(id, ver);
+    if (m) return { hash: m.contentHash || '', status: m.status || '', source: 'demo' };
+    return { hash: '', status: '', source: '' };
+  }
+
+  /** Resolve eMBR/process-tree status: LS tree first, then mock catalog. */
+  function resolveMbrStatus(mbrId, mbrVer) {
+    mbrId = String(mbrId || '');
+    mbrVer = mbrVer != null ? String(mbrVer) : '';
+    var live = liveContentHash(mbrId, mbrVer);
+    if (live.status) return live.status;
+    var m = findMbr(mbrId, mbrVer);
+    return m ? m.status : '';
+  }
+
+  function orderPinComplete(order) {
+    if (!order) return false;
+    var id = order.processTreeId || order.mbrId || '';
+    var ver = order.ver || order.mbrVer || '';
+    var hash = order.contentHash || '';
+    return !!(id && ver && hash);
+  }
+
+  function pinMismatchLive(order) {
+    if (!orderPinComplete(order)) return null;
+    var id = order.processTreeId || order.mbrId;
+    var ver = order.ver || order.mbrVer;
+    var live = liveContentHash(id, ver);
+    if (!live.hash) return null;
+    if (live.hash !== order.contentHash) {
+      return { liveHash: live.hash, pinHash: order.contentHash, status: live.status };
+    }
+    return null;
+  }
+
+  function canIssueBatch(order) {
+    if (!order) return { ok: false, reason: '오더를 선택하세요.' };
+    if (order.batchNo) {
+      return {
+        ok: false,
+        viewOnly: true,
+        reason: '이미 배치가 발행된 오더입니다: ' + order.batchNo
+      };
+    }
+    if (order.status !== 'released') {
+      return { ok: false, reason: '릴리즈(released) 상태의 오더만 배치 발행할 수 있습니다. 현재: ' + (order.status || '—') };
+    }
+    if (!orderPinComplete(order)) {
+      return { ok: false, reason: '오더 eMBR 핀이 불완전합니다 (processTreeId · ver · contentHash 필수). 효력 트리를 다시 바인딩하세요.' };
+    }
+    var st = order.mbrStatusAtBind || resolveMbrStatus(order.processTreeId || order.mbrId, order.ver || order.mbrVer);
+    if (st !== 'effective') {
+      return {
+        ok: false,
+        reason: '효력(effective) eMBR/프로세스 트리만 배치 발행할 수 있습니다. 현재: ' + (st || '미확인')
+      };
+    }
+    var mm = pinMismatchLive(order);
+    if (mm) {
+      return {
+        ok: false,
+        reason: '라이브 트리 hash가 오더 핀과 다릅니다 — 오더 eMBR 재바인딩이 필요합니다. (핀 ' + shortHash(mm.pinHash) + ' ≠ 라이브 ' + shortHash(mm.liveHash) + ')'
+      };
+    }
+    return { ok: true };
+  }
+
+  /** Backfill pins on legacy LS rows (id+ver → mock hash). */
+  function normalizeOrderPins(rows) {
+    var changed = false;
+    rows.forEach(function (r) {
+      if (!r.processTreeId && r.mbrId) { r.processTreeId = r.mbrId; changed = true; }
+      if (!r.mbrId && r.processTreeId) { r.mbrId = r.processTreeId; changed = true; }
+      if (!r.ver && r.mbrVer) { r.ver = r.mbrVer; changed = true; }
+      if (!r.mbrVer && r.ver) { r.mbrVer = r.ver; changed = true; }
+      if (!r.contentHash && r.mbrId && r.mbrVer) {
+        var h = MOCK_HASH_BY_KEY[r.mbrId + '@' + r.mbrVer];
+        if (h) { r.contentHash = h; changed = true; }
+      }
+      if (!r.mbrStatusAtBind && r.contentHash) {
+        var st2 = resolveMbrStatus(r.processTreeId || r.mbrId, r.ver || r.mbrVer);
+        r.mbrStatusAtBind = st2 || 'effective';
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
+  function batchIssueUrl(orderNo) {
+    return './s-ebr-batch-issue-ui.html?orderNo=' + encodeURIComponent(orderNo || '');
+  }
+
+  function updateIssueCta(r) {
+    var btn = $('btnIssueBatch');
+    var wrap = $('btnIssueBatchWrap');
+    var viewBtn = $('btnViewBatch');
+    if (!btn) return;
+    if (!r) {
+      btn.disabled = true;
+      if (wrap) wrap.title = '오더를 선택하세요';
+      if (viewBtn) viewBtn.classList.add('hidden');
+      return;
+    }
+    var g = canIssueBatch(r);
+    if (g.viewOnly) {
+      btn.disabled = true;
+      if (wrap) wrap.title = g.reason;
+      if (viewBtn) {
+        viewBtn.classList.remove('hidden');
+        viewBtn.onclick = function () { location.href = batchIssueUrl(r.orderNo); };
+      }
+    } else {
+      btn.disabled = !g.ok;
+      if (wrap) wrap.title = g.ok ? (r.orderNo + ' → 배치 발행') : g.reason;
+      if (viewBtn) viewBtn.classList.add('hidden');
+    }
+  }
+
+  var _loadedOrders = loadOrders();
+  var state = {
+    rows: _loadedOrders || seedOrders(),
+    selected: null,
+    mode: 'view', /* view | new | edit */
+    pickMbr: null,
+    seq: 111,
+    _pin: null /* { processTreeId, ver, contentHash, mbrStatusAtBind, prodCode, product, unit } */
+  };
+  state.seq = ensureOrderSeq(state.rows);
+  if (normalizeOrderPins(state.rows) || !_loadedOrders) saveOrders();
+
+  function fillStatusSelects() {
+    var sch = $('schStatus');
+    var ord = $('ordStatus');
+    var opts = STATUS.map(function (s) {
+      return '<option value="' + esc(s.key1) + '">' + esc(s.keyDesc) + '</option>';
+    }).join('');
+    sch.innerHTML = '<option value="">전체</option>' + opts;
+    ord.innerHTML = opts;
+  }
+
+  function filtered() {
+    var ono = ($('schOrderNo').value || '').trim().toUpperCase();
+    var st = $('schStatus').value;
+    var mbr = ($('schMbrId').value || '').trim().toUpperCase();
+    var prod = ($('schProduct').value || '').trim().toUpperCase();
+    var from = $('schFrom').value;
+    var to = $('schTo').value;
+    return state.rows.filter(function (r) {
+      if (ono && String(r.orderNo).toUpperCase().indexOf(ono) < 0) return false;
+      if (st && r.status !== st) return false;
+      if (mbr && (String(r.mbrId).toUpperCase().indexOf(mbr) < 0 && String(r.mbrVer).indexOf(mbr) < 0)) return false;
+      if (prod) {
+        var blob = (r.prodCode + ' ' + r.product).toUpperCase();
+        if (blob.indexOf(prod) < 0) return false;
+      }
+      if (from && r.planStart && r.planStart < from) return false;
+      if (to && r.planEnd && r.planEnd > to) return false;
+      return true;
+    }).slice().sort(function (a, b) {
+      return String(b.orderNo).localeCompare(String(a.orderNo));
+    });
+  }
+
+  function renderGrid() {
+    var list = filtered();
+    var body = $('grdOrderBody');
+    body.innerHTML = list.map(function (r, i) {
+      var sel = state.selected && state.selected.orderNo === r.orderNo ? ' is-selected' : '';
+      var batch = r.batchNo
+        ? '<span class="mono">' + esc(r.batchNo) + '</span>'
+        : '<span class="muted">—</span>';
+      var mbr = '<span class="mono">' + esc(r.processTreeId || r.mbrId || '—') + '</span> <span class="unit">v' + esc(r.ver || r.mbrVer || '') + '</span>' +
+        (r.contentHash ? ' <span class="unit" title="' + esc(r.contentHash) + '">' + esc(shortHash(r.contentHash)) + '</span>' : '');
+      var plan = esc(r.planStart || '') + (r.planEnd ? ' ~' : '');
+      return '<tr data-ord="' + esc(r.orderNo) + '" class="' + sel.trim() + '">' +
+        '<td class="col-no">' + (i + 1) + '</td>' +
+        '<td class="mono"><b>' + esc(r.orderNo) + '</b></td>' +
+        '<td>' + statusBadge(r.status) + '</td>' +
+        '<td>' + mbr + '</td>' +
+        '<td>' + batch + '</td>' +
+        '<td>' + esc(r.prodCode) + ' <span class="unit">' + esc(r.product) + '</span></td>' +
+        '<td class="right">' + esc(r.qty) + ' <span class="unit">' + esc(r.unit) + '</span></td>' +
+        '<td>' + plan + '</td>' +
+        '<td>' + esc(r.line) + '</td>' +
+        '<td>' + esc(r.upd || '') + '</td>' +
+        '</tr>';
+    }).join('');
+    $('orderNodata').classList.toggle('hidden', list.length > 0);
+    MesUI.setTotal('grdOrder', list.length);
+    $('btnDetail').disabled = !state.selected;
+  }
+
+  function setMode(mode) {
+    state.mode = mode;
+    $('edMode').textContent = mode === 'new' ? '신규' : (mode === 'edit' ? '편집' : '조회');
+    var no = $('ordNo');
+    no.readOnly = mode === 'edit';
+    $('ordNoHint').textContent = mode === 'new' ? '신규 시 공란 → AUTO 채번' : (mode === 'edit' ? '저장 후 오더번호 변경 불가' : '');
+  }
+
+  function clearForm() {
+    $('ordNo').value = '';
+    $('ordMbrCode').value = '';
+    $('ordMbrDesc').value = '';
+    $('ordPinHash').value = '';
+    $('ordStatus').value = STATUS[0] ? STATUS[0].key1 : 'draft';
+    $('ordQty').value = '';
+    $('ordUnit').value = 'kg';
+    $('ordPlanStart').value = '';
+    $('ordPlanEnd').value = '';
+    $('ordLine').value = 'L-01';
+    $('ordSite').value = '오송 공장';
+    $('ordNote').value = '';
+    state._pin = null;
+    setPinLocked(false);
+  }
+
+  function setPinLocked(locked) {
+    $('ordMbrCode').readOnly = !!locked;
+    $('btnMbrPick').disabled = !!locked;
+    var hint = $('ordPinLockHint');
+    if (locked) {
+      hint.classList.remove('hidden');
+      hint.textContent = '릴리즈 이후 핀 잠금 — 개정은 새 오더로 진행하세요.';
+    } else {
+      hint.classList.add('hidden');
+      hint.textContent = '';
+    }
+  }
+
+  function fillForm(r) {
+    if (!r) { clearForm(); return; }
+    var tid = r.processTreeId || r.mbrId || '';
+    var ver = r.ver || r.mbrVer || '';
+    var hash = r.contentHash || '';
+    $('ordNo').value = r.orderNo || '';
+    $('ordMbrCode').value = tid;
+    $('ordMbrDesc').value = (ver ? 'v' + ver + ' · ' : '') + (r.product || '') +
+      (hash ? ' · ' + shortHash(hash) : '');
+    $('ordPinHash').value = hash;
+    $('ordStatus').value = r.status || 'draft';
+    $('ordQty').value = r.qty != null ? r.qty : '';
+    $('ordUnit').value = r.unit || 'kg';
+    $('ordPlanStart').value = r.planStart || '';
+    $('ordPlanEnd').value = r.planEnd || '';
+    $('ordLine').value = r.line || 'L-01';
+    $('ordSite').value = r.site || '오송 공장';
+    $('ordNote').value = r.note || '';
+    state._pin = hash ? {
+      processTreeId: tid, ver: ver, contentHash: hash,
+      mbrStatusAtBind: r.mbrStatusAtBind || 'effective',
+      prodCode: r.prodCode, product: r.product, unit: r.unit
+    } : null;
+    /* P1: lock pin after released (and later statuses) */
+    var locked = ['released', 'in_progress', 'completed', 'on_hold', 'cancelled'].indexOf(r.status) >= 0;
+    setPinLocked(locked && !!hash);
+  }
+
+  function renderSummary(r) {
+    var el = $('sumKv');
+    if (!r) {
+      $('sumHint').textContent = '행을 선택하세요';
+      el.innerHTML =
+        '<span class="k">오더</span><span class="v muted">—</span>' +
+        '<span class="k">배치</span><span class="v muted">—</span>' +
+        '<span class="k">제품</span><span class="v muted">—</span>' +
+        '<span class="k">eMBR</span><span class="v muted">—</span>' +
+        '<span class="k">상태</span><span class="v muted">—</span>' +
+        '<span class="k">연계</span><span class="v muted">배치 미발행</span>';
+      updateIssueCta(null);
+      return;
+    }
+    $('sumHint').textContent = r.orderNo;
+    var href = batchIssueUrl(r.orderNo);
+    var gate = canIssueBatch(r);
+    var mbrSt = resolveMbrStatus(r.mbrId, r.mbrVer);
+    var batchCell = r.batchNo
+      ? '<a class="lnk mono" href="' + href + '" title="기발행 조회">' + esc(r.batchNo) + ' ↗</a>'
+      : '<span class="muted">— (발행 전)</span>';
+    var linkCell;
+    if (r.batchNo) {
+      linkCell = '<a class="lnk" href="' + href + '">기발행 조회 · ' + esc(r.batchNo) + '</a>';
+    } else if (gate.ok) {
+      linkCell = '<a class="lnk" href="' + href + '">배치 발행 (orderNo 연동)</a>';
+    } else {
+      linkCell = '<span class="muted">' + esc(gate.reason) + '</span>';
+    }
+    el.innerHTML =
+      '<span class="k">오더</span><span class="v mono"><b>' + esc(r.orderNo) + '</b></span>' +
+      '<span class="k">배치</span><span class="v">' + batchCell + '</span>' +
+      '<span class="k">제품</span><span class="v">' + esc(r.prodCode) + ' · ' + esc(r.product) + '</span>' +
+      '<span class="k">eMBR</span><span class="v mono">' + esc(r.processTreeId || r.mbrId) + ' v' + esc(r.ver || r.mbrVer) +
+        ' <span class="unit">(' + esc(mbrSt || '—') + ')</span></span>' +
+      '<span class="k">핀 hash</span><span class="v mono">' + esc(shortHash(r.contentHash)) +
+        (r.contentHash ? ' <span class="unit" title="' + esc(r.contentHash) + '">full</span>' : '') + '</span>' +
+      '<span class="k">상태</span><span class="v">' + statusBadge(r.status) + '</span>' +
+      '<span class="k">연계</span><span class="v">' + linkCell + '</span>';
+    var mm = pinMismatchLive(r);
+    if (mm) {
+      el.innerHTML += '<span class="k">경고</span><span class="v" style="color:var(--c-error)">라이브 hash ≠ 오더 핀 — 재바인딩 필요 (' +
+        esc(shortHash(mm.pinHash)) + ' → ' + esc(shortHash(mm.liveHash)) + ')</span>';
+    }
+    updateIssueCta(r);
+  }
+
+  function selectOrder(orderNo, enterEdit) {
+    var r = null;
+    for (var i = 0; i < state.rows.length; i++) {
+      if (state.rows[i].orderNo === orderNo) { r = state.rows[i]; break; }
+    }
+    state.selected = r;
+    fillForm(r);
+    setMode(enterEdit && r ? 'edit' : 'view');
+    renderSummary(r);
+    renderGrid();
+  }
+
+  function nextOrderNo() {
+    state.seq += 1;
+    return 'ORD-2026-' + pad(state.seq, 4);
+  }
+
+  function findMbr(id, ver) {
+    for (var i = 0; i < MBRS.length; i++) {
+      if (MBRS[i].id === id && (!ver || MBRS[i].ver === ver)) return MBRS[i];
+    }
+    for (var j = 0; j < MBRS.length; j++) if (MBRS[j].id === id) return MBRS[j];
+    return null;
+  }
+
+  function applyMbr(m) {
+    if (!m) return;
+    if (m.status && m.status !== 'effective') {
+      MesUI.alert('효력(effective) 트리만 오더에 바인딩할 수 있습니다.\n현재: ' + m.status, 'Warning');
+      return;
+    }
+    if (!m.contentHash) {
+      MesUI.alert('contentHash가 없는 트리는 바인딩할 수 없습니다.', 'Warning');
+      return;
+    }
+    $('ordMbrCode').value = m.id;
+    $('ordMbrDesc').value = 'v' + m.ver + ' · ' + m.product + ' · ' + shortHash(m.contentHash);
+    $('ordPinHash').value = m.contentHash;
+    if (!$('ordUnit').value) $('ordUnit').value = m.unit || 'kg';
+    state._pin = {
+      processTreeId: m.id,
+      ver: m.ver,
+      contentHash: m.contentHash,
+      mbrStatusAtBind: 'effective',
+      prodCode: m.prodCode,
+      product: m.product,
+      unit: m.unit || 'kg'
+    };
+  }
+
+  function openMbrPicker() {
+    if ($('btnMbrPick').disabled) {
+      MesUI.alert('릴리즈 이후 핀은 잠겨 있습니다. 개정은 새 오더로 진행하세요.', 'Information');
+      return;
+    }
+    state.pickMbr = null;
+    var list = listEffectiveTrees();
+    state._pickList = list;
+    $('grdMbrPickBody').innerHTML = list.map(function (m, i) {
+      return '<tr data-idx="' + i + '">' +
+        '<td class="col-no">' + (i + 1) + '</td>' +
+        '<td class="mono">' + esc(m.id) +
+          (m.source === 'process-tree' ? ' <span class="unit">[LS]</span>' : '') + '</td>' +
+        '<td>' + esc(m.ver) + '</td>' +
+        '<td>' + esc(m.prodCode) + ' · ' + esc(m.product) + '</td>' +
+        '<td>' + esc(m.status) + '</td>' +
+        '<td class="mono" title="' + esc(m.contentHash) + '">' + esc(shortHash(m.contentHash)) + '</td></tr>';
+    }).join('');
+    MesUI.setTotal('grdMbrPick', list.length);
+    if (!list.length) {
+      MesUI.toast('효력(effective) 트리가 없습니다. 디자이너에서 효력 전환 후 다시 시도하세요.', 'warn');
+    }
+    MesUI.openDialog('dlgMbr');
+  }
+
+  function doSave() {
+    var qty = Number($('ordQty').value);
+    var status = $('ordStatus').value;
+    if (!qty || qty < 1) { MesUI.alert('계획수량을 입력하세요.', 'Warning'); return; }
+    if (!status) { MesUI.alert('상태를 선택하세요.', 'Warning'); return; }
+
+    var pin = state._pin;
+    /* released+ pin lock: keep existing pin, allow other field edits */
+    var pinLocked = state.selected && ['released', 'in_progress', 'completed', 'on_hold', 'cancelled'].indexOf(state.selected.status) >= 0
+      && orderPinComplete(state.selected);
+    if (pinLocked) {
+      pin = {
+        processTreeId: state.selected.processTreeId || state.selected.mbrId,
+        ver: state.selected.ver || state.selected.mbrVer,
+        contentHash: state.selected.contentHash,
+        mbrStatusAtBind: state.selected.mbrStatusAtBind || 'effective',
+        prodCode: state.selected.prodCode,
+        product: state.selected.product,
+        unit: state.selected.unit
+      };
+    }
+
+    if (!pin || !pin.processTreeId || !pin.ver || !pin.contentHash) {
+      MesUI.alert('효력 프로세스 트리를 선택하세요.\n저장에는 processTreeId · ver · contentHash 가 필수입니다.', 'Warning');
+      return;
+    }
+
+    /* Non-effective cannot bind (unless pin already locked historically) */
+    if (!pinLocked) {
+      /* Scenario 5: keep saved/picked pin hash — never quietly refresh from live effective.
+         Hash changes only when the user explicitly re-selects in the picker (state._pin). */
+      var eff = findEffectiveTree(pin.processTreeId, pin.ver);
+      var bindOk = (pin.mbrStatusAtBind === 'effective') || !!eff;
+      if (!bindOk) {
+        MesUI.alert('효력(effective) 트리만 오더에 바인딩할 수 있습니다.\n선택: ' + pin.processTreeId + ' v' + pin.ver, 'Warning');
+        return;
+      }
+      if (!pin.mbrStatusAtBind) pin.mbrStatusAtBind = 'effective';
+      /* prod/product/unit: fill blanks only; do not overwrite pin contentHash */
+      if (eff) {
+        if (!pin.prodCode) pin.prodCode = eff.prodCode;
+        if (!pin.product) pin.product = eff.product;
+        if (!pin.unit) pin.unit = eff.unit;
+      }
+    }
+
+    var orderNo = ($('ordNo').value || '').trim().toUpperCase();
+    if (state.mode === 'new') {
+      if (!orderNo) orderNo = nextOrderNo();
+      for (var i = 0; i < state.rows.length; i++) {
+        if (state.rows[i].orderNo === orderNo) {
+          MesUI.alert('이미 존재하는 오더번호입니다.', 'Error');
+          return;
+        }
+      }
+      var row = {
+        orderNo: orderNo,
+        status: status,
+        processTreeId: pin.processTreeId,
+        mbrId: pin.processTreeId,
+        mbrVer: pin.ver,
+        ver: pin.ver,
+        contentHash: pin.contentHash,
+        mbrStatusAtBind: pin.mbrStatusAtBind || 'effective',
+        prodCode: pin.prodCode,
+        product: pin.product,
+        qty: qty,
+        unit: ($('ordUnit').value || pin.unit || 'kg').trim(),
+        planStart: $('ordPlanStart').value || '',
+        planEnd: $('ordPlanEnd').value || '',
+        line: $('ordLine').value,
+        site: ($('ordSite').value || '').trim() || '오송 공장',
+        batchNo: '',
+        note: ($('ordNote').value || '').trim(),
+        upd: today()
+      };
+      state.rows.push(row);
+      state.selected = row;
+      saveOrders();
+      MesUI.toast('오더 생성: ' + orderNo + ' · 핀 ' + shortHash(row.contentHash), 'ok');
+    } else if (state.mode === 'edit' && state.selected) {
+      var r = state.selected;
+      r.status = status;
+      r.processTreeId = pin.processTreeId;
+      r.mbrId = pin.processTreeId;
+      r.mbrVer = pin.ver;
+      r.ver = pin.ver;
+      r.contentHash = pin.contentHash;
+      r.mbrStatusAtBind = pin.mbrStatusAtBind || 'effective';
+      r.prodCode = pin.prodCode;
+      r.product = pin.product;
+      r.qty = qty;
+      r.unit = ($('ordUnit').value || r.unit || 'kg').trim();
+      r.planStart = $('ordPlanStart').value || '';
+      r.planEnd = $('ordPlanEnd').value || '';
+      r.line = $('ordLine').value;
+      r.site = ($('ordSite').value || '').trim() || '오송 공장';
+      r.note = ($('ordNote').value || '').trim();
+      r.upd = today();
+      saveOrders();
+      MesUI.toast('오더 저장: ' + r.orderNo + ' · 핀 ' + shortHash(r.contentHash), 'ok');
+    } else {
+      MesUI.alert('New 또는 행 선택 후 편집하세요.', 'Information');
+      return;
+    }
+    setMode('edit');
+    fillForm(state.selected);
+    renderSummary(state.selected);
+    renderGrid();
+  }
+
+  /* ---- events ---- */
+  document.querySelectorAll('[data-clear]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id = btn.getAttribute('data-clear');
+      if ($(id)) { $(id).value = ''; $(id).focus(); }
+    });
+  });
+
+  $('btnSearch').addEventListener('click', function () { renderGrid(); });
+  $('btnReset').addEventListener('click', function () {
+    $('schOrderNo').value = '';
+    $('schStatus').value = '';
+    $('schMbrId').value = '';
+    $('schProduct').value = '';
+    $('schFrom').value = '';
+    $('schTo').value = '';
+    renderGrid();
+  });
+
+  $('btnNew').addEventListener('click', function () {
+    state.selected = null;
+    state._pin = null;
+    clearForm();
+    setMode('new');
+    renderSummary(null);
+    renderGrid();
+    $('ordStatus').value = 'draft';
+    $('ordPlanStart').value = today();
+    $('ordNo').focus();
+  });
+
+  $('btnDetail').addEventListener('click', function () {
+    if (!state.selected) return;
+    setMode('edit');
+    fillForm(state.selected);
+    renderSummary(state.selected);
+  });
+
+  $('btnCancel').addEventListener('click', function () {
+    if (state.selected) {
+      fillForm(state.selected);
+      setMode('view');
+      renderSummary(state.selected);
+    } else {
+      clearForm();
+      setMode('view');
+      renderSummary(null);
+    }
+  });
+
+  $('btnSave').addEventListener('click', function (e) {
+    e.preventDefault();
+    if (state.mode === 'view' && state.selected) setMode('edit');
+    doSave();
+  });
+
+  $('grdOrderBody').addEventListener('click', function (ev) {
+    var tr = ev.target.closest('tr[data-ord]');
+    if (!tr) return;
+    selectOrder(tr.getAttribute('data-ord'), false);
+  });
+  $('grdOrderBody').addEventListener('dblclick', function (ev) {
+    var tr = ev.target.closest('tr[data-ord]');
+    if (!tr) return;
+    selectOrder(tr.getAttribute('data-ord'), true);
+  });
+
+  $('btnMbrPick').addEventListener('click', openMbrPicker);
+  $('grdMbrPickBody').addEventListener('click', function (ev) {
+    var tr = ev.target.closest('tr[data-idx]');
+    if (!tr) return;
+    Array.prototype.forEach.call($('grdMbrPickBody').querySelectorAll('tr'), function (x) { x.classList.remove('selected'); });
+    tr.classList.add('selected');
+    state.pickMbr = (state._pickList || listEffectiveTrees())[Number(tr.getAttribute('data-idx'))];
+  });
+  $('grdMbrPickBody').addEventListener('dblclick', function (ev) {
+    var tr = ev.target.closest('tr[data-idx]');
+    if (!tr) return;
+    state.pickMbr = (state._pickList || listEffectiveTrees())[Number(tr.getAttribute('data-idx'))];
+    applyMbr(state.pickMbr);
+    MesUI.closeDialog('dlgMbr');
+  });
+  $('btnMbrOk').addEventListener('click', function () {
+    if (!state.pickMbr) { MesUI.alert('eMBR 행을 선택하세요.', 'Warning'); return; }
+    applyMbr(state.pickMbr);
+    MesUI.closeDialog('dlgMbr');
+  });
+
+  $('ordMbrCode').addEventListener('change', function () {
+    if ($('ordMbrCode').readOnly) return;
+    var id = ($('ordMbrCode').value || '').trim().toUpperCase();
+    var m = findEffectiveTree(id);
+    if (m) applyMbr(m);
+    else if (id) MesUI.toast('효력 트리 목록에 없는 ID입니다. 피커에서 선택하세요.', 'warn');
+  });
+
+  $('btnCopyLink').addEventListener('click', function () {
+    var url = location.href.split('#')[0];
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () { MesUI.toast('링크 복사됨', 'ok'); }, function () {});
+    } else {
+      MesUI.toast(url, 'info');
+    }
+  });
+
+  ['schOrderNo', 'schMbrId', 'schProduct'].forEach(function (id) {
+    $(id).addEventListener('keydown', function (e) { if (e.key === 'Enter') renderGrid(); });
+  });
+
+  $('btnIssueBatch').addEventListener('click', function () {
+    var r = state.selected;
+    if (!r) { MesUI.alert('오더를 선택하세요.', 'Warning'); return; }
+    var g = canIssueBatch(r);
+    if (!g.ok) {
+      MesUI.alert(g.reason, 'Warning');
+      return;
+    }
+    location.href = batchIssueUrl(r.orderNo);
+  });
+
+  /* init */
+  loadGcmStatuses();
+  fillStatusSelects();
+  setMode('view');
+  clearForm();
+  renderSummary(null);
+  renderGrid();
+  console.info('[s-ebr-order-ui] EBR_ORDER_STATUS from:', statusSrc, '· rows:', state.rows.length, '· store:', ORDER_LS_KEY);
+
+  /* —— resizable split panes (2-col) —— */
+  /* localStorage shape: {"left": <px>}  key=ebr.order.split.v1 */
+  var SPLIT_KEY = 'ebr.order.split.v1';
+  var SPLIT_DEFAULT_LEFT = 780;
+  function rsLogicalPx(visualPx) {
+    var wrap = document.getElementById('shellScale');
+    var s = 1;
+    try {
+      if (wrap) s = parseFloat(getComputedStyle(wrap).getPropertyValue('--scale')) || 1;
+    } catch (err) { s = 1; }
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    return visualPx / s;
+  }
+  function applySplitWidths(left) {
+    var split = document.getElementById('orderSplit');
+    if (!split) return;
+    var splitW = rsLogicalPx(split.getBoundingClientRect().width) || 1200;
+    var gutter = 6;
+    var minL = 160, minR = 200;
+    var maxL = Math.max(minL, Math.floor(splitW * 0.7));
+    maxL = Math.min(maxL, splitW - gutter - minR);
+    /* also keep right from exceeding ~55% by forcing left floor */
+    var minLByRight = Math.max(minL, Math.ceil(splitW - gutter - Math.floor(splitW * 0.55)));
+    if (minLByRight > maxL) minLByRight = minL;
+    var lo = Math.max(minLByRight, Math.min(maxL, left | 0));
+    var paneL = document.getElementById('paneOrderList');
+    if (!paneL) return;
+    paneL.style.flex = '0 0 ' + lo + 'px';
+    paneL.style.width = lo + 'px';
+  }
+  function loadSplit() {
+    try {
+      var s = JSON.parse(localStorage.getItem(SPLIT_KEY) || 'null');
+      if (s && s.left) applySplitWidths(s.left);
+    } catch (e) {}
+  }
+  function saveSplit() {
+    var paneL = document.getElementById('paneOrderList');
+    if (!paneL) return;
+    localStorage.setItem(SPLIT_KEY, JSON.stringify({
+      left: rsLogicalPx(paneL.getBoundingClientRect().width)
+    }));
+  }
+  function bindGutter(gutterId) {
+    var gut = document.getElementById(gutterId);
+    if (!gut) return;
+    gut.addEventListener('mousedown', function (ev) {
+      ev.preventDefault();
+      var startX = ev.clientX;
+      var startL = rsLogicalPx(document.getElementById('paneOrderList').getBoundingClientRect().width);
+      gut.classList.add('is-drag');
+      document.body.classList.add('is-resizing');
+      function onMove(e) {
+        applySplitWidths(startL + rsLogicalPx(e.clientX - startX));
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        gut.classList.remove('is-drag');
+        document.body.classList.remove('is-resizing');
+        saveSplit();
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    gut.addEventListener('dblclick', function () {
+      applySplitWidths(SPLIT_DEFAULT_LEFT);
+      saveSplit();
+    });
+  }
+  loadSplit();
+  bindGutter('gutterMain');
+
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

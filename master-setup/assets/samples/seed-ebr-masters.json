@@ -1,0 +1,1976 @@
+{
+  "_note": "EBR 도메인 마스터 시드 (S-03/S-07/S-39/S-40/MBR-02). 참고용",
+  "phase": [
+    {
+      "id": "PH-WEIGH-01",
+      "ver": 4,
+      "name": "원료 칭량 (단일 LOT)",
+      "kind": "weigh",
+      "dosage": [
+        "tablet",
+        "capsule",
+        "liquid"
+      ],
+      "eqRef": {
+        "id": "EC-BAL-01",
+        "ver": 3,
+        "hash": "e342212faf86b6f9cfd9f7b328f96282"
+      },
+      "evidence": "auto",
+      "scope": "transfer_required",
+      "valid": "validated",
+      "status": "effective",
+      "wu": 7,
+      "upd": "2026-07-15",
+      "author": "한승우",
+      "desc": "",
+      "hash": "faa1fda781a0e25168d52ddb19233f1a"
+    },
+    {
+      "id": "PH-WEIGH-02",
+      "ver": 2,
+      "name": "다중 LOT 칭량 · 역가 보정",
+      "kind": "weigh",
+      "dosage": [
+        "tablet",
+        "capsule"
+      ],
+      "eqRef": {
+        "id": "EC-BAL-01",
+        "ver": 3,
+        "hash": "e342212faf86b6f9cfd9f7b328f96282"
+      },
+      "evidence": "auto",
+      "scope": "transfer_required",
+      "valid": "validated",
+      "status": "effective",
+      "wu": 4,
+      "upd": "2026-06-02",
+      "author": "한승우",
+      "desc": "",
+      "hash": "e4482c2b6fe059f9cabe6c0f09f7e586"
+    },
+    {
+      "id": "PH-WEIGH-02",
+      "ver": 3,
+      "name": "다중 LOT 칭량 · 역가 보정 (보정 그룹)",
+      "kind": "weigh",
+      "dosage": [
+        "tablet",
+        "capsule"
+      ],
+      "eqRef": {
+        "id": "EC-BAL-01",
+        "ver": 3,
+        "hash": "e342212faf86b6f9cfd9f7b328f96282"
+      },
+      "evidence": "auto",
+      "scope": "transfer_required",
+      "valid": "not_validated",
+      "status": "draft",
+      "wu": 0,
+      "upd": "2026-10-02",
+      "author": "한승우",
+      "desc": "",
+      "hash": "c86714195e7f87fbbaaa7d3da4c648d8"
+    },
+    {
+      "id": "PH-WEIGH-03",
+      "ver": 1,
+      "name": "대용량 칭량 (부형제)",
+      "kind": "weigh",
+      "dosage": [
+        "tablet",
+        "capsule",
+        "liquid"
+      ],
+      "eqRef": {
+        "id": "EC-BAL-02",
+        "ver": 2,
+        "hash": "28cf76ddd2882c8b3534a9912fb53e4a"
+      },
+      "evidence": "auto",
+      "scope": "transfer_required",
+      "valid": "validated",
+      "status": "effective",
+      "wu": 3,
+      "upd": "2026-07-10",
+      "author": "한승우",
+      "desc": "",
+      "hash": "9c2f34b0713e43662ab38ceccadedf3d"
+    },
+    {
+      "id": "PH-GRAN-01",
+      "ver": 3,
+      "name": "고속 습식 과립",
+      "kind": "granulate",
+      "dosage": [
+        "tablet",
+        "capsule"
+      ],
+      "eqRef": {
+        "id": "EC-GRN-01",
+        "ver": 2,
+        "hash": "c42a3d4b21205ec50adc643fc4307c4c"
+      },
+      "evidence": "auto",
+      "scope": "transfer_required",
+      "valid": "validated",
+      "status": "effective",
+      "wu": 3,
+      "upd": "2026-05-21",
+      "author": "한승우",
+      "desc": "",
+      "hash": "aff03d90b2216e3618df534ce75002f9"
+    },
+    {
+      "id": "PH-DRY-01",
+      "ver": 2,
+      "name": "유동층 건조 (LOD 판정)",
+      "kind": "granulate",
+      "dosage": [
+        "tablet",
+        "capsule"
+      ],
+      "eqRef": {
+        "id": "EC-FBD-01",
+        "ver": 1,
+        "hash": "45161424e05e0262aedd5c50f5bd58eb"
+      },
+      "evidence": "auto",
+      "scope": "transfer_required",
+      "valid": "validated",
+      "status": "effective",
+      "wu": 3,
+      "upd": "2026-05-21",
+      "author": "한승우",
+      "desc": "",
+      "hash": "ffb243512a158c9f57003f9dbdda4acc"
+    },
+    {
+      "id": "PH-MIX-01",
+      "ver": 5,
+      "name": "최종 혼합 (활택제 · 회전수 IPC)",
+      "kind": "mix",
+      "dosage": [
+        "tablet",
+        "capsule"
+      ],
+      "eqRef": {
+        "id": "EC-MIX-01",
+        "ver": 2,
+        "hash": "48cdbbd5c7bb4ad36854b89134eac4d2"
+      },
+      "evidence": "auto",
+      "scope": "transfer_required",
+      "valid": "validated",
+      "status": "effective",
+      "wu": 5,
+      "upd": "2026-08-28",
+      "author": "한승우",
+      "desc": "",
+      "hash": "f62535c09182003a3fe24de42ecd6fc1"
+    },
+    {
+      "id": "PH-COMP-01",
+      "ver": 3,
+      "name": "타정 · IPC (중량 · 경도)",
+      "kind": "compress",
+      "dosage": [
+        "tablet"
+      ],
+      "eqRef": {
+        "id": "EC-TAB-01",
+        "ver": 3,
+        "hash": "16f9b997ab6486d943d96733b6fe873c"
+      },
+      "evidence": "auto",
+      "scope": "transfer_required",
+      "valid": "validated",
+      "status": "effective",
+      "wu": 3,
+      "upd": "2026-04-09",
+      "author": "한승우",
+      "desc": "",
+      "hash": "e3156e230f417d8dfd2ee937f1f6dd08"
+    },
+    {
+      "id": "PH-COMP-01",
+      "ver": 4,
+      "name": "타정 · IPC (중량 · 경도 · 두께)",
+      "kind": "compress",
+      "dosage": [
+        "tablet"
+      ],
+      "eqRef": {
+        "id": "EC-TAB-01",
+        "ver": 3,
+        "hash": "16f9b997ab6486d943d96733b6fe873c"
+      },
+      "evidence": "auto",
+      "scope": "transfer_required",
+      "valid": "validating",
+      "status": "review",
+      "wu": 0,
+      "upd": "2026-09-29",
+      "author": "한승우",
+      "desc": "",
+      "hash": "a5a5bbf0b9232a32d16acfa416817043"
+    },
+    {
+      "id": "PH-COAT-01",
+      "ver": 2,
+      "name": "필름 코팅 (분무 · 건조)",
+      "kind": "coat",
+      "dosage": [
+        "tablet"
+      ],
+      "eqRef": {
+        "id": "EC-COT-01",
+        "ver": 1,
+        "hash": "18cf0cd31beaeca5befe27ef27737e46"
+      },
+      "evidence": "auto",
+      "scope": "transfer_required",
+      "valid": "validated",
+      "status": "approved",
+      "wu": 0,
+      "upd": "2026-09-18",
+      "author": "한승우",
+      "desc": "",
+      "hash": "af07f7aad7990d5822086dcec4795ec7"
+    },
+    {
+      "id": "PH-FILL-01",
+      "ver": 1,
+      "name": "캡슐 충전 · 중량 선별",
+      "kind": "fill",
+      "dosage": [
+        "capsule"
+      ],
+      "eqRef": {
+        "id": "EC-CAP-01",
+        "ver": 1,
+        "hash": "d4c78684b5493952dd226c38982efcb1"
+      },
+      "evidence": "auto",
+      "scope": "transfer_required",
+      "valid": "validated",
+      "status": "effective",
+      "wu": 1,
+      "upd": "2026-03-30",
+      "author": "한승우",
+      "desc": "",
+      "hash": "5448ba476031e40501e4fbc374cd71d0"
+    },
+    {
+      "id": "PH-LFILL-01",
+      "ver": 1,
+      "name": "액상 충전 · 밀봉",
+      "kind": "liquidFill",
+      "dosage": [
+        "liquid"
+      ],
+      "eqRef": {
+        "id": "EC-LFL-01",
+        "ver": 1,
+        "hash": "b04a61a93b306c976855e4d5371e76d0"
+      },
+      "evidence": "auto",
+      "scope": "transfer_required",
+      "valid": "validated",
+      "status": "effective",
+      "wu": 1,
+      "upd": "2026-03-30",
+      "author": "한승우",
+      "desc": "",
+      "hash": "2960800b64bfc91d5d48e7279a75a906"
+    },
+    {
+      "id": "PH-PACK-01",
+      "ver": 2,
+      "name": "PTP 포장 · 라벨 대조",
+      "kind": "pack",
+      "dosage": [
+        "tablet",
+        "capsule"
+      ],
+      "eqRef": {
+        "id": "EC-PKG-01",
+        "ver": 2,
+        "hash": "74c4e6ccfb2bda6a38e7f958778dc8ff"
+      },
+      "evidence": "scan",
+      "scope": "runtime_ok",
+      "valid": "validated",
+      "status": "effective",
+      "wu": 4,
+      "upd": "2026-06-17",
+      "author": "한승우",
+      "desc": "",
+      "hash": "d623374651a914e8cf15b9ea4fb45673"
+    },
+    {
+      "id": "PH-CLR-01",
+      "ver": 1,
+      "name": "라인 클리어런스 체크리스트",
+      "kind": "pack",
+      "dosage": [
+        "tablet",
+        "capsule",
+        "liquid"
+      ],
+      "eqRef": {
+        "id": "EC-PKG-01",
+        "ver": 2,
+        "hash": "74c4e6ccfb2bda6a38e7f958778dc8ff"
+      },
+      "evidence": "photo",
+      "scope": "runtime_ok",
+      "valid": "not_validated",
+      "status": "draft",
+      "wu": 0,
+      "upd": "2026-10-04",
+      "author": "김민수",
+      "desc": "",
+      "hash": "7610466c7520c9da9fa264a827f65afb"
+    }
+  ],
+  "config": [
+    {
+      "kind": "interlock",
+      "id": "ILR-STD",
+      "ver": 7,
+      "name": "표준 인터록 룰 세트",
+      "status": "effective",
+      "scope": "runtime_ok",
+      "pkg": "na",
+      "apply": "site",
+      "reviewer": "이수진",
+      "effDate": "2026-07-15",
+      "upd": "2026-07-10",
+      "author": "한승우",
+      "body": {
+        "grades": [
+          {
+            "grade": "Absolute",
+            "override": false,
+            "role": "none",
+            "auth": "",
+            "dev": false,
+            "block": "none",
+            "scope": "product_floor",
+            "limit": "override 불가 · P-52 대체 경로",
+            "locked": true
+          },
+          {
+            "grade": "Hard-QA",
+            "override": true,
+            "role": "qa",
+            "auth": "full_factor",
+            "dev": true,
+            "block": "deviation",
+            "scope": "product_floor",
+            "limit": "배치당 1회",
+            "locked": true
+          },
+          {
+            "grade": "Controlled",
+            "override": true,
+            "role": "supervisor",
+            "auth": "full_factor",
+            "dev": false,
+            "block": "rbe",
+            "scope": "site",
+            "limit": "RBE 예외 자동 생성",
+            "locked": false
+          },
+          {
+            "grade": "Warning",
+            "override": true,
+            "role": "self",
+            "auth": "pin_session",
+            "dev": false,
+            "block": "none",
+            "scope": "site",
+            "limit": "사유 입력 후 진행",
+            "locked": false
+          }
+        ],
+        "absolute": [
+          "칭량 원료 ID · LOT 불일치",
+          "설비 교정 만료 · 미적격 설비 (장비 클래스 적격 목록 밖)",
+          "자격 미보유 수행자 서명",
+          "유효기간 경과 · 부적합 판정 LOT 투입"
+        ]
+      },
+      "hash": "f28380ad5b6a315b4085f0413064d854"
+    },
+    {
+      "kind": "interlock",
+      "id": "ILR-STD",
+      "ver": 8,
+      "name": "표준 인터록 룰 세트 (Warning 전 요소)",
+      "status": "draft",
+      "scope": "runtime_ok",
+      "pkg": "na",
+      "apply": "site",
+      "reviewer": "",
+      "effDate": "",
+      "upd": "2026-10-03",
+      "author": "김민수",
+      "body": {
+        "grades": [
+          {
+            "grade": "Absolute",
+            "override": false,
+            "role": "none",
+            "auth": "",
+            "dev": false,
+            "block": "none",
+            "scope": "product_floor",
+            "limit": "override 불가 · P-52 대체 경로",
+            "locked": true
+          },
+          {
+            "grade": "Hard-QA",
+            "override": true,
+            "role": "qa",
+            "auth": "full_factor",
+            "dev": true,
+            "block": "deviation",
+            "scope": "product_floor",
+            "limit": "배치당 1회",
+            "locked": true
+          },
+          {
+            "grade": "Controlled",
+            "override": true,
+            "role": "supervisor",
+            "auth": "full_factor",
+            "dev": false,
+            "block": "rbe",
+            "scope": "site",
+            "limit": "RBE 예외 자동 생성",
+            "locked": false
+          },
+          {
+            "grade": "Warning",
+            "override": true,
+            "role": "self",
+            "auth": "full_factor",
+            "dev": false,
+            "block": "none",
+            "scope": "site",
+            "limit": "사유 입력 + 전 요소 (CC-2026-041 검토 중)",
+            "locked": false
+          }
+        ],
+        "absolute": [
+          "칭량 원료 ID · LOT 불일치",
+          "설비 교정 만료 · 미적격 설비 (장비 클래스 적격 목록 밖)",
+          "자격 미보유 수행자 서명",
+          "유효기간 경과 · 부적합 판정 LOT 투입"
+        ]
+      },
+      "hash": "fc4b3cb9a6852407effc252d2798b78a"
+    },
+    {
+      "kind": "interlock",
+      "id": "ILR-WEIGH",
+      "ver": 3,
+      "name": "칭량 인터록 룰 (L-01/L-02)",
+      "status": "effective",
+      "scope": "runtime_ok",
+      "pkg": "na",
+      "apply": "line",
+      "reviewer": "박정훈",
+      "effDate": "2026-06-20",
+      "upd": "2026-06-14",
+      "author": "한승우",
+      "body": {
+        "grades": [
+          {
+            "grade": "Absolute",
+            "override": false,
+            "role": "none",
+            "auth": "",
+            "dev": false,
+            "block": "none",
+            "scope": "product_floor",
+            "limit": "override 불가 · P-52 대체 경로",
+            "locked": true
+          },
+          {
+            "grade": "Hard-QA",
+            "override": true,
+            "role": "qa",
+            "auth": "full_factor",
+            "dev": true,
+            "block": "deviation",
+            "scope": "product_floor",
+            "limit": "배치당 1회",
+            "locked": true
+          },
+          {
+            "grade": "Controlled",
+            "override": true,
+            "role": "supervisor",
+            "auth": "full_factor",
+            "dev": false,
+            "block": "rbe",
+            "scope": "line",
+            "limit": "칭량 허용오차 ±0.5 % 초과 시",
+            "locked": false
+          },
+          {
+            "grade": "Warning",
+            "override": true,
+            "role": "self",
+            "auth": "pin_session",
+            "dev": false,
+            "block": "none",
+            "scope": "site",
+            "limit": "사유 입력 후 진행",
+            "locked": false
+          }
+        ],
+        "absolute": [
+          "칭량 원료 ID · LOT 불일치",
+          "설비 교정 만료 · 미적격 설비 (장비 클래스 적격 목록 밖)",
+          "자격 미보유 수행자 서명",
+          "유효기간 경과 · 부적합 판정 LOT 투입"
+        ]
+      },
+      "hash": "afe84f0d0c2ef1c38e57f7c1ec137490"
+    },
+    {
+      "kind": "criticality",
+      "id": "CD-CORE",
+      "ver": 12,
+      "name": "중요도 사전 (제품 고정 + 고객 확장)",
+      "status": "effective",
+      "scope": "runtime_ok",
+      "pkg": "na",
+      "apply": "site",
+      "reviewer": "정다은",
+      "effDate": "2026-09-01",
+      "upd": "2026-08-25",
+      "author": "한승우",
+      "body": "category: critical\n  - weigh.actual_qty        # 칭량 실측량\n  - weigh.lot_id            # 원료 LOT\n  - compress.hardness_mean  # 타정 경도 평균\n  - coat.weight_gain_pct    # 코팅 증량률\nextension (고객):\n  - mix.blend_time_min\naudit_filter: critical_only",
+      "hash": "1be6679f89376db5b8ad6c235520618e"
+    },
+    {
+      "kind": "criticality",
+      "id": "CD-CORE",
+      "ver": 13,
+      "name": "중요도 사전 (코팅 증량률 추가)",
+      "status": "review",
+      "scope": "runtime_ok",
+      "pkg": "na",
+      "apply": "site",
+      "reviewer": "이수진",
+      "effDate": "",
+      "upd": "2026-09-30",
+      "author": "한승우",
+      "body": "category: critical\n  - weigh.actual_qty        # 칭량 실측량\n  - weigh.lot_id            # 원료 LOT\n  - compress.hardness_mean  # 타정 경도 평균\n  - coat.weight_gain_pct    # 코팅 증량률\nextension (고객):\n  - mix.blend_time_min\naudit_filter: critical_only\n  - coat.spray_rate",
+      "hash": "9b8a0e61bad63277929cf65d99e4fcea"
+    },
+    {
+      "kind": "rbe",
+      "id": "RBE-STD",
+      "ver": 5,
+      "name": "RBE 규칙 세트 · 표준 예외 카테고리",
+      "status": "effective",
+      "scope": "transfer_required",
+      "pkg": "match",
+      "apply": "site",
+      "reviewer": "박정훈",
+      "effDate": "2026-08-10",
+      "upd": "2026-08-01",
+      "author": "한승우",
+      "body": "rule_set: RBE-STD\ncategories:\n  UNSIGNED            -> 미서명 값 (출하 차단)\n  OVERRIDE_HARDQA     -> Hard-QA override (일탈 링크 필수)\n  OVERRIDE_CONTROLLED -> 감독자 승인 진행\n  WARNING_ACK         -> 경고 확인 진행\n  RECON_DIFF          -> 물질수지 대사 차이\n  BASELINE_VIOLATION  -> 히스토리안 기준선 이탈\n  DOWNTIME            -> 다운타임 구간 전수 검토",
+      "hash": "d8bbb481a52586c7b36a3645c0f28c9e"
+    },
+    {
+      "kind": "rbe",
+      "id": "RBE-STD",
+      "ver": 6,
+      "name": "RBE 규칙 세트 (대사 차이 임계 조정)",
+      "status": "approved",
+      "scope": "transfer_required",
+      "pkg": "mismatch",
+      "apply": "site",
+      "reviewer": "정다은",
+      "effDate": "",
+      "upd": "2026-09-27",
+      "author": "한승우",
+      "body": "rule_set: RBE-STD\ncategories:\n  UNSIGNED            -> 미서명 값 (출하 차단)\n  OVERRIDE_HARDQA     -> Hard-QA override (일탈 링크 필수)\n  OVERRIDE_CONTROLLED -> 감독자 승인 진행\n  WARNING_ACK         -> 경고 확인 진행\n  RECON_DIFF          -> 물질수지 대사 차이\n  BASELINE_VIOLATION  -> 히스토리안 기준선 이탈\n  DOWNTIME            -> 다운타임 구간 전수 검토\n  RECON_DIFF.threshold: 0.3 %",
+      "hash": "f048a0921699de44b707688e75c1f809"
+    },
+    {
+      "kind": "formula",
+      "id": "FX-YIELD",
+      "ver": 4,
+      "name": "수율 계산식 (파라미터형)",
+      "status": "effective",
+      "scope": "runtime_ok",
+      "pkg": "na",
+      "apply": "site",
+      "reviewer": "이수진",
+      "effDate": "2026-06-30",
+      "upd": "2026-06-22",
+      "author": "한승우",
+      "body": "id: FX-YIELD\ntype: parameterized   # 운영 허용 (검증 계산식 선택)\nexpr: yield_pct = actual_output / theoretical_output * 100\nround: 판정용 반올림 0.1 %\ninputs: [actual_output(정), theoretical_output(정)]\nlimits: { alert: 97.0, action: 95.0 }",
+      "hash": "103347b9e331a707f81f7d7588355a0e"
+    },
+    {
+      "kind": "formula",
+      "id": "FX-POTENCY",
+      "ver": 2,
+      "name": "역가 보정 칭량량 계산식",
+      "status": "effective",
+      "scope": "transfer_required",
+      "pkg": "match",
+      "apply": "site",
+      "reviewer": "박정훈",
+      "effDate": "2026-05-12",
+      "upd": "2026-05-02",
+      "author": "한승우",
+      "body": "id: FX-POTENCY\nexpr: req_qty = theo_qty * 100 / (assay_pct * (100 - lod_pct) / 100)\ninputs: [theo_qty, assay_pct(LIMS), lod_pct(LIMS)]",
+      "hash": "f92edbcc29fab73a22ff2850d26ceb45"
+    },
+    {
+      "kind": "formula",
+      "id": "FX-MB-FREE",
+      "ver": 1,
+      "name": "물질수지 자유 계산식 (코팅)",
+      "status": "review",
+      "scope": "transfer_required",
+      "pkg": "match",
+      "apply": "product",
+      "reviewer": "정다은",
+      "effDate": "",
+      "upd": "2026-10-01",
+      "author": "한승우",
+      "body": "id: FX-MB-FREE\ntype: free   # 이관 필수\nexpr: mb_pct = (core_wt + coat_solid - loss) / input_total * 100",
+      "hash": "322981de6cd29600d8b9e562f27160a3"
+    },
+    {
+      "kind": "parser",
+      "id": "PR-BAL-MT",
+      "ver": 3,
+      "name": "Mettler 저울 파서 (SICS)",
+      "status": "effective",
+      "scope": "transfer_required",
+      "pkg": "match",
+      "apply": "site",
+      "reviewer": "박정훈",
+      "effDate": "2026-05-20",
+      "upd": "2026-05-11",
+      "author": "한승우",
+      "body": "id: PR-BAL-MT\ndevice: Mettler XPR / SICS\nframe: \"S S <value> <unit>\\r\\n\"\nstable_only: true\nunit_map: { g: g, kg: kg }\nquality: { \"S D\": dynamic -> reject }",
+      "hash": "f168842a2804818439baec663e96d0b1"
+    },
+    {
+      "kind": "parser",
+      "id": "PR-PH-01",
+      "ver": 1,
+      "name": "pH 미터 파서",
+      "status": "draft",
+      "scope": "transfer_required",
+      "pkg": "wait",
+      "apply": "line",
+      "reviewer": "",
+      "effDate": "",
+      "upd": "2026-10-04",
+      "author": "김민수",
+      "body": "id: PR-PH-01\ndevice: SevenExcellence\nframe: CSV\nfields: [ts, ph, temp_c]",
+      "hash": "3d2822ebcafd2371d8bd9d878a011792"
+    },
+    {
+      "kind": "historian",
+      "id": "HB-GRAN-DRY",
+      "ver": 2,
+      "name": "유동층 건조 기준선",
+      "status": "effective",
+      "scope": "runtime_ok",
+      "pkg": "na",
+      "apply": "line",
+      "reviewer": "정다은",
+      "effDate": "2026-03-02",
+      "upd": "2026-02-24",
+      "author": "한승우",
+      "body": "id: HB-GRAN-DRY\ntags: [FBD01.INLET_TEMP, FBD01.OUTLET_TEMP, FBD01.AIRFLOW]\nbaseline: 최근 효력 20배치 ±3σ\nsnapshot: 단계 종료 시 반입 (DI-04)\nviolation -> RBE BASELINE_VIOLATION",
+      "hash": "5bbbf7fe0b0105f8789d70f2e630d60d"
+    },
+    {
+      "kind": "historian",
+      "id": "HB-COAT-01",
+      "ver": 1,
+      "name": "코팅 팬 기준선 (구)",
+      "status": "retired",
+      "scope": "runtime_ok",
+      "pkg": "na",
+      "apply": "line",
+      "reviewer": "이수진",
+      "effDate": "2025-11-03",
+      "upd": "2026-08-30",
+      "author": "한승우",
+      "body": "id: HB-COAT-01\ntags: [COT01.EXHAUST_TEMP]\nbaseline: 고정 범위 38~45 ℃",
+      "hash": "157a414d0c83e873f99ee6595d2e64e2"
+    }
+  ],
+  "sign": [
+    {
+      "id": "SM-PERF-STEP",
+      "ver": 3,
+      "meaning": "performed",
+      "recType": "step_value",
+      "auth": "pin_session",
+      "batch": false,
+      "samePerson": false,
+      "status": "effective",
+      "upd": "2026-07-01",
+      "note": "Operation 종료 시 수행 서명",
+      "author": "이수진",
+      "hash": "411d75fc1129280262b771989f126ab3"
+    },
+    {
+      "id": "SM-PERF-WEIGH",
+      "ver": 2,
+      "meaning": "performed",
+      "recType": "weigh_value",
+      "auth": "pin_session",
+      "batch": false,
+      "samePerson": false,
+      "status": "effective",
+      "upd": "2026-07-01",
+      "note": "",
+      "author": "이수진",
+      "hash": "394b0117d8087945364e8843ed0edc3c"
+    },
+    {
+      "id": "SM-VERI-STEP",
+      "ver": 3,
+      "meaning": "verified",
+      "recType": "step_value",
+      "auth": "full_factor",
+      "batch": false,
+      "samePerson": true,
+      "status": "effective",
+      "upd": "2026-07-01",
+      "note": "동일인 차단 · 랜덤 키패드",
+      "author": "이수진",
+      "hash": "d3b39e8744eb7779502dd1dbd4d9b0ea"
+    },
+    {
+      "id": "SM-VERI-WEIGH",
+      "ver": 2,
+      "meaning": "verified",
+      "recType": "weigh_value",
+      "auth": "full_factor",
+      "batch": false,
+      "samePerson": true,
+      "status": "effective",
+      "upd": "2026-07-01",
+      "note": "",
+      "author": "이수진",
+      "hash": "6c1b9a0e2c091710b269478ae66391a9"
+    },
+    {
+      "id": "SM-VERI-CORR",
+      "ver": 1,
+      "meaning": "verified",
+      "recType": "correction",
+      "auth": "full_factor",
+      "batch": false,
+      "samePerson": true,
+      "status": "effective",
+      "upd": "2026-08-12",
+      "note": "정정자 ≠ 확인자",
+      "author": "이수진",
+      "hash": "8980c07a596620789eec1a2e6f82f74f"
+    },
+    {
+      "id": "SM-APPR-MBR",
+      "ver": 2,
+      "meaning": "approved",
+      "recType": "mbr_approval",
+      "auth": "full_factor",
+      "batch": false,
+      "samePerson": true,
+      "status": "effective",
+      "upd": "2026-06-05",
+      "note": "",
+      "author": "이수진",
+      "hash": "bd764700510d855a385f1a641214becd"
+    },
+    {
+      "id": "SM-APPR-REL",
+      "ver": 2,
+      "meaning": "approved",
+      "recType": "release",
+      "auth": "full_factor",
+      "batch": false,
+      "samePerson": true,
+      "status": "effective",
+      "upd": "2026-06-05",
+      "note": "개별 · 일괄 불가",
+      "author": "이수진",
+      "hash": "aa13a66f0753fdf52652e2634cd20f94"
+    },
+    {
+      "id": "SM-APPR-OVR",
+      "ver": 1,
+      "meaning": "approved",
+      "recType": "interlock_override",
+      "auth": "full_factor",
+      "batch": false,
+      "samePerson": true,
+      "status": "effective",
+      "upd": "2026-07-15",
+      "note": "Hard-QA override",
+      "author": "이수진",
+      "hash": "f9b4d74eab8fb6044ba1a1e247953877"
+    },
+    {
+      "id": "SM-APPR-EQC",
+      "ver": 1,
+      "meaning": "approved",
+      "recType": "eqclass_approval",
+      "auth": "full_factor",
+      "batch": false,
+      "samePerson": true,
+      "status": "effective",
+      "upd": "2026-07-02",
+      "note": "장비 클래스 승인 · 적격 목록 스냅샷 고정",
+      "author": "이수진",
+      "hash": "76049c664ef72dac1dc9b0c2f7eba5b3"
+    },
+    {
+      "id": "SM-READ-BRIEF",
+      "ver": 2,
+      "meaning": "read_understood",
+      "recType": "briefing",
+      "auth": "pin_session",
+      "batch": true,
+      "samePerson": false,
+      "status": "effective",
+      "upd": "2026-08-20",
+      "note": "",
+      "author": "이수진",
+      "hash": "69f351010910af3b73632d5dddd085ee"
+    },
+    {
+      "id": "SM-REV-RBE",
+      "ver": 1,
+      "meaning": "reviewed",
+      "recType": "rbe_exception",
+      "auth": "full_factor",
+      "batch": true,
+      "samePerson": true,
+      "status": "effective",
+      "upd": "2026-08-10",
+      "note": "",
+      "author": "이수진",
+      "hash": "a7d362ec2a1b7baeeecdb088179d7d77"
+    },
+    {
+      "id": "SM-REV-AUDIT",
+      "ver": 1,
+      "meaning": "reviewed",
+      "recType": "audit_trail",
+      "auth": "full_factor",
+      "batch": true,
+      "samePerson": true,
+      "status": "review",
+      "upd": "2026-09-30",
+      "note": "",
+      "author": "이수진",
+      "hash": "d1e1d0b56b4331b7f68ed549dc988e9e"
+    },
+    {
+      "id": "SM-APPR-CC",
+      "ver": 1,
+      "meaning": "approved",
+      "recType": "cc_approval",
+      "auth": "biometric_opt",
+      "batch": false,
+      "samePerson": true,
+      "status": "draft",
+      "upd": "2026-10-03",
+      "note": "생체 옵션 시범",
+      "author": "이수진",
+      "hash": "1e1cd0f64330a02ca709c35a8aad40cf"
+    }
+  ],
+  "auth": [
+    {
+      "id": "AM-CARD-PIN",
+      "ver": 2,
+      "name": "사원증 + PIN",
+      "auth": "full_factor",
+      "zone": "전 구역",
+      "temp": false,
+      "plugin": "HID iCLASS v3.2",
+      "status": "effective",
+      "upd": "2026-06-01",
+      "author": "김민수",
+      "note": "",
+      "hash": "909e95413e5ba45ff5f844bd8ef96a66"
+    },
+    {
+      "id": "AM-RFID-BAND",
+      "ver": 1,
+      "name": "RFID 손목 밴드 + PIN",
+      "auth": "full_factor",
+      "zone": "Grade C (장갑 착용)",
+      "temp": false,
+      "plugin": "RFID-13.56 v1.4",
+      "status": "effective",
+      "upd": "2026-06-01",
+      "author": "김민수",
+      "note": "",
+      "hash": "61f707ef8d608bbde5123b93deeda20a"
+    },
+    {
+      "id": "AM-PIN-SESSION",
+      "ver": 1,
+      "name": "연속 세션 PIN",
+      "auth": "pin_session",
+      "zone": "전 구역 (수행만)",
+      "temp": false,
+      "plugin": "내장",
+      "status": "effective",
+      "upd": "2026-06-01",
+      "author": "김민수",
+      "note": "",
+      "hash": "e511cb9696a10f289970e7ea9321d719"
+    },
+    {
+      "id": "AM-IDPW",
+      "ver": 1,
+      "name": "ID + 비밀번호",
+      "auth": "full_factor",
+      "zone": "사무 구역 · UI",
+      "temp": false,
+      "plugin": "LDAP",
+      "status": "effective",
+      "upd": "2026-06-01",
+      "author": "김민수",
+      "note": "",
+      "hash": "2ee899a22985d59cd8a0964ef3cb91bb"
+    },
+    {
+      "id": "AM-TEMP-CARD",
+      "ver": 1,
+      "name": "임시 카드 (TEMP)",
+      "auth": "full_factor",
+      "zone": "전 구역 — 당일 만료",
+      "temp": true,
+      "plugin": "HID iCLASS v3.2",
+      "status": "effective",
+      "upd": "2026-06-01",
+      "author": "김민수",
+      "note": "",
+      "hash": "651a1d95e840351b9f2451e953075f9c"
+    },
+    {
+      "id": "AM-BIO-VEIN",
+      "ver": 1,
+      "name": "지정맥 (옵션)",
+      "auth": "biometric_opt",
+      "zone": "칭량실 (장갑 탈의 구역)",
+      "temp": false,
+      "plugin": "PalmSecure v2.0",
+      "status": "review",
+      "upd": "2026-09-24",
+      "author": "김민수",
+      "note": "",
+      "hash": "7a024686dec933b4283f8bfa2dec745f"
+    }
+  ],
+  "terminal": [
+    {
+      "id": "T-WB-01",
+      "ver": 1,
+      "type": "fixed_panel",
+      "model": "Advantech PPC-321",
+      "room": "R-201",
+      "line": "L-01",
+      "online": "online",
+      "lock": 3,
+      "sess": 15,
+      "shift": 12,
+      "reader": "RFID-WB01",
+      "authMethod": "AM-RFID-BAND",
+      "status": "effective",
+      "beat": "16:05:12",
+      "upd": "2026-09-15",
+      "author": "김민수",
+      "note": "",
+      "hash": "6c2147f84caf4faa767919041993a045"
+    },
+    {
+      "id": "T-WB-02",
+      "ver": 1,
+      "type": "fixed_panel",
+      "model": "Advantech PPC-321",
+      "room": "R-202",
+      "line": "L-02",
+      "online": "online",
+      "lock": 3,
+      "sess": 15,
+      "shift": 12,
+      "reader": "RFID-WB02",
+      "authMethod": "AM-RFID-BAND",
+      "status": "effective",
+      "beat": "16:05:08",
+      "upd": "2026-09-15",
+      "author": "김민수",
+      "note": "",
+      "hash": "d0f30aca1b32ee1420fa01162845f8b7"
+    },
+    {
+      "id": "T-GR-01",
+      "ver": 1,
+      "type": "explosion_proof",
+      "model": "Pepperl+Fuchs VisuNet",
+      "room": "R-210",
+      "line": "L-01",
+      "online": "online",
+      "lock": 3,
+      "sess": 15,
+      "shift": 12,
+      "reader": "",
+      "authMethod": "AM-CARD-PIN",
+      "status": "effective",
+      "beat": "16:04:57",
+      "upd": "2026-09-15",
+      "author": "김민수",
+      "note": "",
+      "hash": "7fb23cb827343b7667ac54d44b809e7d"
+    },
+    {
+      "id": "T-MX-01",
+      "ver": 1,
+      "type": "fixed_panel",
+      "model": "Advantech PPC-321",
+      "room": "R-215",
+      "line": "L-01",
+      "online": "offline",
+      "lock": 5,
+      "sess": 15,
+      "shift": 12,
+      "reader": "RFID-MX01",
+      "authMethod": "AM-RFID-BAND",
+      "status": "effective",
+      "beat": "13:41:20",
+      "upd": "2026-09-15",
+      "author": "김민수",
+      "note": "",
+      "hash": "9dd5a9dfd3837eed442f763b53facd4a"
+    },
+    {
+      "id": "T-TB-01",
+      "ver": 1,
+      "type": "fixed_panel",
+      "model": "Advantech PPC-321",
+      "room": "R-220",
+      "line": "L-01",
+      "online": "online",
+      "lock": 5,
+      "sess": 15,
+      "shift": 12,
+      "reader": "RFID-TB01",
+      "authMethod": "AM-RFID-BAND",
+      "status": "effective",
+      "beat": "16:05:10",
+      "upd": "2026-09-15",
+      "author": "김민수",
+      "note": "",
+      "hash": "214f1e192b89a56b85b489cde02a2630"
+    },
+    {
+      "id": "T-TB-02",
+      "ver": 1,
+      "type": "fixed_panel",
+      "model": "Advantech PPC-321",
+      "room": "R-221",
+      "line": "L-02",
+      "online": "online",
+      "lock": 5,
+      "sess": 15,
+      "shift": 12,
+      "reader": "RFID-TB02",
+      "authMethod": "AM-RFID-BAND",
+      "status": "effective",
+      "beat": "16:05:02",
+      "upd": "2026-09-15",
+      "author": "김민수",
+      "note": "",
+      "hash": "660bff85b54bad2b0f4469696737cd30"
+    },
+    {
+      "id": "T-CT-01",
+      "ver": 1,
+      "type": "explosion_proof",
+      "model": "Pepperl+Fuchs VisuNet",
+      "room": "R-230",
+      "line": "L-01",
+      "online": "maint",
+      "lock": 3,
+      "sess": 15,
+      "shift": 12,
+      "reader": "",
+      "authMethod": "AM-CARD-PIN",
+      "status": "effective",
+      "beat": "09:12:44",
+      "upd": "2026-09-15",
+      "author": "김민수",
+      "note": "",
+      "hash": "c98ab85468d2d7ba72b946906a9421c9"
+    },
+    {
+      "id": "T-CP-01",
+      "ver": 1,
+      "type": "fixed_panel",
+      "model": "Advantech PPC-321",
+      "room": "R-240",
+      "line": "L-03",
+      "online": "online",
+      "lock": 5,
+      "sess": 15,
+      "shift": 12,
+      "reader": "RFID-CP01",
+      "authMethod": "AM-RFID-BAND",
+      "status": "effective",
+      "beat": "16:05:11",
+      "upd": "2026-09-15",
+      "author": "김민수",
+      "note": "",
+      "hash": "385350f31baebc95b8cf4cbf85d4dcd6"
+    },
+    {
+      "id": "T-LQ-01",
+      "ver": 1,
+      "type": "fixed_panel",
+      "model": "Advantech PPC-321",
+      "room": "R-250",
+      "line": "L-04",
+      "online": "online",
+      "lock": 5,
+      "sess": 15,
+      "shift": 12,
+      "reader": "RFID-LQ01",
+      "authMethod": "AM-CARD-PIN",
+      "status": "effective",
+      "beat": "16:04:49",
+      "upd": "2026-09-15",
+      "author": "김민수",
+      "note": "",
+      "hash": "b80b6d9cf0b3653a6e0c83a8a75f50cb"
+    },
+    {
+      "id": "T-PK-01",
+      "ver": 1,
+      "type": "fixed_panel",
+      "model": "Advantech PPC-321",
+      "room": "R-260",
+      "line": "L-02",
+      "online": "online",
+      "lock": 5,
+      "sess": 15,
+      "shift": 12,
+      "reader": "RFID-PK01",
+      "authMethod": "AM-CARD-PIN",
+      "status": "effective",
+      "beat": "16:05:06",
+      "upd": "2026-09-15",
+      "author": "김민수",
+      "note": "",
+      "hash": "d81257ad12a144b384c0fbe1ac4ba21e"
+    },
+    {
+      "id": "T-CART-01",
+      "ver": 1,
+      "type": "cart",
+      "model": "Panasonic FZ-G2 카트",
+      "room": "R-215",
+      "line": "L-01",
+      "online": "online",
+      "lock": 3,
+      "sess": 15,
+      "shift": 10,
+      "reader": "RFID-CART01",
+      "authMethod": "AM-RFID-BAND",
+      "status": "review",
+      "beat": "16:03:30",
+      "upd": "2026-09-15",
+      "author": "김민수",
+      "note": "",
+      "hash": "8475dd0cc8b2c4f20eac49d8f05155a9"
+    },
+    {
+      "id": "T-CART-02",
+      "ver": 1,
+      "type": "cart",
+      "model": "Panasonic FZ-G2 카트",
+      "room": "",
+      "line": "",
+      "online": "offline",
+      "lock": 3,
+      "sess": 15,
+      "shift": 10,
+      "reader": "RFID-CART02",
+      "authMethod": "AM-RFID-BAND",
+      "status": "draft",
+      "beat": "—",
+      "upd": "2026-09-15",
+      "author": "김민수",
+      "note": "",
+      "hash": "766116adac1bdfaffd41589109e36256"
+    }
+  ],
+  "eqclass": [
+    {
+      "id": "EC-BAL-01",
+      "ver": 3,
+      "name": "정밀 저울 (≤ 6 kg)",
+      "kind": "weigh",
+      "dosage": [
+        "tablet",
+        "capsule",
+        "liquid"
+      ],
+      "caps": [
+        {
+          "item": "최대 용량",
+          "op": "≥",
+          "val": "6",
+          "unit": "kg"
+        },
+        {
+          "item": "판독 한계",
+          "op": "≤",
+          "val": "0.01",
+          "unit": "g"
+        },
+        {
+          "item": "인터페이스",
+          "op": "=",
+          "val": "SICS",
+          "unit": ""
+        },
+        {
+          "item": "교정",
+          "op": "=",
+          "val": "유효",
+          "unit": "CMMS"
+        }
+      ],
+      "capability": "일일 점검 수행 · 수평계 확인",
+      "members": [
+        {
+          "equipId": "BAL-101",
+          "src": "RAS",
+          "snap": {
+            "name": "정밀 저울 #101",
+            "area": "R-201",
+            "status": "RUN",
+            "calDue": "2027-01-15",
+            "qualState": "na",
+            "at": "2026-07-02",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        },
+        {
+          "equipId": "BAL-102",
+          "src": "RAS",
+          "snap": {
+            "name": "정밀 저울 #102",
+            "area": "R-202",
+            "status": "RUN",
+            "calDue": "2026-12-03",
+            "qualState": "na",
+            "at": "2026-07-02",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        },
+        {
+          "equipId": "BAL-205",
+          "src": "RAS",
+          "snap": {
+            "name": "정밀 저울 #205",
+            "area": "R-201",
+            "status": "RUN",
+            "calDue": "2026-10-12",
+            "qualState": "na",
+            "at": "2026-07-02",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        }
+      ],
+      "status": "effective",
+      "wu": 7,
+      "upd": "2026-07-02",
+      "author": "한승우",
+      "frozen": {
+        "at": "2026-07-02",
+        "by": "이수진"
+      },
+      "hash": "e342212faf86b6f9cfd9f7b328f96282"
+    },
+    {
+      "id": "EC-BAL-02",
+      "ver": 2,
+      "name": "플로어 저울 (≤ 300 kg)",
+      "kind": "weigh",
+      "dosage": [
+        "tablet",
+        "capsule",
+        "liquid"
+      ],
+      "caps": [
+        {
+          "item": "최대 용량",
+          "op": "≥",
+          "val": "300",
+          "unit": "kg"
+        },
+        {
+          "item": "판독 한계",
+          "op": "≤",
+          "val": "10",
+          "unit": "g"
+        },
+        {
+          "item": "교정",
+          "op": "=",
+          "val": "유효",
+          "unit": "CMMS"
+        }
+      ],
+      "capability": "",
+      "members": [
+        {
+          "equipId": "BAL-301",
+          "src": "RAS",
+          "snap": {
+            "name": "플로어 저울 #301",
+            "area": "R-201",
+            "status": "RUN",
+            "calDue": "2027-02-20",
+            "qualState": "na",
+            "at": "2026-07-02",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        },
+        {
+          "equipId": "BAL-302",
+          "src": "RAS",
+          "snap": {
+            "name": "플로어 저울 #302",
+            "area": "R-202",
+            "status": "RUN",
+            "calDue": "2026-09-30",
+            "qualState": "na",
+            "at": "2026-07-02",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        }
+      ],
+      "status": "effective",
+      "wu": 3,
+      "upd": "2026-07-02",
+      "author": "한승우",
+      "frozen": {
+        "at": "2026-07-02",
+        "by": "이수진"
+      },
+      "hash": "28cf76ddd2882c8b3534a9912fb53e4a"
+    },
+    {
+      "id": "EC-GRN-01",
+      "ver": 2,
+      "name": "고속 혼합 과립기 (300 L)",
+      "kind": "granulate",
+      "dosage": [
+        "tablet",
+        "capsule"
+      ],
+      "caps": [
+        {
+          "item": "용기 용량",
+          "op": "=",
+          "val": "300",
+          "unit": "L"
+        },
+        {
+          "item": "임펠러 · 초퍼 속도 기록",
+          "op": "=",
+          "val": "자동",
+          "unit": ""
+        },
+        {
+          "item": "전류 종점 감지",
+          "op": "=",
+          "val": "지원",
+          "unit": ""
+        }
+      ],
+      "capability": "",
+      "members": [
+        {
+          "equipId": "GR-01",
+          "src": "RAS",
+          "snap": {
+            "name": "고속 혼합 과립기 #1",
+            "area": "R-210",
+            "status": "RUN",
+            "calDue": "",
+            "qualState": "ok",
+            "at": "2026-05-20",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        }
+      ],
+      "status": "effective",
+      "wu": 3,
+      "upd": "2026-05-20",
+      "author": "한승우",
+      "frozen": {
+        "at": "2026-05-20",
+        "by": "이수진"
+      },
+      "hash": "c42a3d4b21205ec50adc643fc4307c4c"
+    },
+    {
+      "id": "EC-FBD-01",
+      "ver": 1,
+      "name": "유동층 건조기",
+      "kind": "granulate",
+      "dosage": [
+        "tablet",
+        "capsule"
+      ],
+      "caps": [
+        {
+          "item": "급기 · 배기 온도",
+          "op": "=",
+          "val": "히스토리안 연동",
+          "unit": ""
+        },
+        {
+          "item": "방폭",
+          "op": "=",
+          "val": "Zone 1",
+          "unit": ""
+        }
+      ],
+      "capability": "",
+      "members": [
+        {
+          "equipId": "FBD-01",
+          "src": "RAS",
+          "snap": {
+            "name": "유동층 건조기 #1",
+            "area": "R-210",
+            "status": "RUN",
+            "calDue": "",
+            "qualState": "ok",
+            "at": "2026-05-20",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        }
+      ],
+      "status": "effective",
+      "wu": 3,
+      "upd": "2026-05-20",
+      "author": "한승우",
+      "frozen": {
+        "at": "2026-05-20",
+        "by": "이수진"
+      },
+      "hash": "45161424e05e0262aedd5c50f5bd58eb"
+    },
+    {
+      "id": "EC-MIX-01",
+      "ver": 2,
+      "name": "V형 · 빈 혼합기 (600 L)",
+      "kind": "mix",
+      "dosage": [
+        "tablet",
+        "capsule"
+      ],
+      "caps": [
+        {
+          "item": "용기 용량",
+          "op": "≥",
+          "val": "600",
+          "unit": "L"
+        },
+        {
+          "item": "회전수 · 시간 기록",
+          "op": "=",
+          "val": "자동",
+          "unit": ""
+        }
+      ],
+      "capability": "",
+      "members": [
+        {
+          "equipId": "MX-01",
+          "src": "RAS",
+          "snap": {
+            "name": "빈 혼합기 #1",
+            "area": "R-215",
+            "status": "RUN",
+            "calDue": "",
+            "qualState": "ok",
+            "at": "2026-08-20",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        },
+        {
+          "equipId": "MX-02",
+          "src": "RAS",
+          "snap": {
+            "name": "빈 혼합기 #2",
+            "area": "R-215",
+            "status": "IDLE",
+            "calDue": "",
+            "qualState": "ok",
+            "at": "2026-08-20",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        }
+      ],
+      "status": "effective",
+      "wu": 5,
+      "upd": "2026-08-20",
+      "author": "한승우",
+      "frozen": {
+        "at": "2026-08-20",
+        "by": "이수진"
+      },
+      "hash": "48cdbbd5c7bb4ad36854b89134eac4d2"
+    },
+    {
+      "id": "EC-TAB-01",
+      "ver": 3,
+      "name": "로터리 타정기",
+      "kind": "compress",
+      "dosage": [
+        "tablet"
+      ],
+      "caps": [
+        {
+          "item": "타정압 피드백",
+          "op": "=",
+          "val": "지원",
+          "unit": ""
+        },
+        {
+          "item": "IPC 연동",
+          "op": "=",
+          "val": "중량 · 경도",
+          "unit": ""
+        }
+      ],
+      "capability": "",
+      "members": [
+        {
+          "equipId": "TP-01",
+          "src": "RAS",
+          "snap": {
+            "name": "로터리 타정기 #1",
+            "area": "R-220",
+            "status": "RUN",
+            "calDue": "",
+            "qualState": "ok",
+            "at": "2026-04-02",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        },
+        {
+          "equipId": "TP-02",
+          "src": "RAS",
+          "snap": {
+            "name": "로터리 타정기 #2",
+            "area": "R-221",
+            "status": "RUN",
+            "calDue": "",
+            "qualState": "ok",
+            "at": "2026-04-02",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        }
+      ],
+      "status": "effective",
+      "wu": 3,
+      "upd": "2026-04-02",
+      "author": "한승우",
+      "frozen": {
+        "at": "2026-04-02",
+        "by": "이수진"
+      },
+      "hash": "16f9b997ab6486d943d96733b6fe873c"
+    },
+    {
+      "id": "EC-TAB-01",
+      "ver": 4,
+      "name": "로터리 타정기 (두께 IPC 추가)",
+      "kind": "compress",
+      "dosage": [
+        "tablet"
+      ],
+      "caps": [
+        {
+          "item": "타정압 피드백",
+          "op": "=",
+          "val": "지원",
+          "unit": ""
+        },
+        {
+          "item": "IPC 연동",
+          "op": "=",
+          "val": "중량 · 경도 · 두께 자동",
+          "unit": ""
+        }
+      ],
+      "capability": "TP-03 신규 설치 (CFMS PQ 완료)",
+      "members": [
+        {
+          "equipId": "TP-01",
+          "src": "RAS",
+          "snap": {
+            "name": "로터리 타정기 #1",
+            "area": "R-220",
+            "status": "RUN",
+            "calDue": "",
+            "qualState": "ok",
+            "at": "2026-10-02",
+            "by": "한승우",
+            "kind": "add"
+          }
+        },
+        {
+          "equipId": "TP-02",
+          "src": "RAS",
+          "snap": {
+            "name": "로터리 타정기 #2",
+            "area": "R-221",
+            "status": "RUN",
+            "calDue": "",
+            "qualState": "ok",
+            "at": "2026-10-02",
+            "by": "한승우",
+            "kind": "add"
+          }
+        },
+        {
+          "equipId": "TP-03",
+          "src": "RAS",
+          "snap": {
+            "name": "로터리 타정기 #3",
+            "area": "R-221",
+            "status": "IDLE",
+            "calDue": "",
+            "qualState": "ok",
+            "at": "2026-10-02",
+            "by": "한승우",
+            "kind": "add"
+          }
+        }
+      ],
+      "status": "draft",
+      "wu": 0,
+      "upd": "2026-10-02",
+      "author": "한승우",
+      "hash": "340366ea189474dc29e299f6af65022d"
+    },
+    {
+      "id": "EC-IPC-01",
+      "ver": 1,
+      "name": "정제 경도계 (IPC)",
+      "kind": "compress",
+      "dosage": [
+        "tablet"
+      ],
+      "caps": [
+        {
+          "item": "측정 범위",
+          "op": "≥",
+          "val": "400",
+          "unit": "N"
+        },
+        {
+          "item": "교정",
+          "op": "=",
+          "val": "유효",
+          "unit": "CMMS"
+        }
+      ],
+      "capability": "타정 Phase IPC 단계용 계측기 클래스",
+      "members": [
+        {
+          "equipId": "HT-01",
+          "src": "RAS",
+          "snap": {
+            "name": "정제 경도계 #1",
+            "area": "R-220",
+            "status": "RUN",
+            "calDue": "2026-11-02",
+            "qualState": "na",
+            "at": "2026-09-28",
+            "by": "한승우",
+            "kind": "add"
+          }
+        },
+        {
+          "equipId": "HT-02",
+          "src": "RAS",
+          "snap": {
+            "name": "정제 경도계 #2",
+            "area": "R-221",
+            "status": "RUN",
+            "calDue": "2026-10-20",
+            "qualState": "na",
+            "at": "2026-09-28",
+            "by": "한승우",
+            "kind": "add"
+          }
+        }
+      ],
+      "status": "review",
+      "wu": 0,
+      "upd": "2026-09-28",
+      "author": "한승우",
+      "hash": "6e8905cf5e8ca39db6b793cbb83af7e4"
+    },
+    {
+      "id": "EC-COT-01",
+      "ver": 1,
+      "name": "팬 코팅기",
+      "kind": "coat",
+      "dosage": [
+        "tablet"
+      ],
+      "caps": [
+        {
+          "item": "분무 속도 · 배기 온도",
+          "op": "=",
+          "val": "기록",
+          "unit": ""
+        },
+        {
+          "item": "방폭",
+          "op": "=",
+          "val": "Zone 1",
+          "unit": ""
+        }
+      ],
+      "capability": "",
+      "members": [
+        {
+          "equipId": "CT-01",
+          "src": "RAS",
+          "snap": {
+            "name": "팬 코팅기 #1",
+            "area": "R-230",
+            "status": "RUN",
+            "calDue": "",
+            "qualState": "due",
+            "at": "2026-03-11",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        }
+      ],
+      "status": "effective",
+      "wu": 1,
+      "upd": "2026-03-11",
+      "author": "한승우",
+      "frozen": {
+        "at": "2026-03-11",
+        "by": "이수진"
+      },
+      "hash": "18cf0cd31beaeca5befe27ef27737e46"
+    },
+    {
+      "id": "EC-CAP-01",
+      "ver": 1,
+      "name": "자동 캡슐 충전기",
+      "kind": "fill",
+      "dosage": [
+        "capsule"
+      ],
+      "caps": [
+        {
+          "item": "충전 중량 선별",
+          "op": "=",
+          "val": "100 %",
+          "unit": ""
+        },
+        {
+          "item": "캡슐 크기",
+          "op": "=",
+          "val": "0~4호",
+          "unit": ""
+        }
+      ],
+      "capability": "",
+      "members": [
+        {
+          "equipId": "CF-01",
+          "src": "RAS",
+          "snap": {
+            "name": "자동 캡슐 충전기 #1",
+            "area": "R-240",
+            "status": "RUN",
+            "calDue": "",
+            "qualState": "ok",
+            "at": "2026-03-11",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        }
+      ],
+      "status": "effective",
+      "wu": 1,
+      "upd": "2026-03-11",
+      "author": "한승우",
+      "frozen": {
+        "at": "2026-03-11",
+        "by": "이수진"
+      },
+      "hash": "d4c78684b5493952dd226c38982efcb1"
+    },
+    {
+      "id": "EC-LFL-01",
+      "ver": 1,
+      "name": "액상 충전 · 캡핑기",
+      "kind": "liquidFill",
+      "dosage": [
+        "liquid"
+      ],
+      "caps": [
+        {
+          "item": "충전량 IPC",
+          "op": "=",
+          "val": "지원",
+          "unit": ""
+        },
+        {
+          "item": "캡핑 토크 기록",
+          "op": "=",
+          "val": "자동",
+          "unit": ""
+        }
+      ],
+      "capability": "",
+      "members": [
+        {
+          "equipId": "LF-01",
+          "src": "RAS",
+          "snap": {
+            "name": "액상 충전 · 캡핑기 #1",
+            "area": "R-250",
+            "status": "RUN",
+            "calDue": "",
+            "qualState": "ok",
+            "at": "2026-03-11",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        }
+      ],
+      "status": "effective",
+      "wu": 1,
+      "upd": "2026-03-11",
+      "author": "한승우",
+      "frozen": {
+        "at": "2026-03-11",
+        "by": "이수진"
+      },
+      "hash": "b04a61a93b306c976855e4d5371e76d0"
+    },
+    {
+      "id": "EC-PKG-01",
+      "ver": 2,
+      "name": "PTP 포장기",
+      "kind": "pack",
+      "dosage": [
+        "tablet",
+        "capsule"
+      ],
+      "caps": [
+        {
+          "item": "비전 검사",
+          "op": "=",
+          "val": "지원",
+          "unit": ""
+        },
+        {
+          "item": "라벨 · 바코드 대조",
+          "op": "=",
+          "val": "지원",
+          "unit": ""
+        }
+      ],
+      "capability": "",
+      "members": [
+        {
+          "equipId": "PK-01",
+          "src": "RAS",
+          "snap": {
+            "name": "PTP 포장기 #1",
+            "area": "R-260",
+            "status": "RUN",
+            "calDue": "",
+            "qualState": "ok",
+            "at": "2026-06-10",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        },
+        {
+          "equipId": "PK-02",
+          "src": "RAS",
+          "snap": {
+            "name": "카토너 #2",
+            "area": "R-260",
+            "status": "RUN",
+            "calDue": "",
+            "qualState": "ok",
+            "at": "2026-06-10",
+            "by": "한승우",
+            "kind": "approve"
+          }
+        }
+      ],
+      "status": "effective",
+      "wu": 4,
+      "upd": "2026-06-10",
+      "author": "한승우",
+      "frozen": {
+        "at": "2026-06-10",
+        "by": "이수진"
+      },
+      "hash": "74c4e6ccfb2bda6a38e7f958778dc8ff"
+    }
+  ]
+}

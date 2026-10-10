@@ -1,0 +1,967 @@
+<!DOCTYPE html>
+<!--
+  S-42 서명 내역 조회 (s-ebr-esign-history-ui.html) — eMBR/eBR PoC · Elephant UI 셸 1920×1080 (OI 아님)
+  - 읽기 전용: 저장 · 수정 · 삭제 버튼 없음. 조회는 감사하지 않는다(P0). 저장소 키를 직접 읽지 않는다 — 모든 데이터는 window.EbrSignView 경유.
+  - 스크립트: ./assets/mesui.js · ./assets/ebr-user-session.js (window.EbrUserSession) · ./assets/ebr-esign-view.js (window.EbrSignView)
+  - 쿼리: ?batchId= ?orderNo= ?signerId= ?signatureId=(상세 바로 열기, rowId 'S:'+id) ?lineId= ?signRuleId=(칩) — 쿼리가 있으면 기간 '전체'
+  - 근거: poc-esign-history-ui-items.md UI-01~UI-07 · poc-esign-history-design.md §3.9 · PM 확정 J1~J11
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<link rel="icon" href="data:,">
+<title>서명 내역 조회 — eMBR/eBR PoC</title>
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  /* 이 화면 전용 보조 스타일 — Elephant CSS 토큰만 사용 (hex · rgba 없음, 치수는 토큰 또는 ui-items 표의 열 폭) */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--c-bg); }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale { flex: 0 0 auto; }
+  .is-hidden { display: none !important; }
+  .mono { font-family: var(--font-mono); }
+  .ell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sub-c { color: var(--c-text-sub); }
+
+  /* ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 (공통 블록 — 배치 발행 화면과 같음) ==== */
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }   /* UI 셸 24 */
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
+
+  /* ==== 의미 = 10px 원 + 글자 (J4 — 배지 알약과 모양으로 구별, 토큰 --c-sign-*) ==== */
+  .sign-dot { display: inline-block; width: calc(var(--check-size) - 6px); height: calc(var(--check-size) - 6px); border-radius: 50%; margin-right: 6px; vertical-align: middle; flex: 0 0 auto; }
+  .sign-dot.performed { background: var(--c-sign-performed); }
+  .sign-dot.verified { background: var(--c-sign-verified); }
+  .sign-dot.approved { background: var(--c-sign-approved); }
+  .sign-dot.read-understood { background: var(--c-sign-read-understood); }
+  .sign-dot.reviewed { background: var(--c-sign-reviewed); }
+  .est { color: var(--c-text-sub); margin-left: 4px; }
+
+  /* ② 검색 3열 × 3행 = 134 (J11) */
+  #srch .search-control.span-2 { grid-column: 1 / 3; }
+  #srch .field.range > .input { flex: 1 1 0; }
+  #srch .field.range > .tilde { flex: 0 0 auto; }
+  #srch .codeview .code { width: 160px; }
+  #srch .checkbox-group { flex-wrap: nowrap; overflow: hidden; }
+  #srch .checkbox-group .checkbox { margin-right: 24px; }
+  #srch .search-actions .btn { min-width: var(--btn-search-w); }
+  #opNote { display: flex; align-items: center; height: var(--search-row-h); padding: 6px 0; }
+  #srch.disabled .label { color: var(--c-text-disabled); }
+  /* 서명자 콤보 (W3-b) — 입력 + 펼침 목록 최대 8행 */
+  .combo { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }
+  .combo > .input { flex: 1 1 auto; min-width: 0; }
+  .combo-list { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; margin: 0; padding: 0; list-style: none; max-height: calc(var(--grid-row-h) * 8); overflow-y: auto;
+                background: var(--c-bg); border: 1px solid var(--input-border); box-shadow: var(--sh-dialog); }
+  .combo-list li { height: var(--grid-row-h); line-height: var(--grid-row-h); padding: 0 10px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-grid); }
+  .combo-list li:hover, .combo-list li.act { background: var(--c-row-selected); }
+  .combo-list li.direct { color: var(--c-primary); }
+
+  /* ③ 요약 자리 92 (= 키인 행 36 × 2 + 블록 간격 20) — 카드 또는 미연결 띠 (J5) */
+  #sumSlot { flex: 0 0 calc(var(--form-row-h) * 2 + var(--body-gap)); height: calc(var(--form-row-h) * 2 + var(--body-gap)); min-width: 0; }
+  #kpiBoard { height: 100%; }
+  #kpiBoard .kpi { min-width: 0; gap: 2px; }
+  #kpiBoard .kpi-value, #kpiBoard .kpi-code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #kpiBoard .kpi-value .badge { vertical-align: middle; font-weight: normal; margin-left: 6px; }
+  #kpiBoard .kpi-code { color: var(--c-text-touch); }
+  #kpiBoard .kpi-code .btn.inner { margin-left: 6px; }
+  .ul-band { height: 100%; box-sizing: border-box; padding: 6px 16px; background: var(--bc-alam); border-left: calc(var(--radius) * 2) solid var(--c-warn);
+             display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+  .ul-band > div { line-height: 20px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ul-band .ul-head { display: flex; align-items: center; gap: 8px; font-weight: bold; }
+  .ul-band .ul-head > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .ul-band .ul-screens a { margin-left: 4px; margin-right: 16px; }
+
+  /* ④ 목록 — 13열 합 1860, 20행 고정 (J6 가로 스크롤 없음) */
+  #gridBlock { flex: 0 0 auto; }
+  #gridWrap { flex: 0 0 auto; height: calc(var(--grid-head-h) + var(--grid-row-h) * 20 + 2px); overflow: hidden; }
+  #grdSign col.c-res { width: 70px; } #grdSign col.c-at { width: 150px; } #grdSign col.c-mean { width: 110px; } #grdSign col.c-signer { width: 190px; }
+  #grdSign col.c-type { width: 120px; } #grdSign col.c-batch { width: 190px; } #grdSign col.c-tgt { width: 200px; } #grdSign col.c-rule { width: 150px; }
+  #grdSign col.c-why { width: 170px; } #grdSign col.c-sid { width: 140px; } #grdSign col.c-ver { width: 90px; } #grdSign col.c-st { width: 70px; } #grdSign col.c-scr { width: 210px; }
+  #grdSign tbody tr:last-child td, #grdBatch tbody tr:last-child td, #grdTl tbody tr:last-child td { border-bottom: none; }   /* 접힌 테두리 0.5px 넘침 방지 — 아래 선은 .grid-wrap 이 그림 */
+  #grdSign th.sortable { cursor: pointer; }
+  #grdSign th.sortable .arr { margin-left: 4px; color: var(--c-primary); }
+  #grdSign td .badge { max-width: 100%; }
+  #grdSign tr.empty td { height: calc(var(--grid-row-h) * 20); text-align: center; color: var(--c-text); font-size: var(--fs-base); white-space: normal; border-bottom: none; }
+  #grdSign tr.empty td .sub-info { display: block; margin-top: 6px; }
+  #chipBar { display: inline-flex; gap: 6px; align-items: center; }
+  #chipBar .badge { cursor: pointer; }
+  #gridToolbar .legend { display: inline-flex; gap: 4px; align-items: center; }
+  .paging .pg-info { margin-left: 12px; white-space: nowrap; }
+  .paging .pg-info.current-page { margin: 0 6px; color: var(--c-primary); font-weight: bold; }
+
+  /* 권한 없음 (scope none) */
+  #noScope { flex: 1 1 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; font-size: var(--fs-group); }
+
+  /* ==== 상세 #dlgSignDetail (.dialog 1100×700) ==== */
+  #dlgSignDetail .shell-body { gap: var(--body-gap); overflow: hidden; }
+  #dlgSignDetail .popup-title .text { display: inline-flex; align-items: center; gap: 8px; }
+  .sd-line { flex: 0 0 var(--form-row-h); height: var(--form-row-h); box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid var(--c-border-05); background: var(--bc-gray-light); min-width: 0; }
+  .sd-line .txt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #dlgSignDetail .split.sign-split { grid-template-columns: 3fr 2fr; gap: var(--split-gutter); flex: 1 1 auto; min-height: 0; }
+  .sd-col { display: flex; flex-direction: column; gap: var(--body-gap); min-width: 0; min-height: 0; }
+  .sd-sec { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .sd-sec .form-grid .text { min-width: 0; }
+  .sd-tl { gap: 8px; }
+  #tlWrap { flex: 0 0 auto; overflow: hidden; height: auto; min-height: 0; }
+  #grdTl col.t-at { width: 70px; } #grdTl col.t-uid { width: 80px; } #grdTl col.t-act { width: 140px; }
+  #grdTl tr.cur td { background: var(--c-row-editing); }
+  #grdTl tr.gap td { color: var(--c-text-sub); text-align: center; }
+
+  /* ==== 배치 선택 #dlgBatchPick (.dialog.md 900×700, J2 · J9) ==== */
+  #dlgBatchPick .shell-body { gap: var(--body-gap); overflow: hidden; }
+  #bpWrap { flex: 0 0 auto; height: calc(var(--grid-head-h) + var(--grid-row-h) * 10 + 2px); overflow: hidden; }
+  #grdBatch col.b-id { width: 150px; } #grdBatch col.b-ord { width: 120px; } #grdBatch col.b-tree { width: 140px; } #grdBatch col.b-at { width: 160px; }
+
+  /* ==== 인쇄 (UI-07, A4 세로) — 화면에서는 숨김 ==== */
+  #printArea { display: none; }
+  @media print {
+    @page { size: A4 portrait; margin: 14mm 10mm 12mm; @top-right { content: counter(page) " / " counter(pages); font: 9pt var(--font); } }
+    html, body { height: auto !important; overflow: visible !important; background: var(--c-bg); }
+    body.fit-host { display: block; }
+    #shellScale, .dialog-backdrop, .toast-area { display: none !important; }
+    #printArea { display: block; font: 9pt var(--font); color: var(--c-text); }
+    #printArea table { width: 100%; border-collapse: collapse; }
+    #printArea thead td { padding-bottom: 6px; border-bottom: 1px solid var(--c-text); }
+    #printArea .p-title { font-size: 13pt; font-weight: bold; }
+    #printArea .p-meta { margin-top: 2px; }
+    #printArea tbody td { padding: 3px 0; border-bottom: 1px solid var(--c-border-05); vertical-align: top; page-break-inside: avoid; }
+    #printArea .p-l2 { color: var(--c-text-sub); }
+    #printArea .p-res { font-weight: bold; white-space: nowrap; padding-right: 8px; }
+    #printArea .p-foot { margin-top: 8px; color: var(--c-text-sub); }
+    #printArea .p-sec { margin-top: 8px; font-weight: bold; }
+    #printArea .sign-dot { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <!-- ① grpTitle 29 -->
+  <div class="title-bar">
+    <span class="main-title">서명 내역 조회</span>
+    <span class="user-switch" id="userSwitch"></span>
+    <span class="breadcrumb">
+      <span>eBR 실행</span><span class="sep">&rsaquo;</span><span class="current">서명 내역</span>
+    </span>
+  </div>
+
+  <div class="shell-body">
+    <!-- ② search-box 3열 × 3행 = 134 -->
+    <div class="search-box" id="srch">
+      <div class="search-control"><span class="label">기간</span>
+        <span class="field range"><input class="input" type="date" id="fFrom" aria-label="시작일"><span class="tilde">~</span><input class="input" type="date" id="fTo" aria-label="종료일"></span></div>
+      <div class="search-control"><span class="label">배치 · 오더</span>
+        <span class="field"><span class="codeview"><input class="input code mono" type="text" id="fBatch" placeholder="배치 ID" aria-label="배치 ID"><button class="cv-btn" type="button" id="btnBatchPick" title="배치 선택 (발행 기록)"></button></span><input class="input mono" type="text" id="fOrder" placeholder="오더 번호" aria-label="오더 번호"></span></div>
+      <div class="search-control"><span class="label">서명자</span>
+        <span class="field"><span class="combo" id="signerCombo"><input class="input" type="text" id="fSigner" placeholder="전체" autocomplete="off" aria-label="서명자"><ul class="combo-list is-hidden" id="signerList"></ul></span></span></div>
+
+      <div class="search-control span-2"><span class="label">의미</span>
+        <span class="field checkbox-group" id="fMeaning"></span></div>
+      <div class="search-control"><span class="label">대상 유형</span>
+        <span class="field"><select class="input" id="fType" aria-label="대상 유형"></select></span></div>
+
+      <div class="search-control"><span class="label">결과</span>
+        <span class="field checkbox-group" id="fResult"></span></div>
+      <div id="opNote"><span class="sub-info is-hidden" id="opNoteText">(i) 본인 서명 · 본인 시도만 표시합니다 (OP 권한)</span></div>
+      <div class="search-actions">
+        <button class="btn search secondary" type="button" id="btnReset">Reset</button>
+        <button class="btn search" type="button" id="btnSearch">Search</button>
+      </div>
+    </div>
+
+    <!-- 권한 없음 (scope none) -->
+    <div id="noScope" class="is-hidden">
+      <div id="noScopeMsg">조회 권한이 없습니다 — 상단에서 사용자를 선택하세요</div>
+      <div class="sub-info">조회 가능 역할: QA · QP · SV · OP(본인 것만) · ADMIN(읽기 전용)</div>
+    </div>
+
+    <!-- ③ 요약 자리 92: 배치 서명 요약 5카드 ↔ 미연결 띠 (J5) -->
+    <div id="sumSlot" class="is-hidden">
+      <div class="kpi-board" id="kpiBoard"></div>
+      <div class="ul-band is-hidden" id="ulBand"></div>
+    </div>
+
+    <!-- ④ 목록 -->
+    <div class="grid-block" id="gridBlock">
+      <div class="grid-toolbar" id="gridToolbar">
+        <span class="total-text">Total <b id="tTotal">0</b></span><span class="vbar"></span>
+        <span class="total-text">기존 기록(추정, 전체) <b id="tLegacy">0</b></span>
+        <span class="sub-info">* = 추정값</span><span class="vbar"></span>
+        <span class="legend" id="legend"></span>
+        <span id="chipBar"></span>
+        <span class="spacer"></span>
+        <span class="badge warn" id="ulBadge" title="">(!) 미연결 화면 3</span>
+        <button class="btn inner" type="button" id="btnUlMore">자세히</button>
+        <button class="btn search" type="button" id="btnPrint">인쇄</button>
+      </div>
+      <div class="grid-wrap" id="gridWrap">
+        <table class="grid selectable" id="grdSign">
+          <colgroup><col class="c-res"><col class="c-at"><col class="c-mean"><col class="c-signer"><col class="c-type"><col class="c-batch"><col class="c-tgt"><col class="c-rule"><col class="c-why"><col class="c-sid"><col class="c-ver"><col class="c-st"><col class="c-scr"></colgroup>
+          <thead><tr>
+            <th>결과</th><th class="sortable" id="thAt" title="클릭: 최신순 ↔ 오래된순">일시 (KST)<span class="arr" id="atArr">▼</span></th><th>의미</th><th>서명자</th><th>대상 유형</th><th>배치 / 오더</th><th>대상</th><th>규칙</th><th>사유</th><th>서명 ID</th><th>검증</th><th>상태</th><th>화면</th>
+          </tr></thead>
+          <tbody id="grdSignBody"></tbody>
+        </table>
+      </div>
+      <div class="paging" id="paging"></div>
+    </div>
+  </div>
+</div></div>
+
+<!-- ==== UI-02 상세 #dlgSignDetail (.dialog 1100×700) ==== -->
+<div class="dialog-backdrop" id="dlgSignDetail">
+  <div class="dialog">
+    <div class="popup-title">
+      <span class="text" id="sdTitle">서명 상세</span>
+      <button class="popup-close" type="button" data-dialog-close aria-label="Close"></button>
+    </div>
+    <div class="shell-body">
+      <div class="sd-line" id="sdLine"><span class="txt" id="sdLineText"></span><span id="sdLineBadge"></span></div>
+      <div class="split sign-split">
+        <div class="sd-col">
+          <div class="sd-sec">
+            <span class="group-title" id="sdInfoTitle">서명 정보</span>
+            <div class="form-grid cols-2 readonly" id="sdInfo"></div>
+          </div>
+          <div class="sd-sec">
+            <span class="group-title">서명 대상 · 해시 · 검증</span>
+            <div class="form-grid cols-2 readonly" id="sdTarget"></div>
+          </div>
+        </div>
+        <div class="sd-col">
+          <div class="sd-sec sd-tl">
+            <span class="group-title">관련 감사 타임라인</span>
+            <div class="grid-wrap fixed" id="tlWrap">
+              <table class="grid" id="grdTl">
+                <colgroup><col class="t-at"><col class="t-uid"><col class="t-act"><col></colgroup>
+                <thead><tr><th>시각</th><th>행위자</th><th>act</th><th>사유 / 값</th></tr></thead>
+                <tbody id="grdTlBody"></tbody>
+              </table>
+            </div>
+            <span class="sub-info" id="tlNote">* 시도 ID 없음 — 시각 · tgt 로 묶은 근사값</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn search" type="button" id="btnSdPrint">인쇄 (이 서명)</button>
+      <span class="tip" id="btnSdBatchTip"><button class="btn search" type="button" id="btnSdBatch">배치 서명 요약</button></span>
+      <button class="btn search secondary" type="button" data-dialog-close>닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==== UI-04 배치 선택 #dlgBatchPick (.dialog.md 900×700) — 출처: EbrSignView.batches (발행 기록, 읽기 전용) ==== -->
+<div class="dialog-backdrop" id="dlgBatchPick">
+  <div class="dialog md">
+    <div class="popup-title">
+      <span class="text">배치 선택</span>
+      <button class="popup-close" type="button" data-dialog-close aria-label="Close"></button>
+    </div>
+    <div class="shell-body">
+      <div class="search-box cols-2">
+        <div class="search-control"><span class="label">배치 ID</span><input class="input mono" type="text" id="bpBatch" aria-label="배치 ID"></div>
+        <div class="search-control"><span class="label">오더</span><input class="input mono" type="text" id="bpOrder" aria-label="오더"></div>
+        <div class="search-control"><span class="label">발행일</span>
+          <span class="field"><input class="input" type="date" id="bpFrom" aria-label="발행일 시작"><span>~</span><input class="input" type="date" id="bpTo" aria-label="발행일 끝"></span></div>
+        <div class="search-actions"><button class="btn search" type="button" id="bpSearch">Search</button></div>
+      </div>
+      <div class="grid-wrap fixed" id="bpWrap">
+        <table class="grid selectable" id="grdBatch">
+          <colgroup><col class="b-id"><col class="b-ord"><col class="b-tree"><col class="b-at"><col></colgroup>
+          <thead><tr><th>배치 ID</th><th>오더</th><th>eMBR</th><th>발행 일시</th><th>발행 승인</th></tr></thead>
+          <tbody id="grdBatchBody"></tbody>
+        </table>
+      </div>
+      <div class="paging" id="bpPaging"></div>
+      <span class="sub-info bp-note">출처: 발행 기록(읽기 전용). 데모 시드 배치처럼 발행 기록에 없는 배치는 검색 칸에 직접 입력하세요.</span>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn search secondary" type="button" data-dialog-close>닫기</button>
+      <button class="btn search primary" type="button" id="bpOk">선택</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==== UI-07 인쇄 영역 (화면 숨김, @media print 에서만) ==== -->
+<div id="printArea" aria-hidden="true"></div>
+
+<script src="./assets/mesui.js"></script>
+<script src="./assets/ebr-user-session.js"></script>   <!-- UI-09 DEVELOPER1 헬퍼 (window.EbrUserSession) -->
+<script src="./assets/ebr-esign-view.js"></script>     <!-- S-42 D1 통합 뷰 (window.EbrSignView, 읽기 전용) -->
+<!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 배치 발행과 동일 — S-42 UI-04.) ==== -->
+<script>
+/* DEVELOPER1 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+ *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
+ *   hasSodConflict(roles) · onChange(fn) → unsub
+ * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
+ * 헬퍼가 없으면(파일 미배포) 선택기는 「사용자 API 미연결」로 비활성 표시만 하고 화면 기존 동작은 그대로 둔다(게이트 미적용, 오류 없음). */
+(function (global) {
+  'use strict';
+  var WATCH_KEYS = ['ebmr.currentUser.v1', 'ebmr.userRole.v1'];   /* onChange 가 없을 때만: 다른 탭 변경 감지용 키 이름 (값은 헬퍼로만 읽음) */
+  var ROLE = { QP: ['QP', 'role-qp'], QA: ['QA', 'role-qa'], SV: ['감독자', 'ok'], OP: ['작업자', 'info'], ADMIN: ['관리자', ''] };
+  var ROLE_ORDER = ['QP', 'QA', 'SV', 'OP', 'ADMIN'];   /* 배지 우선순위 QP>QA>SV>OP>ADMIN (기획 마스터 §3.1) */
+  var GATE_SEL = '[data-p0-edit]';   /* 서명 내역: 편집 버튼 없음 (읽기 전용) — 게이트 대상 없음 */
+  var GATE_TIP = '사용자를 선택하세요';
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var listeners = [], readyQ = [], isReady = false;
+
+  function api() { return global.EbrUserSession || null; }
+  function call(fn) {
+    var a = api(); if (!a || typeof a[fn] !== 'function') return undefined;
+    try { return a[fn].apply(a, Array.prototype.slice.call(arguments, 1)); } catch (e) { if (global.console) console.error('[EbrUserSession] ' + fn, e); return undefined; }
+  }
+  function sortRoles(roles) { return (roles || []).slice().sort(function (a, b) { return ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b); }); }
+  function roleBadge(code) { var r = ROLE[code] || [code, 'muted']; return '<span class="badge' + (r[1] ? ' ' + r[1] : '') + '" title="' + esc(code) + '">' + esc(r[0]) + '</span>'; }
+  function roleBadges(roles) { return sortRoles(roles).map(roleBadge).join(''); }
+  function statusBadge(st) { return st === 'locked' ? '<span class="badge error">잠김</span>' : st === 'inactive' ? '<span class="badge muted">비활성</span>' : ''; }
+  function rolesOfUser(u) { return !u ? [] : (Array.isArray(u.roles) ? u.roles : (call('rolesOf', u.userId) || [])); }
+  function users(filter) { var l = call('listUsers', filter || {}); return Array.isArray(l) ? l : []; }
+  function current() { return call('getCurrentUser') || null; }
+  function connected() { var a = api(); return !!(a && typeof a.getCurrentUser === 'function' && typeof a.listUsers === 'function'); }
+  function hasRole(u, code) { return rolesOfUser(u).indexOf(code) >= 0; }
+  function sod(roles) { var v = call('hasSodConflict', roles || []); return typeof v === 'boolean' ? v : false; }
+  function gateOn() { return connected() && !current(); }
+  function userLabel(u) { return u ? u.name + ' (' + u.userId + ')' : '—'; }
+
+  function render() {
+    var host = document.getElementById('userSwitch');
+    if (host) {
+      if (!connected()) {
+        host.innerHTML = '<span class="tip" title="ebr-user-session.js (DEVELOPER1) 가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+      } else {
+        var cur = current(), list = users();
+        var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
+          var bad = u.status === 'locked' ? ' — 잠김' : u.status === 'inactive' ? ' — 비활성' : '';
+          return '<option value="' + esc(u.userId) + '"' + (bad ? ' disabled' : '') + (cur && cur.userId === u.userId ? ' selected' : '') + '>' + esc(userLabel(u) + bad) + '</option>';
+        }).join('');
+        host.innerHTML = '<select class="input w-200" id="userSwitchSel" aria-label="현재 사용자" title="현재 사용자 (인증 아님 — 서명 시 ID · 비밀번호 재입력)">' + opts + '</select>' +
+          '<span class="us-roles">' + (cur ? roleBadges(rolesOfUser(cur)) + statusBadge(cur.status) : '<span class="badge warn">' + GATE_TIP + '</span>') + '</span>';
+        var sel = document.getElementById('userSwitchSel');
+        sel.addEventListener('change', function () {
+          var r = call('setCurrentUser', sel.value || null);
+          if (r && r.ok === false && global.MesUI) {
+            MesUI.toast(r.message || (r.code === 'LOCKED' ? '잠긴 계정은 선택할 수 없습니다 — 관리자(ADMIN)에게 해제를 요청하세요.'
+              : r.code === 'INACTIVE' ? '비활성 계정은 선택할 수 없습니다.' : r.code === 'SAVE_ERROR' ? '감사 기록을 저장하지 못해 사용자를 전환하지 못했습니다.' : '사용자를 찾을 수 없습니다.'),
+              r.code === 'SAVE_ERROR' ? 'error' : 'warn', 2600);   /* SAVE_ERROR: 헬퍼가 변경을 되돌림 → 선택값도 아래 refresh 로 되돌림 */
+          }
+          if (!hasOnChange || (r && r.ok === false)) refresh();   /* onChange 는 성공 시 헬퍼가 발생 — 거부(LOCKED 등)면 선택 되돌림 */
+        });
+      }
+    }
+    applyGate();
+  }
+  function applyGate() {
+    var on = gateOn();
+    document.body.classList.toggle('p0-no-user', on);
+    Array.prototype.forEach.call(document.querySelectorAll(GATE_SEL), function (b) { b.classList.toggle('p0-gated', on); });
+  }
+  function refresh() { render(); listeners.forEach(function (fn) { try { fn(current()); } catch (e) { if (global.console) console.error(e); } }); }
+
+  /* 선택 없음 게이트: 편집 버튼 클릭 차단 + 툴팁 (동적으로 그려지는 T-02 버튼 포함) */
+  document.addEventListener('click', function (e) {
+    if (!gateOn()) return;
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    if (global.MesUI) MesUI.toast(GATE_TIP + ' — 상단 사용자 선택기에서 현재 사용자를 고른 뒤 다시 시도하세요.', 'warn', 2200);
+  }, true);
+  document.addEventListener('mouseover', function (e) {
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    if (gateOn()) { if (!b.hasAttribute('data-p0-tip')) b.setAttribute('data-p0-tip', b.getAttribute('title') || ''); b.setAttribute('title', GATE_TIP); b.classList.add('p0-gated'); }
+    else if (b.hasAttribute('data-p0-tip')) { b.setAttribute('title', b.getAttribute('data-p0-tip')); b.removeAttribute('data-p0-tip'); b.classList.remove('p0-gated'); }
+  }, true);
+
+  var hasOnChange = false;
+  function start() {
+    isReady = true;
+    var a = api();
+    if (a && typeof a.onChange === 'function') { hasOnChange = true; call('onChange', function () { refresh(); }); }
+    else global.addEventListener('storage', function (e) { if (WATCH_KEYS.indexOf(e.key) >= 0) refresh(); });
+    render();
+    readyQ.splice(0).forEach(function (fn) { try { fn(); } catch (e) { if (global.console) console.error(e); } });
+  }
+
+  global.P0Ui = {
+    api: api, call: call, connected: connected, users: users, current: current, hasRole: hasRole, rolesOf: rolesOfUser, sod: sod, userLabel: userLabel,
+    roleBadge: roleBadge, roleBadges: roleBadges, statusBadge: statusBadge, sortRoles: sortRoles, ROLE: ROLE, ROLE_ORDER: ROLE_ORDER,
+    gateOn: gateOn, refresh: refresh, applyGate: applyGate, esc: esc, GATE_TIP: GATE_TIP,
+    onUserChange: function (fn) { listeners.push(fn); },
+    ready: function (fn) { if (isReady) fn(); else readyQ.push(fn); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})(window);
+</script>
+
+<!-- ==== S-42 화면 어댑터 — 데이터는 window.EbrSignView 만 (읽기 전용, 저장소 키 직접 읽기 없음) ==== -->
+<script>
+(function () {
+  'use strict';
+  var V = window.EbrSignView, US = window.EbrUserSession;
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var PAGE = 20, BP_PAGE = 10, TL_MAX = 12, TL_TAIL = 10;
+  var RES_CLS = { signed: 'ok', failed: 'error', locked: 'alarm', cancelled: 'warn', rolledback: 'warn' };   /* J3: 잠금 = .badge.alarm */
+  var VER = { match: ['ok', '일치'], mismatch: ['error', '불일치'], unverifiable: ['warn', '검증 불가'] };
+  var NO_ROLE_HINT = '조회 가능 역할: QA · QP · SV · OP(본인 것만) · ADMIN(읽기 전용)';
+  var st = { scope: null, page: 1, order: 'desc', sel: null, rows: [], total: 0, legacy: 0, lineId: '', signRuleId: '', signerId: null,
+             band: false, bp: { page: 1, sel: null, rows: [], total: 0 }, detail: null, filter: null };
+
+  if (!V || !US) {   /* 헬퍼 미배포: fail-closed — 조회 없이 안내만 */
+    document.addEventListener('DOMContentLoaded', function () { $('#noScopeMsg').textContent = '서명 조회 API 미연결 — ebr-user-session.js · ebr-esign-view.js 를 확인하세요'; show('#noScope', true); show('#gridBlock', false); });
+    return;
+  }
+
+  /* ---------- 공통 표시 ---------- */
+  function show(sel, on) { var e = typeof sel === 'string' ? $(sel) : sel; if (e) e.classList.toggle('is-hidden', !on); }
+  function fmt(iso) { return iso ? (US.fmtKst ? US.fmtKst(iso) : String(iso)) : ''; }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function dot(token) { return token ? '<span class="sign-dot ' + esc(String(token).replace('--c-sign-', '')) + '"></span>' : ''; }
+  function meaningKo(r) { var m = V.MEANING[r.meaning]; return m ? m.ko : ''; }
+  function est(r, k) { return !!(r.estimated && r.estimated.indexOf(k) >= 0); }
+  function estMark(on) { return on ? '<span class="est">(추정)</span>' : ''; }
+  function resBadge(res) { return '<span class="badge ' + (RES_CLS[res] || 'muted') + '">' + esc(V.RESULT_LABEL[res] || res || '—') + '</span>'; }
+  function verBadge(v) {
+    if (!v || !VER[v.state]) return '—';
+    var t = (v.mismatches && v.mismatches.length) ? v.mismatches.join(' · ') : (v.message || v.note || VER[v.state][1]);
+    return '<span class="badge ' + VER[v.state][0] + '" title="' + esc(t) + '">' + VER[v.state][1] + '</span>';
+  }
+  function verText(v) { return v && VER[v.state] ? VER[v.state][1] + (v.mismatches && v.mismatches.length ? ' (' + v.mismatches.join(' · ') + ')' : '') : '—'; }
+  function rowVerify(r) { return r.source === 'esign' && r.result === 'signed' ? V.verify(r.rowId) : null; }
+  function hash8(h) { return h ? '<span class="mono" title="' + esc(h) + '">' + esc(String(h).slice(0, 8)) + '…</span>' : '—'; }
+  function ruleText(r) { return r.signRuleId ? r.signRuleId + (r.signRuleVer != null && r.signRuleVer !== '' ? ' v' + r.signRuleVer : '') : ''; }
+  /* §11.50 한 줄: {의미} — {이름}({ID}) · {역할} · {일시} · {영문} */
+  function signLine(r) {
+    return (r.meaningText || meaningKo(r) || '—') + ' — ' + (isSys(r.signerId) ? '시스템' : (r.signerDisplayName || r.signerName || '') + '(' + r.signerId + ')') +
+      ' · ' + (r.signerRole || '—') + ' · ' + fmt(r.at) + (r.meaningTextEn ? ' · ' + r.meaningTextEn : '');
+  }
+  function attemptLine(r) {
+    return (r.resultLabel || '') + ' — ' + (uidLabel(r.signerId) || '—') + ' · ' + fmt(r.at) + ' · ' + (meaningKo(r) || '의미 미상') + ' 시도 · ' + (r.whyLabel || '—');
+  }
+  function userLabel(u) { return u.name + ' (' + u.userId + ')'; }
+  /* 자동 처리 감사 uid 'SYSTEM' → '시스템' (미등록 ID 로 보이지 않게) */
+  function isSys(id) { return String(id == null ? '' : id).toUpperCase() === 'SYSTEM'; }
+  function uidLabel(id) { return isSys(id) ? '시스템' : String(id == null ? '' : id); }
+  function signerText(r) { return isSys(r.signerId) ? '시스템' : (r.signerDisplayName || r.signerName || '') + ' (' + r.signerId + ')'; }
+  function rolesText(u) { var r = Array.isArray(u.roles) ? u.roles : []; return (window.P0Ui ? P0Ui.sortRoles(r) : r).join(' · ') || '역할 없음'; }
+
+  /* ---------- 검색 영역 ---------- */
+  function buildSearch() {
+    $('#fMeaning').innerHTML = Object.keys(V.MEANING).map(function (k) {
+      var m = V.MEANING[k];
+      return '<label class="checkbox" title="' + esc(m.en) + '"><input type="checkbox" value="' + esc(k) + '" checked>' + dot(m.token) + esc(m.ko) + '</label>';
+    }).join('');
+    $('#fResult').innerHTML = V.RESULTS.map(function (k) {
+      return '<label class="checkbox"><input type="checkbox" value="' + esc(k) + '"' + (V.DEFAULT_RESULTS.indexOf(k) >= 0 ? ' checked' : '') + '>' + esc(V.RESULT_LABEL[k]) + '</label>';
+    }).join('');
+    $('#fType').innerHTML = '<option value="">전체</option>' + Object.keys(V.RECORD_TYPE_LABEL).map(function (k) {
+      return '<option value="' + esc(k) + '">' + esc(V.RECORD_TYPE_LABEL[k]) + '</option>';
+    }).join('');
+    $('#legend').innerHTML = V.RESULTS.map(function (k) { return resBadge(k); }).join('');
+    var names = V.UNLINKED_SCREENS.map(function (s) { return s.label; }).join(' · ');
+    $('#ulBadge').textContent = '(!) 미연결 화면 ' + V.UNLINKED_SCREENS.length;
+    $('#ulBadge').title = V.UNLINKED_MESSAGE + ' — ' + names;
+  }
+  function setDefaults(withQuery) {
+    var now = new Date(), from = new Date(now.getTime() - 7 * 864e5);
+    $('#fFrom').value = withQuery ? '' : ymd(from);
+    $('#fTo').value = withQuery ? '' : ymd(now);
+    $('#fBatch').value = ''; $('#fOrder').value = '';
+    if (!(st.scope && st.scope.signerLocked)) { $('#fSigner').value = ''; st.signerId = null; }
+    $$('#fMeaning input').forEach(function (c) { c.checked = true; });
+    $$('#fResult input').forEach(function (c) { c.checked = V.DEFAULT_RESULTS.indexOf(c.value) >= 0; });
+    $('#fType').value = '';
+    st.lineId = ''; st.signRuleId = ''; st.order = 'desc';
+  }
+  function checked(sel) { return $$(sel + ' input:checked').map(function (c) { return c.value; }); }
+  function signerIdNow() {
+    if (st.scope && st.scope.signerLocked) return st.scope.userId;
+    if (st.signerId) return st.signerId;
+    var t = $('#fSigner').value.trim();
+    if (!t) return '';
+    var m = /\(([^()]+)\)\s*$/.exec(t);   /* "이름 (ID)" 형태로 남은 값 */
+    return m ? m[1] : t;                    /* 직접 입력 = 미등록 ID 도 원문 그대로 검색 */
+  }
+  function filterNow() {
+    var f = {}, v;
+    if ((v = $('#fFrom').value)) f.from = v;
+    if ((v = $('#fTo').value)) f.to = v;
+    if ((v = $('#fBatch').value.trim())) f.batchId = v;
+    if ((v = $('#fOrder').value.trim())) f.orderNo = v;
+    if ((v = signerIdNow())) f.signerId = v;
+    var mean = checked('#fMeaning');
+    if (mean.length < Object.keys(V.MEANING).length) f.meaning = mean;   /* 5종 모두 → 키 생략 */
+    if ((v = $('#fType').value)) f.recordType = v;
+    var res = checked('#fResult');
+    f.result = res.length === V.RESULTS.length ? 'all' : res;
+    if (st.lineId) f.lineId = st.lineId;
+    if (st.signRuleId) f.signRuleId = st.signRuleId;
+    f.order = st.order;
+    return f;
+  }
+  function setSearchEnabled(on) {
+    $('#srch').classList.toggle('disabled', !on);
+    $$('#srch input, #srch select, #srch button').forEach(function (e) { e.disabled = !on; });
+    if (on && st.scope && st.scope.signerLocked) $('#fSigner').disabled = true;
+  }
+
+  /* ---------- 권한 (viewScope) ---------- */
+  function applyScope() {
+    var prevLocked = !!(st.scope && st.scope.signerLocked);
+    st.scope = V.viewScope();
+    var ok = !!st.scope.ok;
+    setSearchEnabled(ok);
+    show('#noScope', !ok); show('#gridBlock', ok);
+    if (!ok) {
+      $('#noScopeMsg').textContent = st.scope.message || '조회 권한이 없습니다 — 상단에서 사용자를 선택하세요';
+      $('#noScopeMsg').title = 'why: ' + (st.scope.why || '');
+      show('#sumSlot', false); show('#opNoteText', false);
+      $$('.dialog-backdrop.open').forEach(function (b) { MesUI.closeDialog(b); });
+      return false;
+    }
+    var locked = !!st.scope.signerLocked;
+    show('#opNoteText', locked);
+    if (locked) { st.signerId = st.scope.userId; $('#fSigner').value = (st.scope.name || '') + ' (' + st.scope.userId + ')'; $('#fSigner').disabled = true; }
+    else if (prevLocked) { st.signerId = null; $('#fSigner').value = ''; }
+    show('#btnPrint', !!st.scope.canPrint); show('#btnSdPrint', !!st.scope.canPrint);
+    return true;
+  }
+
+  /* ---------- 조회 ---------- */
+  function runQuery(resetPage) {
+    if (!st.scope || !st.scope.ok) return null;   /* scope none: query 를 부르지 않음 */
+    if (resetPage) st.page = 1;
+    var f = filterNow(); st.filter = f;
+    var res;
+    if ((Array.isArray(f.result) && !f.result.length) || (f.meaning && !f.meaning.length)) res = { ok: true, total: 0, rows: [], legacy: st.legacy };
+    else {
+      var q = JSON.parse(JSON.stringify(f)); q.offset = (st.page - 1) * PAGE; q.limit = PAGE;
+      res = V.query(q);
+      if (res.ok && res.total > 0 && !res.rows.length && st.page > 1) { st.page = Math.max(1, Math.ceil(res.total / PAGE)); q.offset = (st.page - 1) * PAGE; res = V.query(q); }
+    }
+    if (!res.ok) { applyScope(); return res; }
+    st.rows = res.rows; st.total = res.total; st.legacy = res.legacy || 0;
+    if (!st.rows.some(function (r) { return r.rowId === st.sel; })) st.sel = null;
+    renderToolbar(); renderGrid(); renderPaging(); renderSummary();
+    return res;
+  }
+
+  function renderToolbar() {
+    $('#tTotal').textContent = st.total;
+    $('#tLegacy').textContent = st.legacy;
+    var chips = [];
+    if (st.lineId) chips.push('<span class="badge muted" data-chip="lineId" title="클릭: 줄 조건 해제">줄 ' + esc(st.lineId) + ' ✕</span>');
+    if (st.signRuleId) chips.push('<span class="badge muted" data-chip="signRuleId" title="클릭: 규칙 조건 해제">규칙 ' + esc(st.signRuleId) + ' ✕</span>');
+    $('#chipBar').innerHTML = chips.join('');
+    $('#atArr').textContent = st.order === 'asc' ? '▲' : '▼';
+    $('#thAt').title = st.order === 'asc' ? '오래된순 — 클릭: 최신순' : '최신순 — 클릭: 오래된순';
+  }
+
+  function rowHtml(r) {
+    var v = rowVerify(r);
+    var mean = r.meaning ? dot(r.meaningToken) + esc(meaningKo(r) || r.meaningText) + estMark(est(r, 'meaning') || est(r, 'signRuleId')) : '<span class="sub-c">—</span>';
+    var role = r.signerRole || '—';
+    var sgParts = [isSys(r.signerId) ? '시스템' : (r.signerDisplayName || '—') + ' (' + r.signerId + ')', role];
+    if (r.signerMode === 'entered') sgParts.push('입력 ID');
+    var sgHtml = esc(sgParts[0]) + ' · ' + esc(role) + (r.signerMode === 'entered' ? ' <span class="badge muted">입력 ID</span>' : '');
+    var batch = (r.batchLabel || '—') + (est(r, 'batchId') ? ' (추정)' : '') + ' / ' + (r.orderLabel || '—');
+    var rule = ruleText(r);
+    return '<tr data-row="' + esc(r.rowId) + '"' + (r.rowId === st.sel ? ' class="selected"' : '') + '>' +
+      '<td>' + resBadge(r.result) + '</td>' +
+      '<td title="' + esc(r.at) + '">' + esc(fmt(r.at)) + '</td>' +
+      '<td title="' + esc((r.meaningText || '') + (r.meaningTextEn ? ' · ' + r.meaningTextEn : '')) + '">' + mean + '</td>' +
+      '<td title="' + esc(sgParts.join(' · ') + (isSys(r.signerId) ? ' · uid ' + r.signerId : '')) + '">' + sgHtml + '</td>' +
+      '<td title="' + esc(r.recordTypeLabel + (r.r4 ? ' (R4)' : '')) + '">' + esc(r.recordTypeLabel) + estMark(est(r, 'recordType')) + '</td>' +
+      '<td title="' + esc(batch) + '">' + esc(batch) + '</td>' +
+      '<td class="mono" title="' + esc(r.targetRef || '') + '">' + esc(r.targetRef || '—') + '</td>' +
+      '<td title="' + esc(rule) + '">' + (rule ? esc(rule) + estMark(est(r, 'signRuleId')) : '—') + '</td>' +
+      '<td title="' + esc(r.whyLabel || '') + '">' + esc(r.whyLabel || '—') + '</td>' +
+      '<td class="mono" title="' + esc(r.signatureId || '') + '">' + esc(r.signatureId || '—') + '</td>' +
+      '<td>' + verBadge(v) + '</td>' +
+      '<td>' + esc(r.status || '—') + '</td>' +
+      '<td title="' + esc(r.screen || '') + '">' + esc(r.result === 'signed' ? '—' : (r.screen || '—')) + '</td></tr>';
+  }
+  function renderGrid() {
+    var tb = $('#grdSignBody');
+    if (!st.rows.length) {
+      tb.innerHTML = '<tr class="empty"><td colspan="13">서명 기록 없음 — 조건을 바꾸어 다시 조회하세요.<span class="sub-info">기간 · 결과 · 의미 조건을 넓히거나 [Reset] 후 다시 조회하세요.</span></td></tr>';
+      return;
+    }
+    tb.innerHTML = st.rows.map(rowHtml).join('');
+  }
+  function renderPaging() {
+    var pages = Math.max(1, Math.ceil(st.total / PAGE)), p = st.page, h = [];
+    var start = Math.max(1, Math.min(p - 4, pages - 9)), end = Math.min(pages, start + 9);
+    h.push('<button class="pg-btn pg-first" type="button" data-pg="1" title="처음"' + (p <= 1 ? ' disabled' : '') + '></button>');
+    h.push('<button class="pg-btn pg-prev" type="button" data-pg="' + (p - 1) + '" title="이전"' + (p <= 1 ? ' disabled' : '') + '></button>');
+    for (var i = start; i <= end; i++) h.push('<button class="pg-no' + (i === p ? ' current' : '') + '" type="button" data-pg="' + i + '">' + i + '</button>');
+    h.push('<button class="pg-btn pg-next" type="button" data-pg="' + (p + 1) + '" title="다음"' + (p >= pages ? ' disabled' : '') + '></button>');
+    h.push('<button class="pg-btn pg-last" type="button" data-pg="' + pages + '" title="끝"' + (p >= pages ? ' disabled' : '') + '></button>');
+    h.push('<span class="sub-info pg-info">' + st.total + '건 / 페이지 ' + PAGE + '</span>');
+    $('#paging').innerHTML = h.join('');
+  }
+
+  /* ---------- UI-03 배치 서명 요약 · 미연결 띠 ---------- */
+  function renderSummary() {
+    var bid = st.filter && st.filter.batchId;
+    show('#sumSlot', !!bid || st.band);
+    show('#kpiBoard', !!bid && !st.band);
+    show('#ulBand', st.band);
+    if (st.band) renderBand(bid);
+    if (!bid) { $('#kpiBoard').innerHTML = ''; return; }
+    var s = V.batchSummary(bid);
+    if (!s.ok) { $('#kpiBoard').innerHTML = '<div class="kpi"><span class="kpi-label">배치 서명 요약</span><span class="kpi-value"><span class="badge muted">조회 불가</span></span></div>'; return; }
+    var ia = s.issueApproval || { done: 0, total: 1 }, sig = ia.signature;
+    var c1v, c1code = sig && sig.line ? sig.line : (s.issued ? '발행 기록 있음 — 발행 승인 서명 없음' : '발행 기록 없음');
+    if (sig && sig.linkState === 'unlinked') c1v = ia.done + ' / ' + ia.total + '<span class="badge warn" title="' + esc(V.UNLINKED_MESSAGE) + '">' + esc(sig.linkLabel || V.UNLINKED_LABEL) + '</span>';
+    else if (ia.done > 0) c1v = dot('--c-sign-approved') + ia.done + ' / ' + ia.total;
+    else c1v = ia.done + ' / ' + ia.total + '<span class="badge muted">대기</span>';   /* 판정 대기 = muted (승인 색 금지) */
+    var bm = s.signedByMeaning || {}, sum = 0, mParts = [];
+    Object.keys(V.MEANING).forEach(function (k) { if (bm[k]) { sum += bm[k]; mParts.push(dot(V.MEANING[k].token) + esc(V.MEANING[k].ko) + ' ' + bm[k]); } });
+    if (bm['']) { sum += bm['']; mParts.push('의미 미상 ' + bm['']); }
+    var br = s.byResult || {};
+    var refs = (s.unlinkedRefs || []).length, scr = (s.unlinkedScreens || []).length;
+    var card = function (label, val, code, warn, title) {
+      return '<div class="kpi' + (warn ? ' warning' : '') + '"' + (title ? ' title="' + esc(title) + '"' : '') + '><span class="kpi-label">' + label + '</span><span class="kpi-value">' + val + '</span><span class="kpi-code">' + code + '</span></div>';
+    };
+    $('#kpiBoard').innerHTML =
+      card('발행 승인', c1v, '<span title="' + esc(c1code) + '">' + esc(c1code) + '</span>', false) +
+      card('서명 성공', String(sum), mParts.join(' &nbsp;') || '—', false) +
+      card('실패 · 잠금', '실패 ' + (br.failed || 0) + ' · 잠금 ' + (br.locked || 0), '취소 ' + (br.cancelled || 0) + ' · 롤백 ' + (br.rolledback || 0), false) +
+      card('검증', '불일치 ' + (s.mismatches || 0), '성공 서명 레코드 기준', (s.mismatches || 0) >= 1) +
+      card('공용 저장소 미연결', '화면 ' + scr, (refs ? '원본 없는 서명 참조 ' + refs : '') + '<button class="btn inner" type="button" data-ul-more>자세히</button>', refs >= 1, V.UNLINKED_MESSAGE);
+  }
+  function renderBand(bid) {
+    var f = st.filter || {}, qs = [];
+    if (f.batchId) qs.push('batchId=' + encodeURIComponent(f.batchId));
+    if (f.orderNo) qs.push('orderNo=' + encodeURIComponent(f.orderNo));
+    var refs = V.linkStatus(bid ? { batchId: bid } : {}).unlinked || [];
+    var refTxt = refs.map(function (x) { return [x.source, x.ref, x.signatureId].filter(Boolean).join(' · '); }).join(' / ');
+    $('#ulBand').innerHTML =
+      '<div class="ul-head"><span title="' + esc(V.UNLINKED_MESSAGE) + '">(!) ' + esc(V.UNLINKED_MESSAGE) + '</span><button class="btn inner" type="button" id="btnUlBack">요약 보기</button></div>' +
+      '<div class="ul-screens">' + V.UNLINKED_SCREENS.map(function (s) {
+        return '• ' + esc(s.label) + ' — ' + esc(s.storage) + '<a href="./' + esc(s.file) + (qs.length ? '?' + qs.join('&') : '') + '">화면 열기 ›</a>';
+      }).join('') + '</div>' +
+      (refs.length ? '<div class="ul-refs" title="' + esc(refTxt) + '">원본 없는 서명 참조 ' + refs.length + '건: ' + esc(refTxt) + '</div>' : '') +
+      '<div class="sub-c">포장 화면의 데모 시드 서명도 표시하지 않습니다.</div>';
+  }
+  function setBand(on) { st.band = !!on; renderSummary(); }
+
+  /* ---------- UI-02 상세 ---------- */
+  function fg(pairs) {   /* [[label, html, span2?], ...] → form-grid cols-2 마크업 */
+    return pairs.map(function (p) {
+      return '<span class="label">' + esc(p[0]) + '</span><span class="field' + (p[2] ? ' span-2' : '') + '"><span class="text"' + (p[3] ? ' title="' + esc(p[3]) + '"' : '') + '>' + (p[1] == null || p[1] === '' ? '—' : p[1]) + '</span></span>';
+    }).join('');
+  }
+  function recOrEst(r, k) { return est(r, k) ? ' <span class="est">(추정)</span>' : ' <span class="est">(기록값)</span>'; }
+  /* 0813348 get().issue = { batchId, size, line } | null — 사이즈 · 라인 (발행 기록 값, 빈 값은 그 자리 '—') */
+  function sizeLine(issue) {
+    if (!issue) return '발행 기록 없음';
+    var sz = issue.size == null || issue.size === '' ? '—' : (isNaN(Number(issue.size)) ? String(issue.size) : Number(issue.size).toLocaleString('en-US', { maximumFractionDigits: 6 })) + ' kg';
+    var ln = issue.line == null || issue.line === '' ? '—' : String(issue.line);
+    return sz + ' · ' + ln;
+  }
+  /* 서명 문장 (a372608): EbrSignView.get 의 statement · statementSource 그대로 — 'original'(서명 레코드 원문) · 'reconstructed'(기존 레코드, builder 재구성) · null(문장 없음 → '—') */
+  function stmtLabel(src) { return src === 'original' ? '서명 문장(원문)' : src === 'reconstructed' ? '서명 문장(재구성)' : '서명 문장'; }
+  function stmtText(d) { return d && d.statementSource && d.statement ? String(d.statement) : '—'; }
+  function stmtTitle(d) {
+    var t = stmtText(d);
+    if (d && d.statementSource === 'reconstructed' && t !== '—') t += '\n(재구성 — 서명 레코드에 원문 없음, 서명 레코드 · 발행/칭량 기록으로 같은 문장 규칙에 따라 다시 조립)';
+    return t;
+  }
+  function verDetail(r, v, rec) {
+    if (!v) return { html: '—', title: '' };
+    var t;
+    if (v.state === 'match') t = r.recordType === 'batch_issue' ? 'snapshotHash · contentHash · signatureHash 일치' + (v.copy ? ' · 발행 사본 issueSignature 같음' : '') : 'signatureHash 일치';
+    else if (v.state === 'mismatch') t = '불일치: ' + (v.mismatches || []).join(' · ');
+    else t = v.message || '검증 불가';
+    if (v.note) t += ' — ' + v.note;
+    return { html: verBadge(v) + ' ' + esc(t), title: t };
+  }
+  function tlRows(entries, all) {
+    var list = entries || [], gapRow = null;
+    if (!all && list.length > TL_MAX) {
+      var oi = 0; for (var i = 0; i < list.length; i++) if (/_SIGN_OPEN$/.test(list[i].act)) { oi = i; break; }
+      var tail = list.slice(list.length - TL_TAIL), mid = list.filter(function (e, i) { return i !== oi && i < list.length - TL_TAIL; });
+      gapRow = { n: mid.length, title: mid.map(function (e) { return e.act; }).join(' · ') };
+      list = [list[oi]].concat([null]).concat(tail);
+    }
+    return list.map(function (e) {
+      if (!e) return '<tr class="gap"><td colspan="4" title="' + esc(gapRow.title) + '">… ' + gapRow.n + '건 생략</td></tr>';
+      var val = [e.whyLabel, e.val].filter(Boolean).join(' · ');
+      var t = String(fmt(e.at)), hms = (/\d{2}:\d{2}:\d{2}/.exec(t) || [''])[0];
+      return '<tr' + (e.current ? ' class="cur"' : '') + '><td title="' + esc(t) + '">' + esc(hms) + '</td><td title="' + esc((e.userName || '') + ' (' + (e.uid || '') + ')') + '">' + esc(uidLabel(e.uid) || '—') + '</td>' +
+        '<td title="' + esc(e.act) + '">' + esc(e.act) + '</td><td title="' + esc(val) + '">' + esc(val || '—') + '</td></tr>';
+    }).join('');
+  }
+  function openDetail(rowId) {
+    var g = V.get(rowId);
+    if (!g.ok) { MesUI.toast(g.why === 'not_found' ? '서명 기록을 찾지 못했습니다 — ' + rowId + ' (없거나 조회 범위 밖)' : (g.message || '조회 권한이 없습니다'), 'warn', 2600); return false; }
+    var r = g.row, rec = g.record || {}, tl = V.timeline(rowId), v = rowVerify(r), isSig = r.source === 'esign';
+    st.detail = { rowId: rowId, row: r, record: rec, issue: g.issue || null, timeline: tl, verify: v, statement: g.statement == null ? null : g.statement, statementSource: g.statementSource || null };
+    $('#sdTitle').innerHTML = isSig ? dot(r.meaningToken) + '서명 상세 — ' + esc(meaningKo(r) || r.meaningText || '—') : '시도 상세 — ' + esc(r.resultLabel) + ' ' + resBadge(r.result);
+    $('#sdLineText').textContent = isSig ? signLine(r) : attemptLine(r);
+    $('#sdLineText').title = $('#sdLineText').textContent;
+    $('#sdLineText').innerHTML = (isSig ? dot(r.meaningToken) : '') + esc($('#sdLineText').textContent);
+    $('#sdLineBadge').innerHTML = isSig ? verBadge(v) : resBadge(r.result);
+    $('#sdInfoTitle').textContent = isSig ? '서명 정보' : '시도 정보';
+    if (isSig) {
+      var mode = r.signerMode === 'entered' ? '입력 ID' + (rec.currentUserId ? ' (현재 사용자 ' + rec.currentUserId + ')' : '') : '현재 사용자';
+      $('#sdInfo').innerHTML = fg([
+        ['서명 ID', '<span class="mono">' + esc(r.signatureId) + '</span>'], ['규칙 · 버전', esc(ruleText(r))],
+        ['인증 강도', esc(rec.authStrength || '')], ['인증 수단', esc(rec.authMethod || '')],
+        ['상태', esc(r.status || '')], ['코멘트', esc(rec.comment || '')],
+        ['화면', esc(r.screen || '')], ['서명자 모드', esc(mode)]
+      ]);
+      var vd = verDetail(r, v, rec), st8 = stmtText(st.detail), stL = stmtLabel(st.detail.statementSource), stT = stmtTitle(st.detail);
+      var rows = r.recordType === 'batch_issue' ? [
+        ['대상 유형', esc(r.recordTypeLabel)], ['배치 / 오더', esc((r.batchLabel || '—') + ' / ' + r.orderLabel)],
+        ['MF', '<span class="mono">' + esc(rec.manifestId || '') + '</span>'], ['eMBR · 버전', esc(rec.processTreeId ? rec.processTreeId + ' v' + rec.ver : '')],
+        ['contentHash', hash8(rec.contentHash)], ['snapshotHash', hash8(rec.snapshotHash)],
+        ['signatureHash', hash8(rec.signatureHash)], ['사이즈 · 라인', esc(sizeLine(g.issue))],
+        [stL, esc(st8), true, stT], ['검증 결과', vd.html, true, vd.title]
+      ] : [
+        ['대상 유형', esc(r.recordTypeLabel)], ['배치 / 오더', esc((r.batchLabel || '—') + ' / ' + r.orderLabel)],
+        ['줄', '<span class="mono">' + esc(r.lineId || rec.lineId || '') + '</span>'], ['칭량 ID', '<span class="mono">' + esc(r.dispenseId || rec.dispenseId || '') + '</span>'],
+        ['valueHash', hash8(rec.valueHash)], ['signatureHash', hash8(rec.signatureHash)],
+        ['대상', '<span class="mono">' + esc(r.targetRef || '') + '</span>', true, r.targetRef],
+        [stL, esc(st8), true, stT], ['검증 결과', vd.html, true, vd.title]
+      ];
+      $('#sdTarget').innerHTML = fg(rows);
+    } else {
+      $('#sdInfo').innerHTML = fg([
+        ['감사 ID', '<span class="mono">' + esc(r.auditId || '') + '</span>'], ['act (사유)', esc(r.act + (r.why ? ' (' + r.why + ')' : '')), false, r.act + (r.why ? ' (' + r.why + ')' : '')],
+        ['규칙', (r.signRuleId ? esc(r.signRuleId) : '—') + recOrEst(r, 'signRuleId')], ['대상 유형', esc(r.recordTypeLabel) + recOrEst(r, 'recordType')],
+        ['배치 · 줄', esc((r.batchLabel || '—') + ' · ' + (r.lineId || '—')) + recOrEst(r, 'batchId')], ['칭량 ID', '<span class="mono">' + esc(r.dispenseId || '') + '</span>'],
+        ['등록 여부', isSys(r.signerId) ? '시스템 (자동 처리)' : r.registered === false ? '미등록 ID' : '등록'], ['서명자 모드', esc(r.signerMode === 'entered' ? '입력 ID' : (r.signerMode || '현재 사용자'))]
+      ]);
+      $('#sdTarget').innerHTML = fg([['서명 대상', '해당 없음 — 서명 레코드가 만들어지지 않은 시도입니다.', true]]);
+    }
+    $('#grdTlBody').innerHTML = tl && tl.ok && tl.entries.length ? tlRows(tl.entries, false) : '<tr><td colspan="4" class="sub-c">' + esc((tl && tl.note) || '연결 감사 없음') + '</td></tr>';
+    $('#tlNote').textContent = '* ' + ((tl && tl.note) || '시도 ID 없음 — 시각 · tgt 로 묶은 근사값');
+    show('#btnSdPrint', isSig && !!(st.scope && st.scope.canPrint));
+    var hasB = !!r.batchId;
+    $('#btnSdBatch').disabled = !hasB;
+    $('#btnSdBatchTip').title = hasB ? '이 배치(' + r.batchId + ') 조건으로 다시 조회' : '배치 정보가 없는 기록입니다';
+    MesUI.openDialog('dlgSignDetail');
+    return true;
+  }
+
+  /* ---------- UI-04 배치 선택 (EbrSignView.batches — J9) ---------- */
+  function bpLoad() {
+    var p = st.bp, f = { batchId: $('#bpBatch').value.trim(), orderNo: $('#bpOrder').value.trim(), from: $('#bpFrom').value, to: $('#bpTo').value, offset: (p.page - 1) * BP_PAGE, limit: BP_PAGE };
+    Object.keys(f).forEach(function (k) { if (f[k] === '') delete f[k]; });
+    var res = V.batches(f);
+    p.rows = res.ok ? res.rows : []; p.total = res.ok ? res.total : 0;
+    if (!p.rows.some(function (r) { return r.batchId === p.sel; })) p.sel = null;
+    $('#grdBatchBody').innerHTML = p.rows.length ? p.rows.map(function (r) {
+      var s = r.issueSignature, sv = s ? (s.linkLabel ? '<span class="badge warn">' + esc(s.linkLabel) + '</span> ' : '') + esc(s.line || s.signatureId) : '—';
+      var tt = s ? (s.linkLabel ? s.linkLabel + ' · ' : '') + (s.line || s.signatureId) : '';
+      return '<tr data-bid="' + esc(r.batchId) + '"' + (r.batchId === p.sel ? ' class="selected"' : '') + '><td class="mono">' + esc(r.batchId) + '</td><td class="mono">' + esc(r.orderNo || '—') + '</td>' +
+        '<td>' + esc(r.processTreeId ? r.processTreeId + ' v' + r.ver : '—') + '</td><td>' + esc(r.issuedAtText || '—') + '</td><td title="' + esc(tt) + '">' + sv + '</td></tr>';
+    }).join('') : '<tr><td colspan="5" class="sub-c">' + esc(res.ok ? '발행 기록 없음 — 조건을 바꾸어 다시 조회하세요.' : (res.message || '조회 권한이 없습니다')) + '</td></tr>';
+    var pages = Math.max(1, Math.ceil(p.total / BP_PAGE)), pg = p.page;
+    $('#bpPaging').innerHTML = '<button class="pg-btn pg-prev" type="button" data-bp="' + (pg - 1) + '"' + (pg <= 1 ? ' disabled' : '') + ' title="이전"></button>' +
+      '<span class="pg-info current-page">' + pg + ' / ' + pages + '</span>' +
+      '<button class="pg-btn pg-next" type="button" data-bp="' + (pg + 1) + '"' + (pg >= pages ? ' disabled' : '') + ' title="다음"></button>' +
+      '<span class="sub-info pg-info">' + p.total + '건</span>';
+  }
+  function openBatchPick() {
+    $('#bpBatch').value = $('#fBatch').value.trim(); $('#bpOrder').value = $('#fOrder').value.trim();
+    st.bp.page = 1; st.bp.sel = null; bpLoad();
+    MesUI.openDialog('dlgBatchPick');
+  }
+  function pickBatch(bid) {
+    if (!bid) { MesUI.toast('배치를 선택하세요', 'warn', 1800); return; }
+    $('#fBatch').value = bid; $('#fOrder').value = '';
+    MesUI.closeDialog('dlgBatchPick');
+    runQuery(true);
+  }
+
+  /* ---------- 서명자 콤보 (W3-b) ---------- */
+  var combo = { items: [], act: -1 };
+  function comboRender() {
+    var q = $('#fSigner').value.trim(), list = US.listUsers(q ? { q: q } : {}) || [], items = [];
+    if (!q) items.push({ id: '', label: '전체' });
+    list.forEach(function (u) { items.push({ id: u.userId, label: userLabel(u) + ' · ' + rolesText(u), short: userLabel(u) }); });
+    if (q && !list.length) items.push({ id: q, label: '직접 입력: "' + q + '" (미등록 ID 검색)', short: q, direct: true });
+    combo.items = items; combo.act = -1;
+    $('#signerList').innerHTML = items.map(function (it, i) { return '<li data-i="' + i + '"' + (it.direct ? ' class="direct"' : '') + ' title="' + esc(it.label) + '">' + esc(it.label) + '</li>'; }).join('');
+    show('#signerList', true);
+  }
+  function comboPick(i) {
+    var it = combo.items[i]; if (!it) return;
+    st.signerId = it.id || null; $('#fSigner').value = it.id ? it.short : '';
+    show('#signerList', false);
+  }
+
+  /* ---------- UI-07 인쇄 ---------- */
+  function condText(f) {
+    var p = [];
+    p.push('기간 ' + (f.from || f.to ? (f.from || '…') + ' ~ ' + (f.to || '…') : '전체'));
+    if (f.batchId) p.push('배치 ' + f.batchId);
+    if (f.orderNo) p.push('오더 ' + f.orderNo);
+    p.push('서명자 ' + (f.signerId || '전체'));
+    p.push('의미 ' + (f.meaning ? f.meaning.map(function (k) { return V.MEANING[k] ? V.MEANING[k].ko : k; }).join(' · ') || '없음' : '전체'));
+    if (f.recordType) p.push('대상 유형 ' + (V.RECORD_TYPE_LABEL[f.recordType] || f.recordType));
+    p.push('결과 ' + (f.result === 'all' ? '전체' : (f.result || []).map(function (k) { return V.RESULT_LABEL[k]; }).join(' · ') || '없음'));
+    if (f.lineId) p.push('줄 ' + f.lineId);
+    if (f.signRuleId) p.push('규칙 ' + f.signRuleId);
+    return p.join(' | ');
+  }
+  function printHead(title, f, count) {
+    var who = st.scope ? (st.scope.name || '') + ' (' + st.scope.userId + ')' : '—';
+    return '<thead><tr><td colspan="2"><div class="p-title">' + esc(title) + '</div>' +
+      '<div class="p-meta">조건: ' + esc(condText(f)) + '</div>' +
+      '<div class="p-meta">출력자 ' + esc(who) + ' · 출력 시각 ' + esc(fmt(new Date().toISOString())) + ' · ' + count + '건</div></td></tr></thead>';
+  }
+  function printRow(r) {
+    var v = rowVerify(r);
+    var l1 = esc(fmt(r.at)) + ' · ' + esc(r.source === 'esign' ? signLine(r) : (meaningKo(r) || '의미 미상') + ' 시도 — ' + signerText(r) + ' · ' + (r.whyLabel || r.act));
+    var l2 = [r.recordTypeLabel + (est(r, 'recordType') ? ' *' : ''), r.targetRef || '—', (ruleText(r) || '—') + (est(r, 'signRuleId') ? ' *' : ''), r.signatureId || '—', '검증 ' + verText(v)].join(' · ');
+    return '<tr><td class="p-res">' + esc(r.resultLabel) + '</td><td><div>' + l1 + '</div><div class="p-l2">' + esc(l2) + '</div></td></tr>';
+  }
+  function printFoot() {
+    return '<div class="p-foot">* 추정값 · 미연결 화면(조회 대상 아님): ' + esc(V.UNLINKED_SCREENS.map(function (s) { return s.label; }).join(' · ')) + '</div>';
+  }
+  function buildPrintList() {
+    var f = filterNow(), q = JSON.parse(JSON.stringify(f)); q.offset = 0; q.limit = 0;   /* 전체 행 (페이지 무시) */
+    var res = (Array.isArray(f.result) && !f.result.length) || (f.meaning && !f.meaning.length) ? { ok: true, rows: [], total: 0 } : V.query(q);
+    if (!res.ok) return null;
+    $('#printArea').innerHTML = '<table>' + printHead('서명 내역 (사본 — 전자 원본 아님)', f, res.total) + '<tbody>' + res.rows.map(printRow).join('') + '</tbody></table>' + printFoot();
+    return res.total;
+  }
+  function buildPrintDetail() {
+    var d = st.detail; if (!d) return null;
+    var r = d.row, rec = d.record || {}, f = st.filter || filterNow();
+    var tl = d.timeline && d.timeline.ok ? d.timeline.entries : [];
+    var kv = function (a) { return a.map(function (p) { return esc(p[0]) + ': ' + esc(p[1] == null || p[1] === '' ? '—' : p[1]); }).join(' · '); };
+    var vd = verDetail(r, d.verify, rec);
+    $('#printArea').innerHTML = '<table>' + printHead('서명 상세 (사본 — 전자 원본 아님)', f, 1) + '<tbody>' +
+      '<tr><td class="p-res">' + esc(r.resultLabel) + '</td><td><div>① ' + esc(signLine(r)) + '</div>' +
+      '<div class="p-sec">② 서명 정보</div><div>' + kv([['서명 ID', r.signatureId], ['규칙', ruleText(r)], ['인증 강도', rec.authStrength], ['인증 수단', rec.authMethod], ['상태', r.status], ['코멘트', rec.comment], ['화면', r.screen]]) + '</div>' +
+      '<div class="p-sec">③ 서명 대상 · 해시</div><div>' + kv([['대상 유형', r.recordTypeLabel], ['배치 / 오더', (r.batchLabel || '—') + ' / ' + r.orderLabel], ['대상', r.targetRef], ['contentHash', rec.contentHash], ['snapshotHash', rec.snapshotHash], ['사이즈 · 라인', r.recordType === 'batch_issue' ? sizeLine(d.issue) : ''], ['valueHash', rec.valueHash], ['signatureHash', rec.signatureHash]]) + '</div>' +
+      '<div>' + esc(stmtLabel(d.statementSource)) + ': ' + esc(stmtText(d)) + '</div>' +
+      '<div class="p-sec">④ 검증</div><div>' + esc(vd.title || '—') + '</div>' +
+      '<div class="p-sec">⑤ 관련 감사 타임라인 (' + tl.length + '건, 전부)</div>' +
+      tl.map(function (e) { return '<div class="p-l2">' + esc(fmt(e.at) + ' · ' + (uidLabel(e.uid) || '—') + ' · ' + e.act + (e.whyLabel ? ' · ' + e.whyLabel : '') + (e.val ? ' · ' + e.val : '') + (e.current ? ' ◀' : '')) + '</div>'; }).join('') +
+      '<div class="p-l2">* ' + esc((d.timeline && d.timeline.note) || '') + '</div></td></tr></tbody></table>' + printFoot();
+    return tl.length;
+  }
+  function doPrint(builder) { if (!st.scope || !st.scope.canPrint) return; if (builder() == null) return; window.print(); }
+
+  /* ---------- 이벤트 ---------- */
+  function bind() {
+    $('#btnSearch').addEventListener('click', function () { runQuery(true); });
+    $('#btnReset').addEventListener('click', function () { setDefaults(false); st.band = false; runQuery(true); });
+    $('#srch').addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.matches('input:not([type=checkbox])') && e.target.id !== 'fSigner') runQuery(true); });
+    $('#btnBatchPick').addEventListener('click', openBatchPick);
+    $('#thAt').addEventListener('click', function () { st.order = st.order === 'desc' ? 'asc' : 'desc'; runQuery(true); });
+    $('#chipBar').addEventListener('click', function (e) { var c = e.target.closest('[data-chip]'); if (!c) return; st[c.getAttribute('data-chip')] = ''; runQuery(true); });
+    $('#paging').addEventListener('click', function (e) { var b = e.target.closest('[data-pg]'); if (!b || b.disabled) return; st.page = parseInt(b.getAttribute('data-pg'), 10) || 1; runQuery(false); });
+    var tb = $('#grdSignBody');
+    tb.addEventListener('click', function (e) { var tr = e.target.closest('tr[data-row]'); if (!tr) return; st.sel = tr.getAttribute('data-row'); $$('tr.selected', tb).forEach(function (x) { x.classList.remove('selected'); }); tr.classList.add('selected'); });
+    tb.addEventListener('dblclick', function (e) { var tr = e.target.closest('tr[data-row]'); if (tr) openDetail(tr.getAttribute('data-row')); });
+    $('#gridWrap').tabIndex = 0;
+    $('#gridWrap').addEventListener('keydown', function (e) {
+      if (!st.rows.length) return;
+      var i = st.rows.findIndex(function (r) { return r.rowId === st.sel; });
+      if (e.key === 'Enter' && st.sel) { e.preventDefault(); openDetail(st.sel); }
+      else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); i = Math.max(0, Math.min(st.rows.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1))); st.sel = st.rows[i].rowId; renderGrid(); }
+    });
+    document.addEventListener('click', function (e) {
+      if (e.target.closest('#btnUlMore, [data-ul-more]')) setBand(true);
+      else if (e.target.closest('#btnUlBack')) setBand(false);
+    });
+    $('#btnPrint').addEventListener('click', function () { doPrint(buildPrintList); });
+    $('#btnSdPrint').addEventListener('click', function () { doPrint(buildPrintDetail); });
+    $('#btnSdBatch').addEventListener('click', function () {
+      var r = st.detail && st.detail.row; if (!r || !r.batchId) return;
+      MesUI.closeDialog('dlgSignDetail');
+      $('#fBatch').value = r.batchId; $('#fOrder').value = '';
+      runQuery(true);
+    });
+    /* 배치 선택 */
+    $('#bpSearch').addEventListener('click', function () { st.bp.page = 1; bpLoad(); });
+    $('#dlgBatchPick').addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.matches('#dlgBatchPick .search-box input')) { st.bp.page = 1; bpLoad(); } });
+    $('#bpPaging').addEventListener('click', function (e) { var b = e.target.closest('[data-bp]'); if (!b || b.disabled) return; st.bp.page = parseInt(b.getAttribute('data-bp'), 10) || 1; bpLoad(); });
+    var bb = $('#grdBatchBody');
+    bb.addEventListener('click', function (e) { var tr = e.target.closest('tr[data-bid]'); if (!tr) return; st.bp.sel = tr.getAttribute('data-bid'); $$('tr.selected', bb).forEach(function (x) { x.classList.remove('selected'); }); tr.classList.add('selected'); });
+    bb.addEventListener('dblclick', function (e) { var tr = e.target.closest('tr[data-bid]'); if (tr) pickBatch(tr.getAttribute('data-bid')); });
+    $('#bpOk').addEventListener('click', function () { pickBatch(st.bp.sel); });
+    /* 서명자 콤보 */
+    var si = $('#fSigner');
+    si.addEventListener('focus', comboRender);
+    si.addEventListener('input', function () { st.signerId = null; comboRender(); });
+    si.addEventListener('keydown', function (e) {
+      var n = combo.items.length;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if ($('#signerList').classList.contains('is-hidden')) comboRender(); combo.act = n ? (combo.act + (e.key === 'ArrowDown' ? 1 : n - 1)) % n : -1; $$('#signerList li').forEach(function (li, i) { li.classList.toggle('act', i === combo.act); }); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (combo.act >= 0) comboPick(combo.act); show('#signerList', false); runQuery(true); }
+      else if (e.key === 'Escape') show('#signerList', false);
+    });
+    si.addEventListener('blur', function () { setTimeout(function () { show('#signerList', false); }, 150); });
+    $('#signerList').addEventListener('mousedown', function (e) { var li = e.target.closest('li[data-i]'); if (!li) return; e.preventDefault(); comboPick(parseInt(li.getAttribute('data-i'), 10)); });
+  }
+
+  /* ---------- 시작 ---------- */
+  function boot() {
+    buildSearch(); bind();
+    var q = new URLSearchParams(location.search || ''), keys = ['batchId', 'orderNo', 'signerId', 'signatureId', 'lineId', 'signRuleId'];
+    var hasQ = keys.some(function (k) { return !!q.get(k); });
+    setDefaults(hasQ);
+    if (q.get('batchId')) $('#fBatch').value = q.get('batchId');
+    if (q.get('orderNo')) $('#fOrder').value = q.get('orderNo');
+    if (q.get('signerId')) { st.signerId = q.get('signerId'); $('#fSigner').value = q.get('signerId'); }
+    st.lineId = q.get('lineId') || ''; st.signRuleId = q.get('signRuleId') || '';
+    if (applyScope()) runQuery(true);
+    if (q.get('signatureId') && st.scope && st.scope.ok) openDetail('S:' + q.get('signatureId'));
+    if (window.P0Ui) P0Ui.onUserChange(function () { st.sel = null; if (applyScope()) runQuery(true); });
+  }
+  window.EbrSignHistoryUi = {
+    state: function () { return JSON.parse(JSON.stringify({ scope: st.scope, page: st.page, order: st.order, total: st.total, legacy: st.legacy, sel: st.sel, filter: st.filter, band: st.band, lineId: st.lineId, rows: st.rows.map(function (r) { return r.rowId; }) })); },
+    runQuery: runQuery, openDetail: openDetail, buildPrintList: buildPrintList, buildPrintDetail: buildPrintDetail, filterNow: filterNow
+  };
+  if (window.P0Ui) P0Ui.ready(boot); else if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
+})();
+
+  /* ---- viewport fit (카탈로그 iframe + 1920 미만 창) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', fitShellToViewport);
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

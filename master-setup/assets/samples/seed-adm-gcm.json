@@ -1,0 +1,1033 @@
+{
+  "_note": "ADM GCM 신규 시드 11종 (EBR_* 접두, module 필드 없음). shared-store.js seedGcm() 스냅샷 — 참고용, 화면은 JS 시드를 사용",
+  "tables": [
+    {
+      "tableName": "EBR_DOSAGE_FORM",
+      "tableDesc": "제형",
+      "seqNoFlag": true,
+      "sys": true,
+      "newSeed": true,
+      "cols": [
+        {
+          "colKey": "key1",
+          "colName": "CODE",
+          "colDesc": "코드",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data1",
+          "colName": "NAME_EN",
+          "colDesc": "영문명",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data2",
+          "colName": "BATCH_UNIT",
+          "colDesc": "배치 단위",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data3",
+          "colName": "COUNT_UNIT",
+          "colDesc": "수량 단위",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data4",
+          "colName": "MES_PROD_TYPE",
+          "colDesc": "MES 제품 유형",
+          "colType": "STRING"
+        }
+      ],
+      "use": {
+        "phase": "적용 제형",
+        "eqclass": "적용 제형",
+        "etc": "S-01 MBR 제품 제형 · S-11 이론 수량 단위"
+      },
+      "upd": "2026-09-10"
+    },
+    {
+      "tableName": "EBR_MBR_STATUS",
+      "tableDesc": "수명주기 상태 (MBR · 도메인 마스터 공용)",
+      "seqNoFlag": true,
+      "sys": true,
+      "newSeed": true,
+      "cols": [
+        {
+          "colKey": "key1",
+          "colName": "CODE",
+          "colDesc": "코드",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data1",
+          "colName": "BADGE_CLASS",
+          "colDesc": "뱃지",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data2",
+          "colName": "BG_COLOR",
+          "colDesc": "배경색",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data3",
+          "colName": "NEXT_STATUS",
+          "colDesc": "다음 상태",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data4",
+          "colName": "EDITABLE",
+          "colDesc": "편집 가능",
+          "colType": "CHECKBOX"
+        }
+      ],
+      "use": {
+        "phase": "상태 뱃지 · 전이",
+        "config": "상태 뱃지 · 전이",
+        "sign": "상태 뱃지 · 전이",
+        "terminal": "바인딩 상태",
+        "eqclass": "상태 뱃지 · 전이",
+        "etc": "S-01 MBR 수명주기 · S-11 발행 가능 판정"
+      },
+      "upd": "2026-09-11"
+    },
+    {
+      "tableName": "EBR_ORDER_STATUS",
+      "tableDesc": "eBR 오더 상태",
+      "seqNoFlag": true,
+      "sys": true,
+      "newSeed": true,
+      "cols": [
+        {
+          "colKey": "key1",
+          "colName": "CODE",
+          "colDesc": "코드",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data1",
+          "colName": "BADGE_CLASS",
+          "colDesc": "뱃지",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data2",
+          "colName": "BG_COLOR",
+          "colDesc": "배경색",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data3",
+          "colName": "NEXT_STATUS",
+          "colDesc": "다음 상태",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data4",
+          "colName": "EDITABLE",
+          "colDesc": "편집 가능",
+          "colType": "CHECKBOX"
+        }
+      ],
+      "use": {
+        "order": "오더 상태 필터 · 뱃지",
+        "etc": "s-ebr-order-ui · 배치 발행 전 오더"
+      },
+      "upd": "2026-10-05"
+    },
+    {
+      "tableName": "EBR_AUTHORING_SCOPE",
+      "tableDesc": "저작 범위",
+      "seqNoFlag": true,
+      "sys": true,
+      "newSeed": true,
+      "cols": [
+        {
+          "colKey": "key1",
+          "colName": "CODE",
+          "colDesc": "코드",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data1",
+          "colName": "TRANSFER_PKG",
+          "colDesc": "이관 패키지",
+          "colType": "CHECKBOX"
+        },
+        {
+          "colKey": "data2",
+          "colName": "RULE_TEXT",
+          "colDesc": "규칙",
+          "colType": "STRING"
+        }
+      ],
+      "use": {
+        "phase": "저작 범위",
+        "config": "저작 범위",
+        "etc": "S-02 디자이너 조합/로직 경계 (R-L1-1)"
+      },
+      "upd": "2026-09-12"
+    },
+    {
+      "tableName": "EBR_INTERLOCK_GRADE",
+      "tableDesc": "인터록 등급 (4단계)",
+      "seqNoFlag": true,
+      "sys": true,
+      "newSeed": true,
+      "cols": [
+        {
+          "colKey": "key1",
+          "colName": "CODE",
+          "colDesc": "코드",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data1",
+          "colName": "OI_DISPLAY",
+          "colDesc": "화면 표시",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data2",
+          "colName": "DOT_COLOR",
+          "colDesc": "등급 색",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data3",
+          "colName": "OVERRIDE",
+          "colDesc": "override",
+          "colType": "CHECKBOX"
+        },
+        {
+          "colKey": "data4",
+          "colName": "PRIORITY",
+          "colDesc": "우선순위",
+          "colType": "NUMBER"
+        }
+      ],
+      "use": {
+        "config": "S-08 등급 동작 정의표",
+        "etc": "S-17 인터록 배너 · S-19 사유 코드 · S-20 현장 예외"
+      },
+      "upd": "2026-09-13"
+    },
+    {
+      "tableName": "EBR_CONFIG_KIND",
+      "tableDesc": "설정 객체 kind",
+      "seqNoFlag": true,
+      "sys": true,
+      "newSeed": true,
+      "cols": [
+        {
+          "colKey": "key1",
+          "colName": "CODE",
+          "colDesc": "코드",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data1",
+          "colName": "ID_PREFIX",
+          "colDesc": "ID 접두",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data2",
+          "colName": "DEFAULT_SCOPE",
+          "colDesc": "기본 저작 범위",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data3",
+          "colName": "RELEASE",
+          "colDesc": "릴리즈",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data4",
+          "colName": "IN_MANIFEST",
+          "colDesc": "매니페스트",
+          "colType": "CHECKBOX"
+        }
+      ],
+      "use": {
+        "config": "kind 필터 · 본문 스키마",
+        "etc": "S-11 · S-12 매니페스트 kind"
+      },
+      "upd": "2026-09-14"
+    },
+    {
+      "tableName": "EBR_SIGN_MEANING",
+      "tableDesc": "서명 의미 (Part 11 §11.50)",
+      "seqNoFlag": true,
+      "sys": true,
+      "newSeed": true,
+      "cols": [
+        {
+          "colKey": "key1",
+          "colName": "CODE",
+          "colDesc": "코드",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data1",
+          "colName": "COLOR",
+          "colDesc": "색상",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data2",
+          "colName": "MEANING_EN",
+          "colDesc": "영문 의미",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data3",
+          "colName": "DEFAULT_AUTH",
+          "colDesc": "기본 인증 강도",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data4",
+          "colName": "BATCH_ALLOWED",
+          "colDesc": "일괄 허용",
+          "colType": "CHECKBOX"
+        }
+      ],
+      "use": {
+        "sign": "서명 의미 · 색",
+        "etc": "S-27 전자서명 팝업 제목 · 색 · 문장"
+      },
+      "upd": "2026-09-15"
+    },
+    {
+      "tableName": "EBR_AUTH_STRENGTH",
+      "tableDesc": "인증 강도",
+      "seqNoFlag": true,
+      "sys": true,
+      "newSeed": true,
+      "cols": [
+        {
+          "colKey": "key1",
+          "colName": "CODE",
+          "colDesc": "코드",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data1",
+          "colName": "FACTORS",
+          "colDesc": "요소 수",
+          "colType": "NUMBER"
+        },
+        {
+          "colKey": "data2",
+          "colName": "SESSION_REUSE",
+          "colDesc": "세션 재사용",
+          "colType": "CHECKBOX"
+        },
+        {
+          "colKey": "data3",
+          "colName": "RULE_TEXT",
+          "colDesc": "설명",
+          "colType": "STRING"
+        }
+      ],
+      "use": {
+        "config": "S-08 인증 강도",
+        "sign": "요구 인증 강도",
+        "terminal": "기본 인증 수단",
+        "etc": "S-27 전자서명 · S-28 세션 전환"
+      },
+      "upd": "2026-09-16"
+    },
+    {
+      "tableName": "EBR_TERMINAL_TYPE",
+      "tableDesc": "단말 유형",
+      "seqNoFlag": true,
+      "sys": true,
+      "newSeed": true,
+      "cols": [
+        {
+          "colKey": "key1",
+          "colName": "CODE",
+          "colDesc": "코드",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data1",
+          "colName": "SCREEN",
+          "colDesc": "화면",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data2",
+          "colName": "LOCK_MIN",
+          "colDesc": "기본 잠금(분)",
+          "colType": "NUMBER"
+        },
+        {
+          "colKey": "data3",
+          "colName": "PROX_READER",
+          "colDesc": "근접 리더",
+          "colType": "CHECKBOX"
+        },
+        {
+          "colKey": "data4",
+          "colName": "ZONE",
+          "colDesc": "설치 구역",
+          "colType": "STRING"
+        }
+      ],
+      "use": {
+        "terminal": "단말 유형",
+        "etc": "S-16 · S-28 OI 세션 정책"
+      },
+      "upd": "2026-09-17"
+    },
+    {
+      "tableName": "EBR_EVIDENCE_TYPE",
+      "tableDesc": "증거 유형 (항목 속성 ⑤)",
+      "seqNoFlag": true,
+      "sys": true,
+      "newSeed": true,
+      "cols": [
+        {
+          "colKey": "key1",
+          "colName": "CODE",
+          "colDesc": "코드",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data1",
+          "colName": "ORIGIN",
+          "colDesc": "출처 origin",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data2",
+          "colName": "PHOTO_POPUP",
+          "colDesc": "사진 팝업",
+          "colType": "CHECKBOX"
+        },
+        {
+          "colKey": "data3",
+          "colName": "RULE_TEXT",
+          "colDesc": "설명",
+          "colType": "STRING"
+        }
+      ],
+      "use": {
+        "phase": "증거 유형 기본값",
+        "etc": "S-17 출처 플래그 · S-22 사진 증거"
+      },
+      "upd": "2026-09-18"
+    },
+    {
+      "tableName": "EBR_PHASE_KIND",
+      "tableDesc": "Phase 유형",
+      "seqNoFlag": true,
+      "sys": true,
+      "newSeed": true,
+      "cols": [
+        {
+          "colKey": "key1",
+          "colName": "CODE",
+          "colDesc": "코드",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data1",
+          "colName": "DEFAULT_EC_PREFIX",
+          "colDesc": "기본 장비 클래스 접두 (제안)",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data2",
+          "colName": "DOSAGE_FORMS",
+          "colDesc": "적용 제형",
+          "colType": "STRING"
+        },
+        {
+          "colKey": "data3",
+          "colName": "OI_TEMPLATE",
+          "colDesc": "OI 템플릿",
+          "colType": "STRING"
+        }
+      ],
+      "use": {
+        "phase": "Phase 유형",
+        "eqclass": "적용 Phase 유형",
+        "etc": "S-02 디자이너 라이브러리 패널"
+      },
+      "upd": "2026-09-19"
+    }
+  ],
+  "data": {
+    "EBR_DOSAGE_FORM": [
+      {
+        "key1": "tablet",
+        "keyDesc": "정제",
+        "disableFlag": false,
+        "data1": "Tablet",
+        "data2": "kg",
+        "data3": "정",
+        "data4": "FG-TAB",
+        "seqNo": 1
+      },
+      {
+        "key1": "capsule",
+        "keyDesc": "캡슐",
+        "disableFlag": false,
+        "data1": "Capsule",
+        "data2": "kg",
+        "data3": "캡슐",
+        "data4": "FG-CAP",
+        "seqNo": 2
+      },
+      {
+        "key1": "liquid",
+        "keyDesc": "액제",
+        "disableFlag": false,
+        "data1": "Liquid",
+        "data2": "L",
+        "data3": "mL",
+        "data4": "FG-LIQ",
+        "seqNo": 3
+      },
+      {
+        "key1": "powder",
+        "keyDesc": "산제 (2차)",
+        "disableFlag": true,
+        "data1": "Powder",
+        "data2": "kg",
+        "data3": "포",
+        "data4": "FG-PWD",
+        "seqNo": 4
+      }
+    ],
+    "EBR_MBR_STATUS": [
+      {
+        "key1": "draft",
+        "keyDesc": "초안",
+        "disableFlag": false,
+        "data1": "lc-draft",
+        "data2": "#e6e6e7",
+        "data3": "review",
+        "data4": true,
+        "seqNo": 1
+      },
+      {
+        "key1": "review",
+        "keyDesc": "검토",
+        "disableFlag": false,
+        "data1": "lc-review",
+        "data2": "#CCEBFF",
+        "data3": "approved",
+        "data4": false,
+        "seqNo": 2
+      },
+      {
+        "key1": "approved",
+        "keyDesc": "승인",
+        "disableFlag": false,
+        "data1": "lc-approved",
+        "data2": "#EBE0F7",
+        "data3": "pending",
+        "data4": false,
+        "seqNo": 3
+      },
+      {
+        "key1": "pending",
+        "keyDesc": "효력 대기",
+        "disableFlag": false,
+        "data1": "lc-pending",
+        "data2": "#CCEBFF",
+        "data3": "effective",
+        "data4": false,
+        "seqNo": 4
+      },
+      {
+        "key1": "effective",
+        "keyDesc": "효력",
+        "disableFlag": false,
+        "data1": "lc-effective",
+        "data2": "#E2F8CC",
+        "data3": "superseded",
+        "data4": false,
+        "seqNo": 5
+      },
+      {
+        "key1": "superseded",
+        "keyDesc": "대체",
+        "disableFlag": false,
+        "data1": "lc-superseded",
+        "data2": "#e6e6e7",
+        "data3": "retired",
+        "data4": false,
+        "seqNo": 6
+      },
+      {
+        "key1": "retired",
+        "keyDesc": "폐기",
+        "disableFlag": false,
+        "data1": "lc-retired",
+        "data2": "#F9D5D1",
+        "data3": "",
+        "data4": false,
+        "seqNo": 7
+      }
+    ],
+    "EBR_ORDER_STATUS": [
+      {
+        "key1": "draft",
+        "keyDesc": "초안",
+        "disableFlag": false,
+        "data1": "os-draft",
+        "data2": "#e6e6e7",
+        "data3": "planned",
+        "data4": true,
+        "seqNo": 1
+      },
+      {
+        "key1": "planned",
+        "keyDesc": "계획",
+        "disableFlag": false,
+        "data1": "os-planned",
+        "data2": "#CCEBFF",
+        "data3": "released",
+        "data4": true,
+        "seqNo": 2
+      },
+      {
+        "key1": "released",
+        "keyDesc": "릴리즈",
+        "disableFlag": false,
+        "data1": "os-released",
+        "data2": "#CCEBFF",
+        "data3": "in_progress",
+        "data4": false,
+        "seqNo": 3
+      },
+      {
+        "key1": "in_progress",
+        "keyDesc": "진행",
+        "disableFlag": false,
+        "data1": "os-in_progress",
+        "data2": "#FFF6D6",
+        "data3": "completed",
+        "data4": false,
+        "seqNo": 4
+      },
+      {
+        "key1": "completed",
+        "keyDesc": "완료",
+        "disableFlag": false,
+        "data1": "os-completed",
+        "data2": "#E2F8CC",
+        "data3": "",
+        "data4": false,
+        "seqNo": 5
+      },
+      {
+        "key1": "on_hold",
+        "keyDesc": "보류",
+        "disableFlag": false,
+        "data1": "os-on_hold",
+        "data2": "#ffedd5",
+        "data3": "in_progress",
+        "data4": true,
+        "seqNo": 6
+      },
+      {
+        "key1": "cancelled",
+        "keyDesc": "취소",
+        "disableFlag": false,
+        "data1": "os-cancelled",
+        "data2": "#F9D5D1",
+        "data3": "",
+        "data4": false,
+        "seqNo": 7
+      }
+    ],
+    "EBR_AUTHORING_SCOPE": [
+      {
+        "key1": "runtime_ok",
+        "keyDesc": "운영 허용",
+        "disableFlag": false,
+        "data1": false,
+        "data2": "검증된 객체의 조합 + 값 입력만 — 운영 환경 저작 가능",
+        "seqNo": 1
+      },
+      {
+        "key1": "transfer_required",
+        "keyDesc": "이관 필수",
+        "disableFlag": false,
+        "data1": true,
+        "data2": "로직성 객체 — 개발 → 검증 → 운영 이관, 콘텐츠 해시 대조",
+        "seqNo": 2
+      }
+    ],
+    "EBR_INTERLOCK_GRADE": [
+      {
+        "key1": "Absolute",
+        "keyDesc": "절대 차단",
+        "disableFlag": false,
+        "data1": "멈춤",
+        "data2": "red",
+        "data3": false,
+        "data4": 1,
+        "seqNo": 1
+      },
+      {
+        "key1": "Hard-QA",
+        "keyDesc": "QA 승인 필수",
+        "disableFlag": false,
+        "data1": "QA 호출",
+        "data2": "red",
+        "data3": true,
+        "data4": 2,
+        "seqNo": 2
+      },
+      {
+        "key1": "Controlled",
+        "keyDesc": "감독자 승인",
+        "disableFlag": false,
+        "data1": "감독자 승인",
+        "data2": "amber",
+        "data3": true,
+        "data4": 3,
+        "seqNo": 3
+      },
+      {
+        "key1": "Warning",
+        "keyDesc": "경고",
+        "disableFlag": false,
+        "data1": "확인 후 진행",
+        "data2": "navy",
+        "data3": true,
+        "data4": 4,
+        "seqNo": 4
+      }
+    ],
+    "EBR_CONFIG_KIND": [
+      {
+        "key1": "interlock",
+        "keyDesc": "인터록 룰",
+        "disableFlag": false,
+        "data1": "ILR",
+        "data2": "runtime_ok",
+        "data3": "1차",
+        "data4": true,
+        "seqNo": 1
+      },
+      {
+        "key1": "criticality",
+        "keyDesc": "중요도 사전",
+        "disableFlag": false,
+        "data1": "CD",
+        "data2": "runtime_ok",
+        "data3": "1차",
+        "data4": true,
+        "seqNo": 2
+      },
+      {
+        "key1": "rbe",
+        "keyDesc": "RBE 규칙",
+        "disableFlag": false,
+        "data1": "RBE",
+        "data2": "transfer_required",
+        "data3": "1차",
+        "data4": true,
+        "seqNo": 3
+      },
+      {
+        "key1": "formula",
+        "keyDesc": "계산식",
+        "disableFlag": false,
+        "data1": "FX",
+        "data2": "runtime_ok",
+        "data3": "1차",
+        "data4": true,
+        "seqNo": 4
+      },
+      {
+        "key1": "parser",
+        "keyDesc": "파서 규칙",
+        "disableFlag": false,
+        "data1": "PR",
+        "data2": "transfer_required",
+        "data3": "1차",
+        "data4": true,
+        "seqNo": 5
+      },
+      {
+        "key1": "historian",
+        "keyDesc": "히스토리안 기준선",
+        "disableFlag": false,
+        "data1": "HB",
+        "data2": "runtime_ok",
+        "data3": "1차",
+        "data4": true,
+        "seqNo": 6
+      },
+      {
+        "key1": "lint",
+        "keyDesc": "설계 린트 규칙",
+        "disableFlag": true,
+        "data1": "LR",
+        "data2": "transfer_required",
+        "data3": "2차",
+        "data4": false,
+        "seqNo": 7
+      },
+      {
+        "key1": "changeover",
+        "keyDesc": "전환 매트릭스",
+        "disableFlag": true,
+        "data1": "CM",
+        "data2": "runtime_ok",
+        "data3": "2차",
+        "data4": false,
+        "seqNo": 8
+      },
+      {
+        "key1": "scale_baseline",
+        "keyDesc": "저울 기준선",
+        "disableFlag": true,
+        "data1": "SB",
+        "data2": "runtime_ok",
+        "data3": "2차",
+        "data4": false,
+        "seqNo": 9
+      }
+    ],
+    "EBR_SIGN_MEANING": [
+      {
+        "key1": "performed",
+        "keyDesc": "수행",
+        "disableFlag": false,
+        "data1": "#2C59D9",
+        "data2": "Performed by",
+        "data3": "pin_session",
+        "data4": false,
+        "seqNo": 1
+      },
+      {
+        "key1": "verified",
+        "keyDesc": "확인",
+        "disableFlag": false,
+        "data1": "#37b284",
+        "data2": "Verified by",
+        "data3": "full_factor",
+        "data4": false,
+        "seqNo": 2
+      },
+      {
+        "key1": "approved",
+        "keyDesc": "승인",
+        "disableFlag": false,
+        "data1": "#0b043e",
+        "data2": "Approved by",
+        "data3": "full_factor",
+        "data4": false,
+        "seqNo": 3
+      },
+      {
+        "key1": "read_understood",
+        "keyDesc": "읽고 이해함",
+        "disableFlag": false,
+        "data1": "#0091eb",
+        "data2": "Read & Understood",
+        "data3": "pin_session",
+        "data4": true,
+        "seqNo": 4
+      },
+      {
+        "key1": "reviewed",
+        "keyDesc": "검토",
+        "disableFlag": false,
+        "data1": "#6952db",
+        "data2": "Reviewed by",
+        "data3": "full_factor",
+        "data4": true,
+        "seqNo": 5
+      }
+    ],
+    "EBR_AUTH_STRENGTH": [
+      {
+        "key1": "pin_session",
+        "keyDesc": "연속 세션 PIN",
+        "disableFlag": false,
+        "data1": 1,
+        "data2": true,
+        "data3": "세션 유효 중 PIN만 — 수행 서명 전용",
+        "seqNo": 1
+      },
+      {
+        "key1": "full_factor",
+        "keyDesc": "전 요소",
+        "disableFlag": false,
+        "data1": 2,
+        "data2": false,
+        "data3": "사원증/RFID + PIN 또는 ID + 비밀번호 — 확인 · 승인 고정",
+        "seqNo": 2
+      },
+      {
+        "key1": "biometric_opt",
+        "keyDesc": "생체 옵션",
+        "disableFlag": false,
+        "data1": 2,
+        "data2": false,
+        "data3": "지정맥 · 지문 (장갑 탈의 구역 옵션)",
+        "seqNo": 3
+      }
+    ],
+    "EBR_TERMINAL_TYPE": [
+      {
+        "key1": "fixed_panel",
+        "keyDesc": "고정 패널",
+        "disableFlag": false,
+        "data1": "21.5\" 터치",
+        "data2": 5,
+        "data3": true,
+        "data4": "Grade C/D",
+        "seqNo": 1
+      },
+      {
+        "key1": "cart",
+        "keyDesc": "이동 카트",
+        "disableFlag": false,
+        "data1": "15.6\" 터치",
+        "data2": 3,
+        "data3": true,
+        "data4": "Grade C/D",
+        "seqNo": 2
+      },
+      {
+        "key1": "explosion_proof",
+        "keyDesc": "방폭",
+        "disableFlag": false,
+        "data1": "15\" 방폭 터치",
+        "data2": 3,
+        "data3": false,
+        "data4": "Zone 1 (과립 · 코팅)",
+        "seqNo": 3
+      }
+    ],
+    "EBR_EVIDENCE_TYPE": [
+      {
+        "key1": "auto",
+        "keyDesc": "연동",
+        "disableFlag": false,
+        "data1": "AUTO",
+        "data2": false,
+        "data3": "설비 · 계측 직접 연동",
+        "seqNo": 1
+      },
+      {
+        "key1": "scan",
+        "keyDesc": "스캔",
+        "disableFlag": false,
+        "data1": "MANUAL+SCAN",
+        "data2": false,
+        "data3": "바코드 · 라벨 스캔",
+        "seqNo": 2
+      },
+      {
+        "key1": "photo",
+        "keyDesc": "사진",
+        "disableFlag": false,
+        "data1": "MANUAL+PHOTO",
+        "data2": true,
+        "data3": "앱 내 카메라 · 해시 · 서버 시각 (S-22)",
+        "seqNo": 3
+      },
+      {
+        "key1": "none",
+        "keyDesc": "없음",
+        "disableFlag": false,
+        "data1": "MANUAL",
+        "data2": false,
+        "data3": "수기 입력 — 확인 서명으로 보증",
+        "seqNo": 4
+      }
+    ],
+    "EBR_PHASE_KIND": [
+      {
+        "key1": "weigh",
+        "keyDesc": "칭량",
+        "disableFlag": false,
+        "data1": "EC-BAL",
+        "data2": "tablet,capsule,liquid",
+        "data3": "T-07",
+        "seqNo": 1
+      },
+      {
+        "key1": "granulate",
+        "keyDesc": "과립 · 건조",
+        "disableFlag": false,
+        "data1": "EC-GRN",
+        "data2": "tablet,capsule",
+        "data3": "T-06",
+        "seqNo": 2
+      },
+      {
+        "key1": "mix",
+        "keyDesc": "혼합",
+        "disableFlag": false,
+        "data1": "EC-MIX",
+        "data2": "tablet,capsule,liquid",
+        "data3": "T-06",
+        "seqNo": 3
+      },
+      {
+        "key1": "compress",
+        "keyDesc": "타정",
+        "disableFlag": false,
+        "data1": "EC-TAB",
+        "data2": "tablet",
+        "data3": "T-06",
+        "seqNo": 4
+      },
+      {
+        "key1": "coat",
+        "keyDesc": "코팅",
+        "disableFlag": false,
+        "data1": "EC-COT",
+        "data2": "tablet",
+        "data3": "T-06",
+        "seqNo": 5
+      },
+      {
+        "key1": "fill",
+        "keyDesc": "캡슐 충전",
+        "disableFlag": false,
+        "data1": "EC-CAP",
+        "data2": "capsule",
+        "data3": "T-06",
+        "seqNo": 6
+      },
+      {
+        "key1": "liquidFill",
+        "keyDesc": "액상 충전",
+        "disableFlag": false,
+        "data1": "EC-LFL",
+        "data2": "liquid",
+        "data3": "T-06",
+        "seqNo": 7
+      },
+      {
+        "key1": "pack",
+        "keyDesc": "포장",
+        "disableFlag": false,
+        "data1": "EC-PKG",
+        "data2": "tablet,capsule,liquid",
+        "data3": "T-06",
+        "seqNo": 8
+      }
+    ]
+  }
+}

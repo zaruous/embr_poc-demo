@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-ebr-equipment-class-ui  (EBR 모듈 · MBR-02 장비 클래스 · 적격 설비 목록)
+  클래스       : CEbrSetupEquipmentClassMain (가칭)   템플릿 T-02 + T-10 (Detail 1100) + 설비 선택 피커 (1240)
+  모듈 폴더    : ebr/  (신규 eMBR 도메인 마스터 — GCM 아님, RAS 아님)
+  판단 기준    :
+    - 장비 클래스 = 요구 능력(capability) + 버전별 적격 설비 목록 + GMP 수명주기(초안 → 검토 → 승인 → 효력) + 콘텐츠 해시
+    - 적격 설비는 RAS/CMMS 설비 '개체 ID'만 재사용 → 피커로만 추가 (자유 입력 ID 불가, RAS 에 없는 ID 저장 차단)
+    - RAS Type/Group · CFMS Group 은 장비 클래스가 아님 → 피커 필터용 참조 컬럼으로만 표시
+    - 설비명 · 작업실 · 상태 = RAS 표시값, 교정 = CMMS, 적격성 = CFMS 런타임 파생 뱃지. 추가 시 스냅샷 기록, 승인 시 스냅샷 고정(freeze)
+    - Phase 는 (클래스 ID · 버전 · 해시)로 참조 — 해시 대상: 정의 + 적격 설비 ID 목록 (런타임 값 제외)
+  외부 mock    : ../assets/shared-store.js MS.ext (RAS 설비 · CMMS 교정 · CFMS 적격성, 읽기전용)
+  저장         : localStorage 'ebmr.masterSetup.v2'
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>장비 클래스 (MBR-02) — eMBR 기준정보 PoC</title>
+<link rel="stylesheet" href="../assets/mesui.css">
+<link rel="stylesheet" href="../assets/master-setup.css">
+<style>
+  #dlgPick .dialog { --dialog-w: 1500px; --dialog-h: 820px; }
+  #dlgPick .grid-block { flex: 1 1 auto; min-height: 0; }
+  #grdPick th.cmms-col, #grdPick td.cmms-col { display: none; }
+  #grdPick.show-cmms th.cmms-col, #grdPick.show-cmms td.cmms-col { display: table-cell; }
+  .pick-sum { font-size: 12px; color: var(--c-text-sub); }
+  .pick-sum b { color: var(--c-primary); }
+  .callout.mini { min-height: 32px; padding: 4px 12px; font-size: 12px; }
+  .members-wrap { max-height: 268px; }
+  .caps-wrap { max-height: 168px; }
+  .rt-legend { display: inline-flex; gap: 6px; align-items: center; }
+
+  /* 카탈로그/iframe 맞춤: mesui .shell-scale — 1920×1080 미만 뷰포트면 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+  /* ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 (공통 블록 — 기준정보 화면 + 배치 발행 동일) ====
+     위치: .title-bar 안 .breadcrumb 바로 앞, margin-left:auto (DESIGN §11-3 grpTitle: title │ 1fr │ 브레드크럼)
+     역할 배지 매핑: ui-items UI-04 (PM 승인 P5) — 기존 .badge 변형 + --bc-* 토큰만, 라벨 항상 표시 */
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }   /* UI-04: 24 (--title-h 29 안) — 키인 폼 컨트롤 높이 토큰 */
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  /* 선택 없음: 편집·서명 버튼 비활성 표시 (opacity = §13-1 disabled) + 툴팁 "사용자를 선택하세요" (클릭은 스크립트가 차단) */
+  body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
+</style>
+</head>
+<body data-root="../">
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="main-title"><span class="mod-tag">EBR</span>장비 클래스</span>
+    <span class="user-switch" id="userSwitch"></span>
+    <span class="breadcrumb">
+      <span>eMBR</span><span class="sep">&rsaquo;</span><span>설정 · 관리</span><span class="sep">&rsaquo;</span><a href="../index.html">기준정보</a><span class="sep">&rsaquo;</span><span class="current">MBR-02 장비 클래스</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+  <div class="shell-body">
+    <div class="ms-layout">
+      <div class="ms-main"><section class="view" id="view-eqclass"></section></div>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+
+<!-- ============================================================ RAS 설비 선택 피커 (적격 설비 추가) -->
+<div class="dialog-backdrop" id="dlgPick">
+  <div class="dialog">
+    <div class="popup-title"><span class="text" id="pkTitle">RAS 설비 선택</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+    <div class="callout mini">
+      <span class="c-title">개체만 RAS · CMMS 재사용</span>
+      <span class="rule"><span class="ne">≠</span><b>RAS Type/Group · CFMS Group</b> 은 장비 클래스가 아님 — 필터용 참조</span>
+      <span class="rule"><span class="eq">✓</span>적격 설비 = RAS <b>equipCode</b> (자유 입력 ID 불가)</span>
+      <span class="rule"><span class="eq">✓</span>교정 = CMMS · 적격성 = CFMS 런타임 값</span>
+    </div>
+    <div class="pick-filter">
+      <span class="lbl">검색</span><input class="input" type="text" id="pkQ" placeholder="설비 코드 · 명칭 · 모델" aria-label="검색">
+      <span class="lbl">작업장</span><select class="input" id="pkArea" aria-label="작업장"></select>
+      <span class="lbl">RAS Type <small>(참조)</small></span><select class="input" id="pkType" aria-label="RAS Type"></select>
+      <span class="lbl">RAS 상태</span><select class="input" id="pkStatus" aria-label="RAS 상태" style="width:120px"></select>
+      <label class="checkbox"><input type="checkbox" id="pkMeas"> 계측기만 (CMMS 교정 대상)</label>
+      <label class="checkbox"><input type="checkbox" id="pkOnly" checked> 추가 가능만</label>
+      <span class="spacer" style="flex:1 1 auto"></span>
+      <span class="pick-sum" id="pkSum"></span>
+    </div>
+    <div class="grid-block">
+      <div class="grid-wrap">
+        <table class="grid" id="grdPick">
+          <colgroup id="pkCols"></colgroup>
+          <thead><tr><th class="col-check"><input type="checkbox" aria-label="전체 선택"></th><th class="col-no">No.</th>
+            <th>설비 코드<span class="th-note">equipCode</span></th><th>설비명<span class="th-note">equipDesc</span></th><th>모델</th><th>작업장<span class="th-note">areaCode</span></th><th class="center">RAS 상태<span class="th-note">equipStatus</span></th>
+            <th>RAS Type / Group<span class="th-note">참조 · 클래스 아님</span></th><th>CFMS Group<span class="th-note">참조 · 클래스 아님</span></th>
+            <th class="cmms-col">CMMS 계측기</th><th class="cmms-col">교정 만료일</th><th class="center">교정 (CMMS)</th><th class="center">적격성 (CFMS)</th><th>판정</th></tr></thead>
+          <tbody id="grdPickBody"></tbody>
+        </table>
+        <div class="nodata hidden" id="pkNodata">조건에 맞는 RAS 설비가 없습니다</div>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <span class="sub-info"><i class="ic-info"></i>선택 시점의 RAS · CMMS · CFMS 값이 '추가 스냅샷'으로 기록되고, 클래스 승인 시 다시 고정됩니다.</span>
+      <span class="spacer"></span>
+      <button class="btn search secondary" type="button" data-dialog-close>취소</button>
+      <button class="btn search primary" type="button" id="pkAdd">선택 추가</button>
+    </div>
+  </div>
+</div>
+
+<script src="../assets/mesui.js"></script>
+<script src="../assets/shared-store.js"></script>
+<script src="../assets/ebr-user-session.js"></script>   <!-- UI-09 DEVELOPER1 헬퍼 (window.EbrUserSession) -->
+<!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 + 배치 발행 동일) ==== -->
+<script>
+/* DEVELOPER1 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+ *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
+ *   hasSodConflict(roles) · onChange(fn) → unsub
+ * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
+ * 헬퍼가 없으면(파일 미배포) 선택기는 「사용자 API 미연결」로 비활성 표시만 하고 화면 기존 동작은 그대로 둔다(게이트 미적용, 오류 없음). */
+(function (global) {
+  'use strict';
+  var WATCH_KEYS = ['ebmr.currentUser.v1', 'ebmr.userRole.v1'];   /* onChange 가 없을 때만: 다른 탭 변경 감지용 키 이름 (값은 헬퍼로만 읽음) */
+  var ROLE = { QP: ['QP', 'role-qp'], QA: ['QA', 'role-qa'], SV: ['감독자', 'ok'], OP: ['작업자', 'info'], ADMIN: ['관리자', ''] };
+  var ROLE_ORDER = ['QP', 'QA', 'SV', 'OP', 'ADMIN'];   /* 배지 우선순위 QP>QA>SV>OP>ADMIN (기획 마스터 §3.1) */
+  var GATE_SEL = '[data-p0-edit],[data-act="new"],[data-act="delete"],[data-act="submit"],[data-act="approve"],[data-act="activate"],[data-act="reject"],[data-act="retire"],#dmSave,#dmNewVer';
+  var GATE_TIP = '사용자를 선택하세요';
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var listeners = [], readyQ = [], isReady = false;
+
+  function api() { return global.EbrUserSession || null; }
+  function call(fn) {
+    var a = api(); if (!a || typeof a[fn] !== 'function') return undefined;
+    try { return a[fn].apply(a, Array.prototype.slice.call(arguments, 1)); } catch (e) { if (global.console) console.error('[EbrUserSession] ' + fn, e); return undefined; }
+  }
+  function sortRoles(roles) { return (roles || []).slice().sort(function (a, b) { return ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b); }); }
+  function roleBadge(code) { var r = ROLE[code] || [code, 'muted']; return '<span class="badge' + (r[1] ? ' ' + r[1] : '') + '" title="' + esc(code) + '">' + esc(r[0]) + '</span>'; }
+  function roleBadges(roles) { return sortRoles(roles).map(roleBadge).join(''); }
+  function statusBadge(st) { return st === 'locked' ? '<span class="badge error">잠김</span>' : st === 'inactive' ? '<span class="badge muted">비활성</span>' : ''; }
+  function rolesOfUser(u) { return !u ? [] : (Array.isArray(u.roles) ? u.roles : (call('rolesOf', u.userId) || [])); }
+  function users(filter) { var l = call('listUsers', filter || {}); return Array.isArray(l) ? l : []; }
+  function current() { return call('getCurrentUser') || null; }
+  function connected() { var a = api(); return !!(a && typeof a.getCurrentUser === 'function' && typeof a.listUsers === 'function'); }
+  function hasRole(u, code) { return rolesOfUser(u).indexOf(code) >= 0; }
+  function sod(roles) { var v = call('hasSodConflict', roles || []); return typeof v === 'boolean' ? v : false; }
+  function gateOn() { return connected() && !current(); }
+  function userLabel(u) { return u ? u.name + ' (' + u.userId + ')' : '—'; }
+
+  function render() {
+    var host = document.getElementById('userSwitch');
+    if (host) {
+      if (!connected()) {
+        host.innerHTML = '<span class="tip" title="ebr-user-session.js (DEVELOPER1) 가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+      } else {
+        var cur = current(), list = users();
+        var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
+          var bad = u.status === 'locked' ? ' — 잠김' : u.status === 'inactive' ? ' — 비활성' : '';
+          return '<option value="' + esc(u.userId) + '"' + (bad ? ' disabled' : '') + (cur && cur.userId === u.userId ? ' selected' : '') + '>' + esc(userLabel(u) + bad) + '</option>';
+        }).join('');
+        host.innerHTML = '<select class="input w-200" id="userSwitchSel" aria-label="현재 사용자" title="현재 사용자 (인증 아님 — 서명 시 ID · 비밀번호 재입력)">' + opts + '</select>' +
+          '<span class="us-roles">' + (cur ? roleBadges(rolesOfUser(cur)) + statusBadge(cur.status) : '<span class="badge warn">' + GATE_TIP + '</span>') + '</span>';
+        var sel = document.getElementById('userSwitchSel');
+        sel.addEventListener('change', function () {
+          var r = call('setCurrentUser', sel.value || null);
+          if (r && r.ok === false && global.MesUI) {
+            MesUI.toast(r.message || (r.code === 'LOCKED' ? '잠긴 계정은 선택할 수 없습니다 — 관리자(ADMIN)에게 해제를 요청하세요.'
+              : r.code === 'INACTIVE' ? '비활성 계정은 선택할 수 없습니다.' : r.code === 'SAVE_ERROR' ? '감사 기록을 저장하지 못해 사용자를 전환하지 못했습니다.' : '사용자를 찾을 수 없습니다.'),
+              r.code === 'SAVE_ERROR' ? 'error' : 'warn', 2600);   /* SAVE_ERROR: 헬퍼가 변경을 되돌림 → 선택값도 아래 refresh 로 되돌림 */
+          }
+          if (!hasOnChange || (r && r.ok === false)) refresh();   /* onChange 는 성공 시 헬퍼가 발생 — 거부(LOCKED 등)면 선택 되돌림 */
+        });
+      }
+    }
+    applyGate();
+  }
+  function applyGate() {
+    var on = gateOn();
+    document.body.classList.toggle('p0-no-user', on);
+    Array.prototype.forEach.call(document.querySelectorAll(GATE_SEL), function (b) { b.classList.toggle('p0-gated', on); });
+  }
+  function refresh() { render(); listeners.forEach(function (fn) { try { fn(current()); } catch (e) { if (global.console) console.error(e); } }); }
+
+  /* 선택 없음 게이트: 편집 버튼 클릭 차단 + 툴팁 (동적으로 그려지는 T-02 버튼 포함) */
+  document.addEventListener('click', function (e) {
+    if (!gateOn()) return;
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    if (global.MesUI) MesUI.toast(GATE_TIP + ' — 상단 사용자 선택기에서 현재 사용자를 고른 뒤 다시 시도하세요.', 'warn', 2200);
+  }, true);
+  document.addEventListener('mouseover', function (e) {
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    if (gateOn()) { if (!b.hasAttribute('data-p0-tip')) b.setAttribute('data-p0-tip', b.getAttribute('title') || ''); b.setAttribute('title', GATE_TIP); b.classList.add('p0-gated'); }
+    else if (b.hasAttribute('data-p0-tip')) { b.setAttribute('title', b.getAttribute('data-p0-tip')); b.removeAttribute('data-p0-tip'); b.classList.remove('p0-gated'); }
+  }, true);
+
+  var hasOnChange = false;
+  function start() {
+    isReady = true;
+    var a = api();
+    if (a && typeof a.onChange === 'function') { hasOnChange = true; call('onChange', function () { refresh(); }); }
+    else global.addEventListener('storage', function (e) { if (WATCH_KEYS.indexOf(e.key) >= 0) refresh(); });
+    render();
+    readyQ.splice(0).forEach(function (fn) { try { fn(); } catch (e) { if (global.console) console.error(e); } });
+  }
+
+  global.P0Ui = {
+    api: api, call: call, connected: connected, users: users, current: current, hasRole: hasRole, rolesOf: rolesOfUser, sod: sod, userLabel: userLabel,
+    roleBadge: roleBadge, roleBadges: roleBadges, statusBadge: statusBadge, sortRoles: sortRoles, ROLE: ROLE, ROLE_ORDER: ROLE_ORDER,
+    gateOn: gateOn, refresh: refresh, applyGate: applyGate, esc: esc, GATE_TIP: GATE_TIP,
+    onUserChange: function (fn) { listeners.push(fn); },
+    ready: function (fn) { if (isReady) fn(); else readyQ.push(fn); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})(window);
+</script>
+<script src="../assets/master-t02.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = MS.$, $$ = MS.$$, esc = MS.esc, O = MS.OPTS, X = MS.ext;
+  MS.load();
+  MT.shell('eqclass');
+
+  /* ------------------------------------------------------------------ 런타임 파생 (RAS · CMMS · CFMS) */
+  var RANK = { ok: 0, na: 0, due: 1, pending: 2, expired: 3 };
+  function classHealth(r) {   /* 적격 설비 중 최악 상태 */
+    var worst = 0, why = [];
+    r.members.forEach(function (m) {
+      var rt = X.runtime(m.equipId);
+      if (!rt.exists) { worst = 3; why.push(m.equipId + ' RAS 미존재'); return; }
+      var lv = Math.max(RANK[rt.calState] || 0, RANK[rt.qualState] || 0, rt.status === 'SCRAP' ? 3 : rt.status === 'DOWN' ? 1 : 0);
+      if (lv) why.push(m.equipId + ' ' + (rt.calState === 'expired' ? '교정 만료' : rt.qualState === 'expired' ? '적격 만료' : rt.calState === 'due' ? '교정 임박' : rt.qualState === 'due' ? '재적격 임박' : rt.status === 'DOWN' ? 'RAS 고장' : rt.status));
+      worst = Math.max(worst, lv);
+    });
+    var b = worst >= 3 ? 'error' : worst >= 1 ? 'warn' : 'ok', t = worst >= 3 ? '만료 · 부적격 ' : worst >= 1 ? '임박 ' : '정상';
+    return { b: b, t: t + (worst ? why.length : ''), why: why, lv: worst };
+  }
+  function driftOf(m) {
+    var rt = X.runtime(m.equipId), s = m.snap || {}, d = [];
+    if (!rt.exists) return ['RAS 에서 삭제됨'];
+    if (s.name && s.name !== rt.name) d.push('설비명 ' + s.name + ' → ' + rt.name);
+    if (s.area && s.area !== rt.area) d.push('작업장 ' + s.area + ' → ' + rt.area);
+    if (s.status && s.status !== rt.status) d.push('RAS 상태 ' + s.status + ' → ' + rt.status);
+    if (s.calDue && s.calDue !== rt.calDue) d.push('교정 만료 ' + s.calDue + ' → ' + rt.calDue);
+    return d;
+  }
+  function srcTags(rt) { return '<span class="src-tag ras" title="RAS 설비 마스터 개체">RAS 연계</span>' + (rt.measuring ? '<span class="src-tag cmms" title="CMMS 계측기 ' + esc(rt.cmmsId) + '">CMMS 교정</span>' : rt.qualState !== 'na' ? '<span class="src-tag cfms" title="CFMS 적격성">CFMS 적격</span>' : ''); }
+  function wuOf(r) { return MS.DB.phase.filter(function (p) { return p.eqRef && p.eqRef.id === r.id && p.eqRef.ver === r.ver; }); }
+
+  /* ------------------------------------------------------------------ Detail extra: 요구 능력 + 적격 설비 */
+  function capRow(c, ro) {
+    if (ro) return '<tr><td class="col-check"></td><td class="col-no"></td><td>' + esc(c.item) + '</td><td class="center">' + esc(c.op) + '</td><td>' + esc(c.val) + '</td><td>' + esc(c.unit) + '</td></tr>';
+    return '<tr><td class="col-check"><input type="checkbox" aria-label="선택"></td><td class="col-no"></td><td><input class="input" type="text" data-c="item" value="' + esc(c.item) + '" placeholder="예) 최대 용량"></td>' +
+      '<td><select class="input" data-c="op">' + MS.optionsHtml(O.CAP_OP, c.op || '≥') + '</select></td><td><input class="input" type="text" data-c="val" value="' + esc(c.val) + '"></td>' +
+      '<td><input class="input" type="text" data-c="unit" value="' + esc(c.unit) + '" placeholder="kg · g · L"></td></tr>';
+  }
+  function memberRow(m, ro) {
+    var rt = X.runtime(m.equipId), s = m.snap || {}, d = driftOf(m);
+    var snapTxt = s.at ? esc(s.at) + (s.kind === 'approve' ? ' 승인 고정' : ' 추가') : '—';
+    return '<tr data-eq="' + esc(m.equipId) + '"' + (rt.exists ? '' : ' class="pick-disabled"') + '><td class="col-check">' + (ro ? '' : '<input type="checkbox" aria-label="선택">') + '</td><td class="col-no"></td>' +
+      '<td class="code-key"><b>' + esc(m.equipId) + '</b></td><td>' + (rt.exists ? srcTags(rt) : '<span class="badge error">RAS 미존재</span>') + '</td>' +
+      '<td title="' + esc(rt.model || '') + '">' + esc(rt.name || '—') + '</td><td>' + esc(rt.area ? rt.area + ' ' + rt.areaDesc : '—') + '</td>' +
+      '<td class="center">' + MS.rasBadge(rt.status) + '</td><td class="center">' + MS.calBadge(rt) + '</td><td class="center">' + MS.qualBadge(rt) + '</td>' +
+      '<td class="snap-cell">' + (s.kind === 'approve' ? '<span class="frozen-tag"><i class="ic-lock"></i>' : '<span>') + snapTxt + '</span>' +
+        (d.length ? '<span class="drift" title="스냅샷 이후 변경 (런타임 값 기준):\n' + esc(d.join('\n')) + '">Δ' + d.length + '</span>' : '') + '</td></tr>';
+  }
+  function extraRender(d, ro) {
+    return '<div class="callout mini"><span class="c-title">적격 설비 원칙</span>' +
+        '<span class="rule"><span class="eq">✓</span>RAS 설비 <b>개체 ID</b>만 피커로 추가</span><span class="rule"><span class="ne">✕</span>자유 입력 ID · RAS Type/Group 일괄 지정 불가</span>' +
+        '<span class="rule"><span class="eq">✓</span>승인 시 스냅샷 고정 · 해시 = 정의 + 설비 ID 목록</span></div>' +
+      '<div class="grid-block sub-grid"><div class="grid-toolbar"><span class="group-title">요구 능력</span><span class="total-text" data-total-for="grdCap"></span><span class="spacer"></span>' +
+        '<span class="sub-info">클래스가 보장해야 하는 능력 — 실행 시점에는 설비 등록 · 교정 · 적격성만 판정 (MBR-02)</span>' +
+        (ro ? '' : '<button class="btn inner" type="button" id="capAdd">행 추가</button><button class="btn inner" type="button" id="capDel">행 삭제</button>') + '</div>' +
+        '<div class="grid-wrap caps-wrap"><table class="grid edit" id="grdCap"><colgroup><col class="col-check"><col class="col-no"><col style="width:300px"><col style="width:90px"><col style="width:220px"><col></colgroup>' +
+        '<thead><tr><th class="col-check"></th><th class="col-no">No.</th><th class="required">능력 항목</th><th class="center">조건</th><th>기준값</th><th>단위 · 근거</th></tr></thead>' +
+        '<tbody>' + (d.caps || []).map(function (c) { return capRow(c, ro); }).join('') + '</tbody></table></div></div>' +
+      '<div class="grid-block sub-grid"><div class="grid-toolbar"><span class="group-title">적격 설비 목록</span><span class="total-text" data-total-for="grdMem"></span>' +
+        '<span class="rt-legend"><span class="src-tag ras">RAS 연계</span><span class="src-tag cmms">CMMS 교정</span><span class="src-tag cfms">CFMS 적격</span><span class="drift" style="cursor:default">Δ</span><span class="sub-info">스냅샷 이후 변경</span></span><span class="spacer"></span>' +
+        (ro ? '<span class="sub-info"><i class="ic-lock"></i>' + (d.frozen ? '승인 스냅샷 ' + esc(d.frozen.at) + ' · ' + esc(d.frozen.by) : '읽기전용') + '</span>'
+            : '<button class="btn inner" type="button" id="memPick">RAS 설비 선택</button><button class="btn inner" type="button" id="memDel">행 삭제</button>') + '</div>' +
+        '<div class="grid-wrap members-wrap"><table class="grid" id="grdMem"><colgroup><col class="col-check"><col class="col-no"><col style="width:84px"><col style="width:156px"><col><col style="width:124px"><col style="width:80px"><col style="width:92px"><col style="width:100px"><col style="width:176px"></colgroup>' +
+        '<thead><tr><th class="col-check"></th><th class="col-no">No.</th><th>설비 ID</th><th>연계</th><th>설비명 (RAS)</th><th>작업장 (RAS)</th><th class="center">RAS 상태</th><th class="center">교정 (CMMS)</th><th class="center">적격성 (CFMS)</th><th>스냅샷</th></tr></thead>' +
+        '<tbody id="grdMemBody"></tbody></table><div class="member-empty' + (d.members.length ? ' hidden' : '') + '" id="memEmpty">적격 설비가 없습니다 — [RAS 설비 선택]으로 추가하세요</div></div></div>';
+  }
+  function renderMembers() {
+    var F = MT.form(), tb = $('#grdMemBody'); if (!tb) return;
+    tb.innerHTML = F.data.members.map(function (m) { return memberRow(m, F.ro); }).join('');
+    $('#memEmpty').classList.toggle('hidden', F.data.members.length > 0);
+    MesUI.renumber('grdMem'); MesUI.setTotal('grdMem');
+  }
+  function extraBind(host, d, ro) {
+    var re = function () { MesUI.renumber('grdCap'); MesUI.setTotal('grdCap'); };
+    re(); renderMembers();
+    if (ro) return;
+    $('#capAdd', host).onclick = function () { $('#grdCap tbody', host).insertAdjacentHTML('beforeend', capRow({ item: '', op: '≥', val: '', unit: '' }, false)); re(); $('#grdCap tbody tr:last-child [data-c=item]', host).focus(); };
+    $('#capDel', host).onclick = function () {
+      var chk = $$('#grdCap tbody tr.checked', host);
+      if (!chk.length) { MesUI.alert('삭제할 능력 행을 선택하세요.', 'Warning'); return; }
+      chk.forEach(function (tr) { tr.remove(); }); re();
+    };
+    $('#memPick', host).onclick = openPicker;
+    $('#memDel', host).onclick = function () {
+      var ids = $$('#grdMemBody tr.checked').map(function (tr) { return tr.dataset.eq; });
+      if (!ids.length) { MesUI.alert('삭제할 적격 설비 행을 선택하세요.', 'Warning'); return; }
+      var F = MT.form(); F.data.members = F.data.members.filter(function (m) { return ids.indexOf(m.equipId) < 0; });
+      renderMembers(); MesUI.toast('적격 설비 ' + ids.length + '대를 목록에서 제외했습니다 (저장 시 반영).', 'info', 1800);
+    };
+  }
+  function extraCollect(host, d) {
+    var trs = $$('#grdCap tbody tr', host);
+    if (trs.length && $('[data-c]', trs[0])) d.caps = trs.map(function (tr) { var o = {}; $$('[data-c]', tr).forEach(function (el) { o[el.dataset.c] = el.value.trim(); }); return o; }).filter(function (c) { return c.item || c.val; });
+    else if (!trs.length) d.caps = [];
+    d.members = MS.clone(MT.form().data.members);
+  }
+
+  /* ------------------------------------------------------------------ 피커 (RAS 설비 목록) */
+  var PK = { sel: {} };
+  function fillPickFilters() {
+    $('#pkArea').innerHTML = '<option value="">전체</option>' + X.areas.map(function (a) { return '<option value="' + a.areaCode + '">' + a.areaCode + ' ' + esc(a.areaDesc) + '</option>'; }).join('');
+    var types = X.ras.map(function (e) { return e.rasType; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).sort();
+    $('#pkType').innerHTML = '<option value="">전체</option>' + types.map(function (t) { return '<option>' + t + '</option>'; }).join('');
+    $('#pkStatus').innerHTML = '<option value="">전체</option>' + Object.keys(X.rasStatus).map(function (k) { return '<option value="' + k + '">' + k + ' ' + X.rasStatus[k][0] + '</option>'; }).join('');
+  }
+  function openPicker() {
+    var F = MT.form();
+    PK.sel = {};
+    var idv = ($('#dmForm [data-f=id]') || {}).value || F.data.id;
+    $('#pkTitle').textContent = 'RAS 설비 선택 — 적격 설비 추가 (' + (idv && idv !== 'EC-' ? idv : '신규 클래스') + ' v' + F.data.ver + ')';
+    $('#pkQ').value = ''; $('#pkArea').value = ''; $('#pkType').value = ''; $('#pkStatus').value = ''; $('#pkMeas').checked = false; $('#pkOnly').checked = true;
+    renderPicker();
+    MesUI.openDialog('dlgPick');
+    $('#pkQ').focus();
+  }
+  function renderPicker() {
+    var F = MT.form(), have = F.data.members.map(function (m) { return m.equipId; });
+    var q = $('#pkQ').value.trim().toUpperCase(), area = $('#pkArea').value, type = $('#pkType').value, st = $('#pkStatus').value, meas = $('#pkMeas').checked, only = $('#pkOnly').checked;
+    var list = X.ras.filter(function (e) {
+      if (q && (e.equipCode + ' ' + e.equipDesc + ' ' + e.model).toUpperCase().indexOf(q) < 0) return false;
+      if (area && e.areaCode !== area) return false;
+      if (type && e.rasType !== type) return false;
+      if (st && e.equipStatus !== st) return false;
+      if (meas && !e.measuring) return false;
+      if (only && (!X.pickable(e.equipCode).ok || have.indexOf(e.equipCode) >= 0)) return false;
+      return true;
+    });
+    $('#grdPick').classList.toggle('show-cmms', meas);
+    $('#pkCols').innerHTML = '<col class="col-check"><col class="col-no"><col style="width:92px"><col><col style="width:136px"><col style="width:120px"><col style="width:80px"><col style="width:150px"><col style="width:92px">' +
+      (meas ? '<col style="width:84px"><col style="width:92px">' : '') + '<col style="width:92px"><col style="width:100px"><col style="width:220px">';
+    $('#grdPickBody').innerHTML = list.map(function (e, i) {
+      var rt = X.runtime(e.equipCode), pk = X.pickable(e.equipCode), already = have.indexOf(e.equipCode) >= 0, dis = already || !pk.ok;
+      var verdict = already ? '<span class="badge info">등록됨</span>' : !pk.ok ? '<span class="badge error" title="' + esc(pk.why) + '">불가</span> <span class="muted">' + esc(pk.why) + '</span>'
+        : pk.warn ? '<span class="badge warn" title="' + esc(pk.warn) + '">경고</span> <span class="muted">' + esc(pk.warn.split(' — ')[0]) + '</span>' : '<span class="badge ok">추가 가능</span>';
+      return '<tr data-eq="' + esc(e.equipCode) + '" class="' + (already ? 'pick-already' : dis ? 'pick-disabled' : '') + (PK.sel[e.equipCode] ? ' checked' : '') + '">' +
+        '<td class="col-check"><input type="checkbox" aria-label="선택"' + (dis ? ' disabled' : '') + (PK.sel[e.equipCode] ? ' checked' : '') + '></td><td class="col-no">' + (i + 1) + '</td>' +
+        '<td class="code-key"><b>' + esc(e.equipCode) + '</b></td><td>' + esc(e.equipDesc) + '</td><td>' + esc(e.model) + '</td><td>' + esc(e.areaCode + ' ' + rt.areaDesc) + '</td>' +
+        '<td class="center">' + MS.rasBadge(e.equipStatus) + '</td><td class="ref-col">' + esc(e.rasType) + ' / ' + esc(e.rasGroup) + '</td><td class="ref-col">' + esc(e.cfmsGroup) + '</td>' +
+        '<td class="cmms-col code-key">' + esc(rt.cmmsId || '—') + '</td><td class="cmms-col">' + esc(rt.calDue || '—') + '</td>' +
+        '<td class="center">' + MS.calBadge(rt) + '</td><td class="center">' + MS.qualBadge(rt) + '</td><td>' + verdict + '</td></tr>';
+    }).join('');
+    $('#pkNodata').classList.toggle('hidden', list.length > 0);
+    $('#grdPick thead .col-check input').checked = false;
+    updatePickSum(list.length);
+  }
+  function updatePickSum(n) {
+    var c = Object.keys(PK.sel).length;
+    $('#pkSum').innerHTML = 'RAS 설비 ' + (n == null ? $$('#grdPickBody tr').length : n) + '건 · 선택 <b>' + c + '</b>건';
+    $('#pkAdd').disabled = !c;
+  }
+  ['pkQ'].forEach(function (id) { $('#' + id).addEventListener('input', renderPicker); });
+  ['pkArea', 'pkType', 'pkStatus', 'pkMeas', 'pkOnly'].forEach(function (id) { $('#' + id).addEventListener('change', renderPicker); });
+  $('#grdPick').addEventListener('click', function (e) {
+    if (e.target.closest('th.col-check input')) { setTimeout(function () { $$('#grdPickBody tr').forEach(function (tr) { var cb = $('td.col-check input', tr); if (cb.checked) PK.sel[tr.dataset.eq] = 1; else delete PK.sel[tr.dataset.eq]; }); updatePickSum(); }, 0); return; }
+    var cb = e.target.closest('td.col-check input');
+    if (cb) { var id = cb.closest('tr').dataset.eq; if (cb.checked) PK.sel[id] = 1; else delete PK.sel[id]; updatePickSum(); return; }
+    var tr = e.target.closest('tbody tr');   /* 행 클릭 → 체크 토글 (불가 행 제외) */
+    if (tr && !e.target.closest('input,button,a')) { var c2 = $('td.col-check input', tr); if (c2 && !c2.disabled) { c2.click(); } }
+  });
+  $('#pkAdd').addEventListener('click', function () {
+    var F = MT.form(), ids = Object.keys(PK.sel), warn = [];
+    ids.forEach(function (id) {
+      var pk = X.pickable(id);
+      if (!pk.ok || F.data.members.some(function (m) { return m.equipId === id; })) return;   /* 방어: RAS 미존재 · 불가 · 중복 제외 */
+      if (pk.warn) warn.push(id);
+      var s = MS.snapOf(id); s.kind = 'add';
+      F.data.members.push({ equipId: id, src: 'RAS', snap: s });
+    });
+    MesUI.closeDialog('dlgPick'); renderMembers();
+    MesUI.toast('적격 설비 ' + ids.length + '대 추가 (RAS 개체 ID · 스냅샷 기록)' + (warn.length ? ' — 교정 만료 경고: ' + warn.join(', ') : ''), warn.length ? 'warn' : 'ok', 2600);
+  });
+
+  /* ------------------------------------------------------------------ T-02 정의 */
+  var CALLOUT = '<div class="callout">' +
+    '<span class="c-title">장비 클래스 판단 기준</span>' +
+    '<span class="rule"><span class="ne">≠</span><b>RAS Type/Group ≠ 장비 클래스</b></span>' +
+    '<span class="rule"><span class="ne">≠</span><b>CFMS Group ≠ 장비 클래스</b></span>' +
+    '<span class="rule"><span class="eq">✓</span><b>개체만 RAS · CMMS 재사용</b> (적격 설비 = RAS equipCode, 피커 선택)</span>' +
+    '<span class="rule"><span class="eq">✓</span>요구 능력 + 버전별 적격 목록 + 수명주기 + 해시 → Phase 는 (ID · 버전 · 해시) 참조</span>' +
+    '<span class="sub-info">이름 · 작업장 = RAS 표시값 · 교정 = CMMS · 적격성 = CFMS 런타임 파생 · 승인 시 스냅샷 고정</span></div>';
+  var CFG = {
+    key: 'eqclass', store: 'eqclass', sid: 'MBR-02', clazz: 'CEbrSetupEquipmentClassMain', title: '장비 클래스', group: '장비 클래스 · 적격 설비 목록', dialogW: 1100, dialogH: 820, formCols: 3,
+    callout: CALLOUT,
+    gcm: [['EBR_PHASE_KIND', '적용 Phase 유형'], ['EBR_DOSAGE_FORM', '적용 제형'], ['EBR_MBR_STATUS', '상태']],
+    note: '클래스 안 대체 설비 전환은 변경 아님, 클래스 밖 설비는 Hard-QA (S-20). 교정 만료 · 미적격 설비는 Absolute 차단 (ILR 고정 목록).',
+    search: [{ t: 'text', label: '클래스 ID · 명칭', keys: ['id', 'name'] }, { t: 'select', label: 'Phase 유형', k: 'kind', src: 'gcm:EBR_PHASE_KIND' }, { t: 'select', label: '적용 제형', k: 'dosage', src: 'gcm:EBR_DOSAGE_FORM' },
+      { t: 'select', label: '상태', k: 'status', src: 'gcm:EBR_MBR_STATUS' }, { t: 'text', label: '적격 설비 ID', fn: function (r, v) { return r.members.some(function (m) { return m.equipId.toUpperCase().indexOf(v) >= 0; }); } },
+      { t: 'select', label: '런타임 교정 · 적격', k: 'health', src: [{ v: 'ok', t: '정상' }, { v: 'warn', t: '임박' }, { v: 'error', t: '만료 · 부적격' }], match: function (r, v) { return classHealth(r).b === v; } }],
+    cols: [{ h: '클래스 ID', k: 'id', w: 100 }, { h: '버전', k: 'ver', w: 50 }, { h: '명칭', k: 'name', w: 150 }, { h: 'Phase 유형', k: 'kind', w: 84, src: 'gcm:EBR_PHASE_KIND' },
+      { h: '적용 제형', k: 'dosage', w: 110, src: 'gcm:EBR_DOSAGE_FORM' },
+      { h: '요구 능력', k: 'caps', r: function (r) { return esc((r.caps || []).map(function (c) { return c.item + ' ' + c.op + ' ' + c.val + (c.unit ? ' ' + c.unit : ''); }).join(' · ')); } },
+      { h: '적격 설비 (RAS ID)', k: 'members', w: 160, r: function (r) { return '<b>' + r.members.length + '</b> · <span class="code-key">' + esc(r.members.map(function (m) { return m.equipId; }).join(', ')) + '</span>'; } },
+      { h: '연계', k: 'members', w: 152, r: function (r) { var meas = r.members.some(function (m) { return X.runtime(m.equipId).measuring; }); return '<span class="src-tag ras">RAS 연계</span>' + (meas ? '<span class="src-tag cmms">CMMS 교정</span>' : '<span class="src-tag cfms">CFMS 적격</span>'); } },
+      { h: '교정 · 적격 (런타임)', k: 'members', w: 118, cls: 'center', r: function (r) { var h = classHealth(r); return '<span class="badge ' + h.b + '" title="' + esc(h.why.join(', ') || 'CMMS · CFMS 정상') + '">' + esc(h.t) + '</span>'; } },
+      { h: '스냅샷', k: 'frozen', w: 112, r: function (r) { return r.frozen ? '<span class="frozen-tag"><i class="ic-lock"></i>' + esc(r.frozen.at) + '</span>' : '<span class="muted">미고정</span>'; }, title: '승인 시 적격 설비 RAS/CMMS/CFMS 값 고정' },
+      { h: '상태', k: 'status', w: 84, cls: 'center' }, { h: '콘텐츠 해시', k: 'hash', w: 90 },
+      { h: 'where-used', k: 'wu', w: 80, cls: 'num', r: function (r) { var n = wuOf(r).length; return n ? 'Phase ' + n : '<span class="muted">0</span>'; }, title: '이 (ID · 버전)을 참조하는 Phase 수' }],
+    form: [{ k: 'id', label: '클래스 ID', type: 'text', req: true, lockOnEdit: true, ph: 'EC-XXX-01' }, { k: 'name', label: '명칭', type: 'text', req: true },
+      { k: 'kind', label: '적용 Phase 유형', type: 'select', src: 'gcm:EBR_PHASE_KIND', req: true },
+      { k: 'dosage', label: '적용 제형', type: 'checks', src: 'gcm:EBR_DOSAGE_FORM', req: true, span: true },
+      { k: 'wu', label: 'where-used', type: 'display', render: function (d) { var ps = wuOf(d); return ps.length ? ps.map(function (p) { return p.id + ' v' + p.ver; }).join(', ') : '<span class="muted">참조 Phase 없음</span>'; } },
+      { k: 'capability', label: '능력 메모', type: 'textarea', span: true, ph: '예) 일일 점검 수행 · 수평계 확인' }],
+    blank: function () { return { id: 'EC-', ver: 1, name: '', kind: '', dosage: [], caps: [{ item: '', op: '≥', val: '', unit: '' }], capability: '', members: [], wu: 0 }; },
+    metaExtra: function (d) {
+      var h = classHealth(d);
+      return '<span>런타임 <span class="badge ' + h.b + '">' + esc(h.t) + '</span></span>' + (d.frozen ? '<span><i class="ic-lock"></i>스냅샷 <b>' + esc(d.frozen.at) + '</b> ' + esc(d.frozen.by) + '</span>' : '');
+    },
+    onNewVersion: function (d) { delete d.frozen; },
+    validate: function (d) {
+      if (!/^EC-[A-Z0-9-]+$/.test(d.id)) return '클래스 ID 는 EC- 로 시작합니다.';
+      if (!d.caps || !d.caps.length) return '요구 능력을 1개 이상 정의하세요.';
+      if (d.caps.some(function (c) { return !c.item; })) return '요구 능력 항목명을 입력하세요.';
+      if (!d.members.length) return '적격 설비를 1대 이상 등록하세요 — [RAS 설비 선택]';
+      var ids = d.members.map(function (m) { return m.equipId; });
+      var unknown = ids.filter(function (x) { return !X.rasEq(x); });
+      if (unknown.length) return 'RAS 설비 마스터에 없는 ID 는 저장할 수 없습니다 (자유 입력 금지): ' + unknown.join(', ');
+      if (ids.some(function (x, i) { return ids.indexOf(x) !== i; })) return '적격 설비 ID 가 중복되었습니다.';
+      var bad = ids.filter(function (x) { return !X.pickable(x).ok; });
+      if (bad.length) return '적격 목록에 둘 수 없는 설비가 있습니다 — 제외 후 저장하세요:\n' + bad.map(function (x) { return x + ' (' + X.pickable(x).why + ')'; }).join('\n');
+    },
+    beforeTransition: function (act, rs) {
+      if (act !== 'submit' && act !== 'approve' && act !== 'activate') return;
+      var bad = [];
+      rs.forEach(function (r) { r.members.forEach(function (m) { var p = X.pickable(m.equipId); if (!p.ok) bad.push(r.id + ' v' + r.ver + ' · ' + m.equipId + ' (' + p.why + ')'); }); });
+      if (bad.length) return MT.TRANS[act].label + ' 불가 — 적격 목록에 RAS 미존재 · 폐기 · 적격성 미확보 설비가 있습니다:\n' + bad.join('\n');
+    },
+    transitionNote: function (act, rs) {
+      if (act === 'approve') return '\n\n승인 시 적격 설비 ' + rs.reduce(function (n, r) { return n + r.members.length; }, 0) + '대의 RAS · CMMS · CFMS 값이 스냅샷으로 고정됩니다 (해시는 설비 ID 목록 기준이라 변하지 않음).';
+      if (act === 'activate') return '\n기존 Phase 는 이전 (ID · 버전 · 해시)를 계속 참조 — 새 버전 사용은 Phase 새 버전에서 재지정합니다.';
+      return '';
+    },
+    afterTransition: function (act, r) {
+      if (act !== 'approve') return;
+      r.members.forEach(function (m) { var s = MS.snapOf(m.equipId); s.kind = 'approve'; m.snap = s; });
+      r.frozen = { at: MS.TODAY, by: MS.USER };
+    },
+    extra: { render: extraRender, bind: extraBind, collect: extraCollect }
+  };
+  fillPickFilters();
+  MT.mountT02(CFG, $('#view-eqclass'));
+  document.body.appendChild($('#dlgPick'));   /* 피커는 Detail 팝업(동적 주입) 위에 표시 */
+  /* #EC-XXX → 해당 클래스 효력/최신 버전 선택 (Phase 화면 링크) */
+  var h = decodeURIComponent((location.hash || '').slice(1));
+  if (h) {
+    var tr = $$('#grd-eqclass tbody tr').filter(function (t) { return t.dataset.uid.split('@')[0] === h; })[0];
+    if (tr) { MesUI.selectRow(tr); tr.scrollIntoView({ block: 'nearest' }); }
+  }
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

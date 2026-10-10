@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "dosage": "tablet",
+  "templates": [
+    {
+      "id": "TPL-TAB-03",
+      "name": "정제 표준 · 유동층 과립",
+      "version": "1.0",
+      "description": "칭량-혼합-과립-타정-포장. 과립 공정은 JSON에서 함께 정의합니다.",
+      "phases": [
+        "weigh",
+        "mix",
+        "granulate",
+        "compress",
+        "pack"
+      ]
+    }
+  ],
+  "phases": {
+    "granulate": {
+      "name": "유동층 과립",
+      "id": "PH-GRAN",
+      "ver": "1.0",
+      "description": "과립 수분·급기 온도 수집",
+      "types": [
+        "tablet"
+      ],
+      "instruction": "결합액과 설비 상태를 확인한 뒤 과립합니다. 급기 온도와 과립 수분을 기록합니다.",
+      "fields": [
+        [
+          "급기 온도",
+          "℃",
+          50,
+          70,
+          "장비 연동",
+          "연동",
+          true
+        ],
+        [
+          "과립 수분",
+          "%",
+          1.0,
+          3.0,
+          "장비 연동",
+          "연동",
+          true
+        ]
+      ],
+      "equipment": [
+        "GR-CLASS-01 · 유동층 과립기",
+        "GR-CLASS-02 · 고전단 과립기"
+      ]
+    }
+  }
+}

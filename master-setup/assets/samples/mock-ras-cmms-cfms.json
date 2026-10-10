@@ -1,0 +1,583 @@
+{
+  "_note": "외부 연계 mock (읽기전용). 장비 클래스 피커 소스 — RAS Type/Group·CFMS Group 은 참조 컬럼일 뿐 장비 클래스 아님",
+  "areas": [
+    {
+      "areaCode": "R-201",
+      "areaDesc": "칭량실 1"
+    },
+    {
+      "areaCode": "R-202",
+      "areaDesc": "칭량실 2"
+    },
+    {
+      "areaCode": "R-210",
+      "areaDesc": "과립실"
+    },
+    {
+      "areaCode": "R-215",
+      "areaDesc": "혼합실"
+    },
+    {
+      "areaCode": "R-220",
+      "areaDesc": "타정실 1"
+    },
+    {
+      "areaCode": "R-221",
+      "areaDesc": "타정실 2"
+    },
+    {
+      "areaCode": "R-230",
+      "areaDesc": "코팅실"
+    },
+    {
+      "areaCode": "R-240",
+      "areaDesc": "캡슐 충전실"
+    },
+    {
+      "areaCode": "R-250",
+      "areaDesc": "액제 조제실"
+    },
+    {
+      "areaCode": "R-260",
+      "areaDesc": "포장실 1"
+    },
+    {
+      "areaCode": "R-261",
+      "areaDesc": "포장실 2"
+    },
+    {
+      "areaCode": "QC-101",
+      "areaDesc": "QC 기기실"
+    }
+  ],
+  "rasEquipment": [
+    {
+      "equipCode": "BAL-101",
+      "equipDesc": "정밀 저울 #101",
+      "model": "Mettler XPR6002",
+      "areaCode": "R-201",
+      "equipStatus": "RUN",
+      "rasType": "BALANCE",
+      "rasGroup": "WEIGHING",
+      "cfmsGroup": "CFMS-WGT",
+      "measuring": true,
+      "cmms": {
+        "instId": "CI-0101",
+        "calDue": "2027-01-15",
+        "calState": "ok"
+      },
+      "cfms": {
+        "qualType": "교정 기반",
+        "qualDue": "",
+        "qualState": "na"
+      }
+    },
+    {
+      "equipCode": "BAL-102",
+      "equipDesc": "정밀 저울 #102",
+      "model": "Mettler XPR6002",
+      "areaCode": "R-202",
+      "equipStatus": "RUN",
+      "rasType": "BALANCE",
+      "rasGroup": "WEIGHING",
+      "cfmsGroup": "CFMS-WGT",
+      "measuring": true,
+      "cmms": {
+        "instId": "CI-0102",
+        "calDue": "2026-12-03",
+        "calState": "ok"
+      },
+      "cfms": {
+        "qualType": "교정 기반",
+        "qualDue": "",
+        "qualState": "na"
+      }
+    },
+    {
+      "equipCode": "BAL-205",
+      "equipDesc": "정밀 저울 #205",
+      "model": "Sartorius Cubis II",
+      "areaCode": "R-202",
+      "equipStatus": "IDLE",
+      "rasType": "BALANCE",
+      "rasGroup": "WEIGHING",
+      "cfmsGroup": "CFMS-WGT",
+      "measuring": true,
+      "cmms": {
+        "instId": "CI-0205",
+        "calDue": "2026-10-12",
+        "calState": "due"
+      },
+      "cfms": {
+        "qualType": "교정 기반",
+        "qualDue": "",
+        "qualState": "na"
+      }
+    },
+    {
+      "equipCode": "BAL-206",
+      "equipDesc": "정밀 저울 #206",
+      "model": "Sartorius Cubis II",
+      "areaCode": "R-201",
+      "equipStatus": "RUN",
+      "rasType": "BALANCE",
+      "rasGroup": "WEIGHING",
+      "cfmsGroup": "CFMS-WGT",
+      "measuring": true,
+      "cmms": {
+        "instId": "CI-0206",
+        "calDue": "2027-03-10",
+        "calState": "ok"
+      },
+      "cfms": {
+        "qualType": "교정 기반",
+        "qualDue": "",
+        "qualState": "na"
+      }
+    },
+    {
+      "equipCode": "BAL-301",
+      "equipDesc": "플로어 저울 #301",
+      "model": "Mettler PFK9",
+      "areaCode": "R-201",
+      "equipStatus": "RUN",
+      "rasType": "BALANCE",
+      "rasGroup": "WEIGHING",
+      "cfmsGroup": "CFMS-WGT",
+      "measuring": true,
+      "cmms": {
+        "instId": "CI-0301",
+        "calDue": "2027-02-20",
+        "calState": "ok"
+      },
+      "cfms": {
+        "qualType": "교정 기반",
+        "qualDue": "",
+        "qualState": "na"
+      }
+    },
+    {
+      "equipCode": "BAL-302",
+      "equipDesc": "플로어 저울 #302",
+      "model": "Mettler PFK9",
+      "areaCode": "R-202",
+      "equipStatus": "RUN",
+      "rasType": "BALANCE",
+      "rasGroup": "WEIGHING",
+      "cfmsGroup": "CFMS-WGT",
+      "measuring": true,
+      "cmms": {
+        "instId": "CI-0302",
+        "calDue": "2026-09-30",
+        "calState": "expired"
+      },
+      "cfms": {
+        "qualType": "교정 기반",
+        "qualDue": "",
+        "qualState": "na"
+      }
+    },
+    {
+      "equipCode": "BAL-303",
+      "equipDesc": "플로어 저울 #303",
+      "model": "Mettler PFK9",
+      "areaCode": "R-260",
+      "equipStatus": "RUN",
+      "rasType": "BALANCE",
+      "rasGroup": "WEIGHING",
+      "cfmsGroup": "CFMS-WGT",
+      "measuring": true,
+      "cmms": {
+        "instId": "CI-0303",
+        "calDue": "2027-04-11",
+        "calState": "ok"
+      },
+      "cfms": {
+        "qualType": "교정 기반",
+        "qualDue": "",
+        "qualState": "na"
+      }
+    },
+    {
+      "equipCode": "GR-01",
+      "equipDesc": "고속 혼합 과립기 #1",
+      "model": "Glatt VG 300",
+      "areaCode": "R-210",
+      "equipStatus": "RUN",
+      "rasType": "GRANULATOR",
+      "rasGroup": "SOLID_PROC",
+      "cfmsGroup": "CFMS-SOLID",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2027-03-01",
+        "qualState": "ok"
+      }
+    },
+    {
+      "equipCode": "GR-02",
+      "equipDesc": "고속 혼합 과립기 #2",
+      "model": "Glatt VG 600",
+      "areaCode": "R-210",
+      "equipStatus": "PM",
+      "rasType": "GRANULATOR",
+      "rasGroup": "SOLID_PROC",
+      "cfmsGroup": "CFMS-SOLID",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "IQ",
+        "qualDue": "",
+        "qualState": "pending"
+      }
+    },
+    {
+      "equipCode": "FBD-01",
+      "equipDesc": "유동층 건조기 #1",
+      "model": "Glatt GPCG 120",
+      "areaCode": "R-210",
+      "equipStatus": "RUN",
+      "rasType": "DRYER",
+      "rasGroup": "SOLID_PROC",
+      "cfmsGroup": "CFMS-SOLID",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2027-01-10",
+        "qualState": "ok"
+      }
+    },
+    {
+      "equipCode": "MX-01",
+      "equipDesc": "빈 혼합기 #1",
+      "model": "Bohle PM 600",
+      "areaCode": "R-215",
+      "equipStatus": "RUN",
+      "rasType": "MIXER",
+      "rasGroup": "SOLID_PROC",
+      "cfmsGroup": "CFMS-SOLID",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2026-11-28",
+        "qualState": "ok"
+      }
+    },
+    {
+      "equipCode": "MX-02",
+      "equipDesc": "빈 혼합기 #2",
+      "model": "Bohle PM 600",
+      "areaCode": "R-215",
+      "equipStatus": "IDLE",
+      "rasType": "MIXER",
+      "rasGroup": "SOLID_PROC",
+      "cfmsGroup": "CFMS-SOLID",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2027-04-02",
+        "qualState": "ok"
+      }
+    },
+    {
+      "equipCode": "TP-01",
+      "equipDesc": "로터리 타정기 #1",
+      "model": "Fette 2090i",
+      "areaCode": "R-220",
+      "equipStatus": "RUN",
+      "rasType": "TABLET_PRESS",
+      "rasGroup": "SOLID_PROC",
+      "cfmsGroup": "CFMS-SOLID",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2027-02-14",
+        "qualState": "ok"
+      }
+    },
+    {
+      "equipCode": "TP-02",
+      "equipDesc": "로터리 타정기 #2",
+      "model": "Fette 2090i",
+      "areaCode": "R-221",
+      "equipStatus": "RUN",
+      "rasType": "TABLET_PRESS",
+      "rasGroup": "SOLID_PROC",
+      "cfmsGroup": "CFMS-SOLID",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2026-12-19",
+        "qualState": "ok"
+      }
+    },
+    {
+      "equipCode": "TP-03",
+      "equipDesc": "로터리 타정기 #3",
+      "model": "Korsch XL 400",
+      "areaCode": "R-221",
+      "equipStatus": "IDLE",
+      "rasType": "TABLET_PRESS",
+      "rasGroup": "SOLID_PROC",
+      "cfmsGroup": "CFMS-SOLID",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2027-05-30",
+        "qualState": "ok"
+      }
+    },
+    {
+      "equipCode": "TP-09",
+      "equipDesc": "로터리 타정기 #9 (구형)",
+      "model": "Fette 1200",
+      "areaCode": "R-220",
+      "equipStatus": "SCRAP",
+      "rasType": "TABLET_PRESS",
+      "rasGroup": "SOLID_PROC",
+      "cfmsGroup": "CFMS-SOLID",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2024-06-30",
+        "qualState": "expired"
+      }
+    },
+    {
+      "equipCode": "CT-01",
+      "equipDesc": "팬 코팅기 #1",
+      "model": "O'Hara Labcoat",
+      "areaCode": "R-230",
+      "equipStatus": "RUN",
+      "rasType": "COATER",
+      "rasGroup": "SOLID_PROC",
+      "cfmsGroup": "CFMS-SOLID",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2026-10-20",
+        "qualState": "due"
+      }
+    },
+    {
+      "equipCode": "CF-01",
+      "equipDesc": "자동 캡슐 충전기 #1",
+      "model": "Bosch GKF 2600",
+      "areaCode": "R-240",
+      "equipStatus": "RUN",
+      "rasType": "CAPSULE_FILLER",
+      "rasGroup": "SOLID_PROC",
+      "cfmsGroup": "CFMS-SOLID",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2027-01-08",
+        "qualState": "ok"
+      }
+    },
+    {
+      "equipCode": "LF-01",
+      "equipDesc": "액상 충전 · 캡핑기 #1",
+      "model": "Groninger DFV",
+      "areaCode": "R-250",
+      "equipStatus": "RUN",
+      "rasType": "LIQUID_FILLER",
+      "rasGroup": "LIQUID_PROC",
+      "cfmsGroup": "CFMS-LIQ",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2027-02-02",
+        "qualState": "ok"
+      }
+    },
+    {
+      "equipCode": "PK-01",
+      "equipDesc": "PTP 포장기 #1",
+      "model": "Uhlmann B 1440",
+      "areaCode": "R-260",
+      "equipStatus": "RUN",
+      "rasType": "BLISTER",
+      "rasGroup": "PACKAGING",
+      "cfmsGroup": "CFMS-PKG",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2026-12-12",
+        "qualState": "ok"
+      }
+    },
+    {
+      "equipCode": "PK-02",
+      "equipDesc": "카토너 #2",
+      "model": "CAM M90",
+      "areaCode": "R-260",
+      "equipStatus": "RUN",
+      "rasType": "CARTONER",
+      "rasGroup": "PACKAGING",
+      "cfmsGroup": "CFMS-PKG",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2027-03-21",
+        "qualState": "ok"
+      }
+    },
+    {
+      "equipCode": "PK-03",
+      "equipDesc": "PTP 포장기 #3",
+      "model": "Uhlmann B 1440",
+      "areaCode": "R-261",
+      "equipStatus": "DOWN",
+      "rasType": "BLISTER",
+      "rasGroup": "PACKAGING",
+      "cfmsGroup": "CFMS-PKG",
+      "measuring": false,
+      "cmms": null,
+      "cfms": {
+        "qualType": "PQ",
+        "qualDue": "2027-01-15",
+        "qualState": "ok"
+      }
+    },
+    {
+      "equipCode": "HT-01",
+      "equipDesc": "정제 경도계 #1",
+      "model": "Sotax ST50",
+      "areaCode": "R-220",
+      "equipStatus": "RUN",
+      "rasType": "IPC_TESTER",
+      "rasGroup": "INSTRUMENT",
+      "cfmsGroup": "CFMS-INST",
+      "measuring": true,
+      "cmms": {
+        "instId": "CI-1101",
+        "calDue": "2026-11-02",
+        "calState": "due"
+      },
+      "cfms": {
+        "qualType": "교정 기반",
+        "qualDue": "",
+        "qualState": "na"
+      }
+    },
+    {
+      "equipCode": "HT-02",
+      "equipDesc": "정제 경도계 #2",
+      "model": "Sotax ST50",
+      "areaCode": "R-221",
+      "equipStatus": "RUN",
+      "rasType": "IPC_TESTER",
+      "rasGroup": "INSTRUMENT",
+      "cfmsGroup": "CFMS-INST",
+      "measuring": true,
+      "cmms": {
+        "instId": "CI-1102",
+        "calDue": "2026-10-20",
+        "calState": "due"
+      },
+      "cfms": {
+        "qualType": "교정 기반",
+        "qualDue": "",
+        "qualState": "na"
+      }
+    },
+    {
+      "equipCode": "PH-01",
+      "equipDesc": "pH 미터 #1",
+      "model": "Mettler SevenExcellence",
+      "areaCode": "R-250",
+      "equipStatus": "RUN",
+      "rasType": "ANALYZER",
+      "rasGroup": "INSTRUMENT",
+      "cfmsGroup": "CFMS-INST",
+      "measuring": true,
+      "cmms": {
+        "instId": "CI-1201",
+        "calDue": "2027-01-30",
+        "calState": "ok"
+      },
+      "cfms": {
+        "qualType": "교정 기반",
+        "qualDue": "",
+        "qualState": "na"
+      }
+    },
+    {
+      "equipCode": "TT-01",
+      "equipDesc": "온도 기록계 #1",
+      "model": "Yokogawa GX20",
+      "areaCode": "R-210",
+      "equipStatus": "RUN",
+      "rasType": "RECORDER",
+      "rasGroup": "INSTRUMENT",
+      "cfmsGroup": "CFMS-INST",
+      "measuring": true,
+      "cmms": {
+        "instId": "CI-1301",
+        "calDue": "2026-08-31",
+        "calState": "expired"
+      },
+      "cfms": {
+        "qualType": "교정 기반",
+        "qualDue": "",
+        "qualState": "na"
+      }
+    },
+    {
+      "equipCode": "MD-01",
+      "equipDesc": "금속 검출기 #1",
+      "model": "Mettler Safeline",
+      "areaCode": "R-260",
+      "equipStatus": "RUN",
+      "rasType": "DETECTOR",
+      "rasGroup": "INSTRUMENT",
+      "cfmsGroup": "CFMS-INST",
+      "measuring": true,
+      "cmms": {
+        "instId": "CI-1401",
+        "calDue": "2027-02-02",
+        "calState": "ok"
+      },
+      "cfms": {
+        "qualType": "교정 기반",
+        "qualDue": "",
+        "qualState": "na"
+      }
+    },
+    {
+      "equipCode": "KF-01",
+      "equipDesc": "수분 측정기 (QC)",
+      "model": "Metrohm 917",
+      "areaCode": "QC-101",
+      "equipStatus": "RUN",
+      "rasType": "ANALYZER",
+      "rasGroup": "INSTRUMENT",
+      "cfmsGroup": "CFMS-QC",
+      "measuring": true,
+      "cmms": {
+        "instId": "CI-9001",
+        "calDue": "2027-05-01",
+        "calState": "ok"
+      },
+      "cfms": {
+        "qualType": "교정 기반",
+        "qualDue": "",
+        "qualState": "na"
+      }
+    }
+  ]
+}

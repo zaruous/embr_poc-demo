@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-ebr-material-qc-ui  (EBR · 자재 LOT QC P0-1)
+  역할         : 자재 LOT QC 상태 CRUD(데모) — quarantine→testing→released / rejected
+  공용 자산     : ./assets/mesui.css · ./assets/mesui.js · ./assets/ebr-p0-stores.js
+  저장         : localStorage ebr.materialLot.v1 (MatQC)
+  CLIENT_TYPE  : UI (shell-ui 1920×1080, shell-scale · fitShellToViewport)
+  UI-13 E7     : retestDate 뒤 expiryDate(유효일) 열 110 · NEAR_LOT_DAYS(EbrDispense) 이내 .badge.warn · 지남 .badge.error — 판정은 EbrDispense.lotDateState(읽기 전용)
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>자재 LOT QC — eBR PoC</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  body { margin: 0; }
+  .callout {
+    display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+    padding: 8px 14px; border: 1px solid #6952db; background: #f7f5fe; border-radius: 4px;
+    font-size: 12px; color: #4433a8;
+  }
+  .callout .tag {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+    border-radius: 11px; background: #6952db; color: #fff; font-weight: bold; white-space: nowrap;
+  }
+  .banner-gate {
+    display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px;
+    border: 1px solid #f0c75e; background: #fff8e6; font-size: 12px; color: #8a5a00;
+  }
+  .st-chip {
+    display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
+    border-radius: 10px; font-size: 11px; font-weight: bold; border: 1px solid #cbd5e1;
+  }
+  .st-quarantine { background: #fef9c3; border-color: #fde047; color: #854d0e; }
+  .st-testing { background: #e0f2fe; border-color: #7dd3fc; color: #075985; }
+  .st-released { background: #dcfce7; border-color: #86efac; color: #166534; }
+  .st-rejected { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+  .st-expired { background: #f1f5f9; border-color: #94a3b8; color: #475569; }
+  #grdMat tbody tr.is-selected td { background: #eef2ff; }
+  .act-row { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+  /* UI-13 E7: 재시험일 · 유효일 셀 — 날짜 + 배지(EbrDispense.NEAR_LOT_DAYS 이내 warn · 지남 error), 한 줄 ellipsis + title */
+  #grdMat td.date-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #grdMat td.date-cell .badge { margin-left: 4px; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale { flex: 0 0 auto; }
+</style>
+</head>
+<body>
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="title-left">
+      <span class="main-title"><span class="mod-tag">EBR</span>자재 LOT QC</span>
+      <span class="sub-info"><i class="ic-info"></i>P0-1 · MatQC — 격리→시험→적합 / 부적합 (전자서명 P1)</span>
+    </span>
+    <span class="breadcrumb">
+      <span>eBR</span><span class="sep">&rsaquo;</span><span>자재</span><span class="sep">&rsaquo;</span><span class="current">LOT QC</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+
+  <div class="shell-body">
+    <div class="banner-gate" role="status">
+      <span class="badge warn">게이트</span>
+      <span>생산 칭량·출하 게이트가 이 상태를 읽습니다</span>
+      <span class="spacer"></span>
+      <span class="muted">localStorage <code>ebr.materialLot.v1</code></span>
+    </div>
+
+    <div class="callout" role="note">
+      <span class="tag">MatQC</span>
+      <span>시드: <b>API-2410</b> quarantine · <b>API-2409</b>/<b>LAC-2411</b>/<b>MGS-2403</b> released</span>
+      <span class="vbar"></span>
+      <span>전이: quarantine → testing → released / rejected (confirm, no e-sign)</span>
+      <span class="spacer"></span>
+      <a href="./s-ebr-production-exec-ui.html">생산 실행 ↗</a>
+      <a href="./s-ebr-release-gate-ui.html">출하 게이트 ↗</a>
+    </div>
+
+    <div class="grid-block fill">
+      <div class="grid-title-area">
+        <div class="title-row">
+          <span class="group-title">자재 LOT 목록</span>
+          <span class="sub-info" id="lotRuleNote">status · qty · retestDate · expiryDate — 칭량 assertWeighable(G5 · G6 · G7) / 출하 assertAllReleased</span>
+        </div>
+        <div class="grid-toolbar">
+          <span class="total-text" data-total-for="grdMat"></span>
+          <span class="spacer"></span>
+          <button class="btn search secondary" type="button" id="btnRefresh">Refresh</button>
+          <button class="btn search secondary" type="button" id="btnReseed">시드 복원(비우기 후)</button>
+        </div>
+      </div>
+      <div class="grid-wrap">
+        <table class="grid selectable" id="grdMat">
+          <colgroup>
+            <col class="col-no"><col style="width:120px"><col style="width:140px">
+            <col style="width:90px"><col style="width:110px"><col style="width:110px">
+            <col style="width:110px"><col style="width:160px"><col>
+          </colgroup>
+          <thead>
+            <tr>
+              <th class="col-no">No.</th>
+              <th>lotNo</th>
+              <th>자재</th>
+              <th class="right">qty</th>
+              <th>status</th>
+              <th>retestDate</th>
+              <th>expiryDate</th>
+              <th>updatedAt</th>
+              <th>액션</th>
+            </tr>
+          </thead>
+          <tbody id="grdMatBody"></tbody>
+        </table>
+        <div class="nodata hidden" id="matNodata">LOT 없음 — 시드를 불러오세요</div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<script src="./assets/mesui.js"></script>
+<script src="./assets/ebr-p0-stores.js"></script>
+<script src="./assets/ebr-dispense-store.js"></script>   <!-- DEVELOPER1 칭량 저장소 — lotDateState(유효일 · 재시험일 NEAR_LOT_DAYS 판정) 읽기만 (UI-13 E7) -->
+<script>
+(function () {
+  'use strict';
+  var MatQC = (window.EbrP0 && window.EbrP0.MatQC) || window.MatQC;
+  var $ = function (id) { return document.getElementById(id); };
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function chip(st) {
+    var s = String(st || '');
+    return '<span class="st-chip st-' + esc(s) + '">' + esc(s) + '</span>';
+  }
+  /* UI-13 E7: 날짜 상태는 칭량 저장소 판정(lotDateState → dateDue: none · ok · near(NEAR_LOT_DAYS) · passed)만 표시 */
+  var D = window.EbrDispense || null;
+  (function () { var n = document.getElementById('lotRuleNote'); if (n && D && D.NEAR_LOT_DAYS != null) n.textContent = n.textContent.replace('G7)', 'G7 ' + D.NEAR_LOT_DAYS + '일)'); })();
+  function todayYmd() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function dateCell(date, due, label) {
+    if (!date) return '<td class="date-cell muted" title="' + esc(label + ' 없음') + '">—</td>';
+    var bs = [];
+    if (due && due.state === 'passed') bs.push(['error', '지남', label + ' 지남 (' + (-due.days) + '일 경과)']);
+    else if (due && due.state === 'near') bs.push(['warn', due.days + '일', label + ' ' + due.days + '일 남음 (' + (D && D.NEAR_LOT_DAYS != null ? D.NEAR_LOT_DAYS + '일 이내' : '임박') + ')']);   /* 기준 일수 = EbrDispense.NEAR_LOT_DAYS (판정은 lotDateState) */
+    var title = [label + ' ' + date].concat(bs.map(function (b) { return b[2]; })).join(' · ');
+    if (!D) title += ' · 날짜 판정 불가(칭량 저장소 미로드)';
+    return '<td class="date-cell" title="' + esc(title) + '">' + esc(date) +
+      bs.map(function (b) { return '<span class="badge ' + b[0] + '">' + esc(b[1]) + '</span>'; }).join('') + '</td>';
+  }
+  function nextActions(st) {
+    st = String(st || '');
+    if (st === 'quarantine') return [
+      { to: 'testing', label: '시험 시작' },
+      { to: 'rejected', label: '부적합' }
+    ];
+    if (st === 'testing') return [
+      { to: 'released', label: '적합 해제' },
+      { to: 'rejected', label: '부적합' }
+    ];
+    if (st === 'released') return [
+      { to: 'quarantine', label: '재격리(데모)' }
+    ];
+    if (st === 'rejected') return [
+      { to: 'quarantine', label: '재격리(데모)' }
+    ];
+    return [{ to: 'quarantine', label: '격리로' }];
+  }
+
+  function loadRows() {
+    if (!MatQC) return [];
+    MatQC.seedIfEmpty();
+    return MatQC.list();
+  }
+
+  function render() {
+    var rows = loadRows();
+    var tb = $('grdMatBody');
+    tb.innerHTML = '';
+    rows.forEach(function (r, i) {
+      var tr = document.createElement('tr');
+      tr.dataset.lot = r.lotNo;
+      var acts = nextActions(r.status).map(function (a) {
+        return '<button class="btn inner" type="button" data-lot="' + esc(r.lotNo) +
+          '" data-to="' + esc(a.to) + '">' + esc(a.label) + '</button>';
+      }).join('');
+      var mat = (r.materialName || r.materialId || '') +
+        (r.materialId ? ' <span class="muted">(' + esc(r.materialId) + ')</span>' : '');
+      var qty = (r.qty != null ? r.qty : '') + (r.uom ? ' ' + esc(r.uom) : '');
+      var ds = D && D.lotDateState ? D.lotDateState(r, todayYmd()) : null;
+      tr.innerHTML =
+        '<td class="col-no">' + (i + 1) + '</td>' +
+        '<td class="mono">' + esc(r.lotNo) + '</td>' +
+        '<td>' + mat + '</td>' +
+        '<td class="right">' + esc(qty) + '</td>' +
+        '<td>' + chip(r.status) + '</td>' +
+        dateCell(r.retestDate, ds && ds.retest, '재시험일') +
+        dateCell(r.expiryDate, ds && ds.expiry, '유효일') +
+        '<td class="muted" style="font-size:11px">' + esc(r.updatedAt || '') + '</td>' +
+        '<td><span class="act-row">' + acts + '</span></td>';
+      tb.appendChild(tr);
+    });
+    $('matNodata').classList.toggle('hidden', rows.length > 0);
+    if (window.MesUI && MesUI.setTotal) MesUI.setTotal('grdMat', rows.length);
+  }
+
+  function setStatus(lotNo, to) {
+    if (!MatQC) { MesUI.alert('EbrP0.MatQC 미로드', 'Error'); return; }
+    var lot = MatQC.get(lotNo);
+    if (!lot) { MesUI.alert('LOT 없음: ' + lotNo, 'Warning'); return; }
+    var msg = lotNo + ' 상태를\n' + lot.status + ' → ' + to + '\n으로 변경할까요?\n(P0: confirm만 · 전자서명 없음)';
+    MesUI.confirm(msg, function () {
+      MatQC.upsert({ lotNo: lotNo, status: to });
+      MesUI.toast(lotNo + ' → ' + to, 'ok');
+      render();
+    });
+  }
+
+  $('grdMatBody').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-to]');
+    if (!b) return;
+    setStatus(b.getAttribute('data-lot'), b.getAttribute('data-to'));
+  });
+  $('btnRefresh').onclick = function () { render(); MesUI.toast('새로고침', 'info'); };
+  $('btnReseed').onclick = function () {
+    MesUI.confirm('localStorage 자재 LOT을 비우고 시드를 다시 넣을까요?', function () {
+      try { localStorage.removeItem((window.EbrP0 && EbrP0.MAT_KEY) || 'ebr.materialLot.v1'); } catch (e) {}
+      MatQC.seedIfEmpty();
+      render();
+      MesUI.toast('시드 복원', 'ok');
+    });
+  };
+  $('btnCopyLink').onclick = function () {
+    try { navigator.clipboard.writeText(location.href); MesUI.toast('링크 복사', 'ok', 1200); } catch (e) {}
+  };
+
+  if (!MatQC) {
+    MesUI.alert('assets/ebr-p0-stores.js 가 로드되지 않았습니다.', 'Error');
+  } else {
+    MatQC.seedIfEmpty();
+    render();
+  }
+
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', fitShellToViewport);
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+})();
+</script>
+</body>
+</html>

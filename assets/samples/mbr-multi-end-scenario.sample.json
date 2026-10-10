@@ -1,0 +1,541 @@
+{
+  "schemaVersion": "layers-1-2-tree-poc-1",
+  "objectType": "mbr-process-tree",
+  "id": "MBR-TAB-0422",
+  "ver": 1,
+  "status": "draft",
+  "name": "에이정 10mg · 직접 타정 · 다중 종료 시나리오",
+  "product": {
+    "productCode": "TAB-0422",
+    "dosageForm": "tablet",
+    "strength": "10 mg"
+  },
+  "_scenario": {
+    "purpose": "한 OP 안에 정상 출구 여러 개와 예외 종료 여러 개가 같은 종료 층에 나란히 놓이는 경우 — 종료 층 · 분기 ◇ · 합류 ● 렌더링 점검",
+    "cases": [
+      "E1 OP-10 종료 층: 출구 2개(N-010 · N-018 → N-020) + 예외 종료 4개(N-013 LOT 격리 · N-014 설비 사용 차단 · N-017 배치 보류 · N-019 배치 폐기)",
+      "E2 한 노드에서 예외 3개 분기: N-010 → LOT 부적합 / 저울 교정 만료 / 재칭량 후 재편차",
+      "E3 예외 노드에서 다시 2갈래 예외 종료: N-018 QA 판정 → 보류(N-017) / 폐기(N-019), 합격이면 N-020 합류",
+      "E4 OP-20: 예외 QA 판정 후 정상 합류(N-030)와 예외 종료(N-026 폐기)",
+      "E5 OP-30: 본류 정상 종료(■ 종료) + 재타정 되돌아가기 루프 — 정상 종료와 예외 종료를 같은 트리에서 구분",
+      "X1 N-010: 작업 지시(본문 안 이미지 1 · 첨부 1) · 입력 항목 6(콤보 · 라벨 · 숫자 범위 · 일시 · 다중 · 텍스트) · OP 서명 없음(칭량은 줄마다 2인 서명, Q8)"
+    ]
+  },
+  "procedure": {
+    "unitProcedures": [
+      {
+        "id": "UP-10",
+        "name": "조제",
+        "operations": [
+          {
+            "id": "OP-10",
+            "name": "원료 칭량 · 확인",
+            "phases": [
+              "N-010",
+              "N-013",
+              "N-014",
+              "N-016",
+              "N-018",
+              "N-017",
+              "N-019"
+            ]
+          },
+          {
+            "id": "OP-20",
+            "name": "혼합",
+            "phases": [
+              "N-020",
+              "N-025",
+              "N-026"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "UP-20",
+        "name": "타정",
+        "operations": [
+          {
+            "id": "OP-30",
+            "name": "타정 · IPC",
+            "phases": [
+              "N-030",
+              "N-035"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "nodes": [
+    {
+      "nodeId": "N-010",
+      "type": "phase",
+      "label": "원료 칭량",
+      "phaseRef": "PH-WEIGH-01",
+      "materials": [
+        {
+          "materialId": "MAT-API",
+          "tolPct": 0.5,
+          "balanceClass": "EC-BAL-02"
+        },
+        {
+          "materialId": "MAT-LAC",
+          "tolPct": 0.5,
+          "balanceClass": "EC-BAL-02"
+        },
+        {
+          "materialId": "MAT-MGS",
+          "tolPct": 1.0,
+          "balanceClass": "EC-BAL-01"
+        }
+      ],
+      "nextStep": "N-020",
+      "esig": {
+        "required": false,
+        "meaning": "",
+        "perform": false,
+        "verify": false
+      },
+      "interlockRef": "ILR-WEIGH-LOT",
+      "equipmentClassRef": "EC-BAL-02",
+      "note": "예외 3갈래: LOT 부적합 · 교정 만료 · 재편차",
+      "instruction": {
+        "text": "1. 저울 BAL-205 영점 확인 후 교정 라벨 유효기간을 확인한다.\n![칭량 작업대 배치 · 교정 라벨 위치](IMG-weigh-layout)\n2. 원료 LOT 바코드를 스캔하고 지시량 ±0.5 % 안에서 칭량한다. 절차는 첨부를 따른다.\n[📎 SOP-WEIGH-01.txt](ATT-sop-weigh-01)\n3. 범위를 벗어나면 재칭량 승인 후 같은 줄에서 다시 칭량한다.",
+        "assets": [
+          {
+            "id": "IMG-weigh-layout",
+            "name": "weigh-layout.svg",
+            "caption": "칭량 작업대 배치 · 교정 라벨 위치",
+            "w": 480,
+            "h": 300,
+            "hash": "",
+            "dataUrl": "data:image/svg+xml;utf8,%3Csvg%20xmlns=%27http://www.w3.org/2000/svg%27%20width=%27480%27%20height=%27300%27%3E%3Crect%20width=%27480%27%20height=%27300%27%20fill=%27%23f3f6fb%27/%3E%3Crect%20x=%2740%27%20y=%2760%27%20width=%27400%27%20height=%27180%27%20rx=%278%27%20fill=%27%23fff%27%20stroke=%27%232C59D9%27%20stroke-width=%273%27/%3E%3Crect%20x=%2770%27%20y=%2790%27%20width=%27120%27%20height=%27120%27%20fill=%27%23e8eefc%27%20stroke=%27%235c7cfa%27/%3E%3Ctext%20x=%27130%27%20y=%27160%27%20font-size=%2716%27%20text-anchor=%27middle%27%20fill=%27%232C59D9%27%20font-family=%27sans-serif%27%3E저울%20BAL-205%3C/text%3E%3Crect%20x=%27230%27%20y=%27110%27%20width=%27180%27%20height=%2740%27%20fill=%27%23fff8e1%27%20stroke=%27%23e6a817%27/%3E%3Ctext%20x=%27320%27%20y=%27136%27%20font-size=%2714%27%20text-anchor=%27middle%27%20fill=%27%238a6d00%27%20font-family=%27sans-serif%27%3E교정%20라벨%20확인%3C/text%3E%3Ctext%20x=%27240%27%20y=%27200%27%20font-size=%2713%27%20fill=%27%23333%27%20font-family=%27sans-serif%27%3E영점%20→%20LOT%20스캔%20→%20칭량%3C/text%3E%3C/svg%3E",
+            "kind": "image",
+            "size": 1065
+          },
+          {
+            "id": "ATT-sop-weigh-01",
+            "kind": "file",
+            "name": "SOP-WEIGH-01.txt",
+            "mime": "text/plain",
+            "caption": "칭량 표준작업절차 발췌",
+            "size": 160,
+            "hash": "",
+            "dataUrl": "data:text/plain;charset=utf-8,SOP-WEIGH-01%20%EC%B9%AD%EB%9F%89%20%ED%91%9C%EC%A4%80%EC%9E%91%EC%97%85%EC%A0%88%EC%B0%A8%20(PoC%20%EC%83%98%ED%94%8C)%0A1.%20%EC%98%81%EC%A0%90%20%ED%99%95%EC%9D%B8%0A2.%20LOT%20%EC%8A%A4%EC%BA%94%0A3.%20%EC%B9%AD%EB%9F%89%20%C2%B10.5%25"
+          }
+        ]
+      },
+      "inputs": [
+        {
+          "key": "lot",
+          "label": "원료 LOT",
+          "type": "combo",
+          "required": true,
+          "critical": true,
+          "options": [
+            "API-2409",
+            "API-2410"
+          ],
+          "evidence": "barcode"
+        },
+        {
+          "key": "target_kg",
+          "label": "지시량",
+          "type": "label",
+          "unit": "kg",
+          "value": "20.000"
+        },
+        {
+          "key": "actual_kg",
+          "label": "칭량값",
+          "type": "number",
+          "required": true,
+          "critical": true,
+          "unit": "kg",
+          "min": 19.9,
+          "max": 20.1,
+          "decimals": 3,
+          "evidence": "device_log"
+        },
+        {
+          "key": "weighed_at",
+          "label": "칭량 일시",
+          "type": "datetime",
+          "required": true
+        },
+        {
+          "key": "balance",
+          "label": "저울 · 교정",
+          "type": "multi",
+          "parts": [
+            {
+              "label": "저울 ID",
+              "type": "combo",
+              "options": [
+                "BAL-205",
+                "BAL-206"
+              ]
+            },
+            {
+              "label": "교정 유효",
+              "type": "check"
+            },
+            {
+              "label": "교정일",
+              "type": "date"
+            }
+          ]
+        },
+        {
+          "key": "remark",
+          "label": "비고",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "nodeId": "N-013",
+      "type": "phase",
+      "label": "원료 LOT 격리 (예외 종료)",
+      "phaseRef": "PH-LOT-QUARANTINE",
+      "nextStep": "",
+      "esig": {
+        "required": true,
+        "meaning": "격리 확인",
+        "perform": true,
+        "verify": true
+      },
+      "interlockRef": "",
+      "equipmentClassRef": "",
+      "note": "자재 상태 격리 → 배치 진행 불가"
+    },
+    {
+      "nodeId": "N-014",
+      "type": "phase",
+      "label": "설비 사용 차단 (예외 종료)",
+      "phaseRef": "PH-EQ-BLOCK",
+      "nextStep": "",
+      "esig": {
+        "required": false,
+        "meaning": "",
+        "perform": false,
+        "verify": false
+      },
+      "interlockRef": "ILR-CAL-ABS",
+      "equipmentClassRef": "EC-BAL-01",
+      "note": "교정 만료 Absolute 인터록 · 대체 설비 없으면 보류"
+    },
+    {
+      "nodeId": "N-016",
+      "type": "phase",
+      "label": "칭량 일탈 발행",
+      "phaseRef": "PH-DEV-OPEN",
+      "nextStep": "N-018",
+      "esig": {
+        "required": true,
+        "meaning": "일탈 발행 확인",
+        "perform": true,
+        "verify": true
+      },
+      "interlockRef": "",
+      "equipmentClassRef": "",
+      "note": ""
+    },
+    {
+      "nodeId": "N-018",
+      "type": "phase",
+      "label": "QA 판정",
+      "phaseRef": "PH-QA-DECIDE",
+      "nextStep": "N-020",
+      "esig": {
+        "required": true,
+        "meaning": "QA 판정",
+        "perform": false,
+        "performRole": "OPERATOR",
+        "performAuth": "pin_session",
+        "verify": true,
+        "verifyRole": "QA",
+        "verifyAuth": "full_factor",
+        "approve": true,
+        "approveRole": "QA_MGR",
+        "approveAuth": "full_factor",
+        "distinct": true
+      },
+      "interlockRef": "",
+      "equipmentClassRef": "",
+      "note": "합격 → 혼합 합류 · 추가 조사 → 보류 · 불합격 → 폐기",
+      "instruction": {
+        "text": "일탈 내용과 재칭량 결과를 검토하고 처분(합격 · 보류 · 폐기)을 결정한다.\n결정 사유를 반드시 기록한다.",
+        "assets": []
+      },
+      "inputs": [
+        {
+          "key": "decision",
+          "label": "처분",
+          "type": "combo",
+          "required": true,
+          "critical": true,
+          "options": [
+            "합격 → 혼합 합류",
+            "추가 조사 → 배치 보류",
+            "불합격 → 배치 폐기"
+          ]
+        },
+        {
+          "key": "reason",
+          "label": "결정 사유",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "decided_at",
+          "label": "결정 일시",
+          "type": "datetime",
+          "required": true
+        }
+      ]
+    },
+    {
+      "nodeId": "N-017",
+      "type": "phase",
+      "label": "배치 보류 (예외 종료)",
+      "phaseRef": "PH-HOLD",
+      "nextStep": "",
+      "esig": {
+        "required": true,
+        "meaning": "보류 승인",
+        "perform": false,
+        "verify": true
+      },
+      "interlockRef": "",
+      "equipmentClassRef": "",
+      "note": "출하 게이트에서 미결로 차단"
+    },
+    {
+      "nodeId": "N-019",
+      "type": "phase",
+      "label": "배치 폐기 (예외 종료)",
+      "phaseRef": "PH-REJECT",
+      "nextStep": "",
+      "esig": {
+        "required": true,
+        "meaning": "폐기 승인",
+        "perform": false,
+        "verify": true
+      },
+      "interlockRef": "",
+      "equipmentClassRef": "",
+      "note": ""
+    },
+    {
+      "nodeId": "N-020",
+      "type": "phase",
+      "label": "혼합",
+      "phaseRef": "PH-MIX-01",
+      "nextStep": "N-030",
+      "esig": {
+        "required": false,
+        "meaning": "",
+        "perform": false,
+        "verify": false
+      },
+      "interlockRef": "",
+      "equipmentClassRef": "EC-MIX-01",
+      "note": ""
+    },
+    {
+      "nodeId": "N-025",
+      "type": "phase",
+      "label": "혼합 QA 판정",
+      "phaseRef": "PH-MIX-QA",
+      "nextStep": "N-030",
+      "esig": {
+        "required": true,
+        "meaning": "혼합 QA 판정",
+        "perform": false,
+        "performRole": "OPERATOR",
+        "performAuth": "pin_session",
+        "verify": true,
+        "verifyRole": "QA",
+        "verifyAuth": "full_factor",
+        "approve": true,
+        "approveRole": "QA_MGR",
+        "approveAuth": "full_factor",
+        "distinct": true
+      },
+      "interlockRef": "",
+      "equipmentClassRef": "",
+      "note": "",
+      "instruction": {
+        "text": "일탈 내용과 재칭량 결과를 검토하고 처분(합격 · 보류 · 폐기)을 결정한다.\n결정 사유를 반드시 기록한다.",
+        "assets": []
+      },
+      "inputs": [
+        {
+          "key": "decision",
+          "label": "처분",
+          "type": "combo",
+          "required": true,
+          "critical": true,
+          "options": [
+            "합격 → 혼합 합류",
+            "추가 조사 → 배치 보류",
+            "불합격 → 배치 폐기"
+          ]
+        },
+        {
+          "key": "reason",
+          "label": "결정 사유",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "decided_at",
+          "label": "결정 일시",
+          "type": "datetime",
+          "required": true
+        }
+      ]
+    },
+    {
+      "nodeId": "N-026",
+      "type": "phase",
+      "label": "배치 폐기 (예외 종료)",
+      "phaseRef": "PH-REJECT",
+      "nextStep": "",
+      "esig": {
+        "required": true,
+        "meaning": "폐기 승인",
+        "perform": false,
+        "verify": true
+      },
+      "interlockRef": "",
+      "equipmentClassRef": "",
+      "note": ""
+    },
+    {
+      "nodeId": "N-030",
+      "type": "phase",
+      "label": "타정 · IPC",
+      "phaseRef": "PH-COMP-01",
+      "nextStep": "",
+      "esig": {
+        "required": false,
+        "meaning": "",
+        "perform": false,
+        "verify": false
+      },
+      "interlockRef": "ILR-IPC-HARDNESS",
+      "equipmentClassRef": "EC-TAB-01",
+      "note": "본류 정상 종료 (다음 없음)"
+    },
+    {
+      "nodeId": "N-035",
+      "type": "phase",
+      "label": "재타정",
+      "phaseRef": "PH-COMP-REDO",
+      "nextStep": "N-030",
+      "esig": {
+        "required": false,
+        "meaning": "",
+        "perform": false,
+        "verify": false
+      },
+      "interlockRef": "ILR-IPC-HARDNESS",
+      "equipmentClassRef": "EC-TAB-01",
+      "note": "타정으로 되돌아감"
+    }
+  ],
+  "edges": [
+    {
+      "from": "N-010",
+      "to": "N-020",
+      "type": "seq",
+      "label": "다음"
+    },
+    {
+      "from": "N-010",
+      "to": "N-013",
+      "type": "exception",
+      "label": "IF 원료 LOT 부적합 → 격리"
+    },
+    {
+      "from": "N-010",
+      "to": "N-014",
+      "type": "exception",
+      "label": "IF 저울 교정 만료 → 설비 차단"
+    },
+    {
+      "from": "N-010",
+      "to": "N-016",
+      "type": "exception",
+      "label": "IF 재칭량 후 재편차 → 일탈 발행"
+    },
+    {
+      "from": "N-016",
+      "to": "N-018",
+      "type": "seq",
+      "label": "일탈 → QA 판정"
+    },
+    {
+      "from": "N-018",
+      "to": "N-020",
+      "type": "seq",
+      "label": "QA 합격 → 혼합 합류"
+    },
+    {
+      "from": "N-018",
+      "to": "N-017",
+      "type": "exception",
+      "label": "IF 추가 조사 → 배치 보류"
+    },
+    {
+      "from": "N-018",
+      "to": "N-019",
+      "type": "exception",
+      "label": "IF 불합격 → 배치 폐기"
+    },
+    {
+      "from": "N-020",
+      "to": "N-030",
+      "type": "seq",
+      "label": "다음"
+    },
+    {
+      "from": "N-020",
+      "to": "N-025",
+      "type": "exception",
+      "label": "IF 혼합 시간 초과 → QA 판정"
+    },
+    {
+      "from": "N-025",
+      "to": "N-030",
+      "type": "seq",
+      "label": "QA 합격 → 타정 합류"
+    },
+    {
+      "from": "N-025",
+      "to": "N-026",
+      "type": "exception",
+      "label": "IF 불합격 → 배치 폐기"
+    },
+    {
+      "from": "N-030",
+      "to": "N-035",
+      "type": "exception",
+      "label": "IF 경도 불합격 → 재타정"
+    },
+    {
+      "from": "N-035",
+      "to": "N-030",
+      "type": "seq",
+      "label": "재타정 → IPC 재검"
+    }
+  ],
+  "contentHash": "",
+  "meta": {
+    "updatedAt": null,
+    "author": "PoC"
+  }
+}

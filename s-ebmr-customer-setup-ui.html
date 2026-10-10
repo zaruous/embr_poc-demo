@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-ebmr-customer-setup-ui  (eMBR 고객 설정 마스터 PoC)
+  역할         : 고객사 · 사이트/공장 · 스키마 팩 NS 를 기준정보로 관리 → eMBR 작성 워크플로에 바인딩
+  제품 레퍼런스 :
+    - WIP WipSetupCustomerMain / WipSetupCustomerPopup  (/v1/wip/customers)
+      키 필드: customerCode, customerDesc, corpNo, ceoName, emailAddress,
+               officePhoneNo, mobilePhoneNo, faxPhoneNo, address
+    - ADM AdmSetupTenantMain / AdmSetupTenantPopup       (CENTER · FACTORY 트리)
+      키 필드: code/id, label, type(CENTER|FACTORY), zoneId
+    - ADM AdmSetupFactoryMain / AdmSetupFactoryPopup     (/v1/wip/factories)
+      키 필드: factoryCode, tenantDesc, tenantType
+    - WIP WipSetupFactoryTreeMain                        (FACTORY→AREA→LINE→EQUIPMENT)
+  공용 자산     : ./assets/mesui.css · ./assets/mesui.js
+  저장         : localStorage 'ebmr.customerSetup.v1'  (작성 워크플로가 동일 키로 로드)
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>고객 설정 마스터 — eMBR 기준정보 PoC</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  body { margin: 0; }
+  .callout {
+    display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+    padding: 8px 14px; border: 1px solid #6952db; background: #f7f5fe; border-radius: 4px;
+    font-size: 12px; color: #4433a8;
+  }
+  .callout .tag {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+    border-radius: 11px; background: #6952db; color: #fff; font-weight: bold; white-space: nowrap;
+  }
+  .callout a { color: #4433a8; font-weight: bold; }
+  .split-cust {
+    display: flex; flex-direction: row; gap: 0;
+    flex: 1 1 auto; min-height: 0; width: 100%; max-width: 100%; overflow: hidden;
+  }
+  .split-cust > .col.rs-pane {
+    display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 160px; overflow: hidden;
+  }
+  #paneCustList { flex: 0 0 760px; width: 760px; }
+  #paneCustDetail { flex: 1 1 auto; min-width: 200px; }
+  /* ---- resizable split gutters (rs-*) — do not collide with mesui .split ---- */
+  .rs-gutter {
+    flex: 0 0 6px; width: 6px; min-width: 6px; cursor: col-resize;
+    background: #e8edf5; border: none; padding: 0; margin: 0;
+    align-self: stretch; position: relative;
+  }
+  .rs-gutter:hover, .rs-gutter.is-drag { background: #2C59D9; }
+  .rs-gutter::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px;
+  }
+  body.is-resizing { cursor: col-resize; user-select: none; }
+  body.is-resizing .rs-pane { pointer-events: none; }
+
+  .form-grid .hint { font-size: 11px; color: var(--c-text-disabled); margin-left: 6px; }
+  /* form-grid cols-2 (§11-5 / §13-7): multi(textarea) 행 — 설비 상태/이벤트 화면과 동일 */
+  .form-grid > .field.multi { align-items: flex-start; min-height: auto; padding-top: 6px; padding-bottom: 6px; }
+  .form-grid > .field > textarea.input {
+    height: auto;
+    min-height: calc(var(--ctrl-h-form) * 2 + 12px);
+  }
+  /* §13-7 / §14 R-01: 입력 폭 통일 — 반폭 필드 입력 = 필드 폭 − 힌트 슬롯(120 = hint 112 + gap 8), 끝 hint는 말줄임 */
+  #custFields { --hint-slot: 120px; }
+  #custFields > .field:not(.span-2) > .input { flex: 0 0 max(80px, calc(100% - var(--hint-slot))); min-width: 0; } /* 좁게 드래그 시 hint가 먼저 말줄임 */
+  #custFields > .field > .hint { flex: 1 1 0; min-width: 0; margin-left: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 스키마 NS: 홀수 필드라 span-2 행이지만 짧은 코드값 → 반폭 입력과 같은 폭 (span 내용폭 W → 반폭 내용폭 = (W − 라벨 + 16)/2 − 16) */
+  #custFields > .field.span-2 > #namespace { flex: 0 0 max(80px, calc((100% - var(--form-label-w) + 16px) / 2 - 16px - var(--hint-slot))); }
+  .ns-pill {
+    display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
+    border-radius: 10px; background: #eef2ff; color: #334155; border: 1px solid #c7d2fe;
+    font-family: Consolas, 'Courier New', monospace; font-size: 12px;
+  }
+  .flag-on { color: #0a7a3e; font-weight: bold; }
+  .flag-off { color: #a33; }
+  #grdCust tbody tr.is-selected td { background: #eef2ff; }
+  .editor-title { display: flex; align-items: center; gap: 8px; }
+  .editor-title .mode { font-size: 11px; padding: 1px 7px; border-radius: 8px; background: #fff4d6; color: #8a5a00; border: 1px solid #f0c75e; }
+
+  /* 카탈로그/iframe 맞춤: mesui .shell-scale — 1920×1080 미만 뷰포트면 축소 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale {
+    flex: 0 0 auto;
+  }
+</style>
+</head>
+<body>
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="title-left">
+      <span class="main-title">고객 설정 마스터</span>
+      <span class="sub-info" title="제품 WIP Customer · ADM Tenant/Factory 필드를 eMBR 스키마 팩 바인딩용으로 확장"><i class="ic-info"></i>CUSTOMER · SITE · SCHEMA PACK NS — eMBR 작성 워크플로에 바인딩</span>
+    </span>
+    <span class="breadcrumb">
+      <span>eMBR</span><span class="sep">&rsaquo;</span><span>기준정보</span><span class="sep">&rsaquo;</span><span class="current">고객 설정</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+
+  <div class="shell-body">
+    <div class="callout" role="note">
+      <span class="tag">제품 정렬</span>
+      <span>WIP <b>WipSetupCustomer*</b> · ADM <b>AdmSetupTenant*</b> · <b>AdmSetupFactory*</b> 키 필드 미러</span>
+      <span class="vbar"></span>
+      <span>추가 eMBR 필드: <b>schemaPackId / Ver / namespace(NS)</b> · plant/site · active · eMBR 사용</span>
+      <span class="spacer"></span>
+      <a href="./s-ebmr-creation-workflow-ui.html">eMBR 작성 워크플로 ↗</a>
+    </div>
+
+    <div class="search-box cols-3" id="sbCust">
+      <div class="search-control"><span class="label">고객 코드</span>
+        <span class="input-clear"><input class="input" type="text" id="schCode" placeholder="HANBIT" aria-label="고객 코드"><button class="clear" type="button" data-clear="schCode" title="지우기"></button></span></div>
+      <div class="search-control"><span class="label">고객명</span>
+        <span class="input-clear"><input class="input" type="text" id="schName" placeholder="한빛" aria-label="고객명"><button class="clear" type="button" data-clear="schName" title="지우기"></button></span></div>
+      <div class="search-control"><span class="label">스키마 NS</span>
+        <select class="input" id="schNs" aria-label="스키마 NS"><option value="">전체</option></select></div>
+      <div class="search-control"><span class="label">상태</span>
+        <select class="input" id="schActive" aria-label="상태">
+          <option value="">전체</option>
+          <option value="1">Active</option>
+          <option value="0">Inactive</option>
+          <option value="ebmr">eMBR 사용</option>
+        </select></div>
+      <div class="search-actions">
+        <button class="btn search" type="button" id="btnReset">Reset</button>
+        <button class="btn search secondary" type="button" id="btnSearch">Search</button>
+      </div>
+    </div>
+
+    <div class="split-cust" id="custSplit">
+      <div class="col rs-pane" id="paneCustList">
+        <div class="grid-block fill">
+          <div class="grid-title-area">
+            <div class="title-row">
+              <span class="group-title">고객 목록</span>
+              <span class="sub-info">localStorage <code>ebmr.customerSetup.v1</code> · 제품 API <code>/v1/wip/customers</code> 대응</span>
+            </div>
+            <div class="grid-toolbar">
+              <span class="total-text" data-total-for="grdCust"></span>
+              <span class="spacer"></span>
+              <button class="btn search secondary" type="button" id="btnSeed">시드 복원</button>
+              <button class="btn search" type="button" id="btnNew">New</button>
+              <button class="btn search secondary" type="button" id="btnDelete" disabled>Delete</button>
+            </div>
+          </div>
+          <div class="grid-wrap">
+            <table class="grid selectable" id="grdCust">
+              <colgroup>
+                <col class="col-no"><col style="width:100px"><col><col style="width:90px">
+                <col style="width:88px"><col style="width:110px"><col style="width:72px"><col style="width:72px">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th class="col-no">No.</th>
+                  <th>고객 코드<span class="th-note">customerCode</span></th>
+                  <th>고객명<span class="th-note">customerDesc</span></th>
+                  <th>공장/사이트<span class="th-note">factoryCode</span></th>
+                  <th>NS<span class="th-note">namespace</span></th>
+                  <th>스키마 팩<span class="th-note">schemaPackId</span></th>
+                  <th class="center">Active</th>
+                  <th class="center">eMBR</th>
+                </tr>
+              </thead>
+              <tbody id="grdCustBody"></tbody>
+            </table>
+            <div class="nodata hidden" id="custNodata">조건에 맞는 고객이 없습니다</div>
+          </div>
+        </div>
+      </div>
+
+      <button type="button" class="rs-gutter" id="gutterMain" aria-label="패널 너비 조절" title="드래그하여 너비 조절"></button>
+
+      <div class="col rs-pane" id="paneCustDetail">
+        <div class="grid-block auto">
+          <div class="grid-toolbar">
+            <span class="editor-title">
+              <span class="group-title" id="edTitle">고객 상세</span>
+              <span class="mode" id="edMode">신규</span>
+            </span>
+            <span class="spacer"></span>
+            <button class="btn search secondary" type="button" id="btnCancel">취소</button>
+            <button class="btn search primary" type="button" id="btnSave">Save</button>
+          </div>
+          <form id="custForm">
+            <div class="form-grid cols-2" id="custFields">
+              <label class="label required" for="customerCode">고객 코드</label>
+              <span class="field"><input class="input" id="customerCode" required maxlength="20" pattern="[A-Za-z0-9][A-Za-z0-9_\-]{0,19}" title="영문·숫자·하이픈·밑줄, 최대 20자" placeholder="HANBIT"><span class="hint">제품 ipbCustomerCode</span></span>
+
+              <label class="label required" for="customerDesc">고객명</label>
+              <span class="field"><input class="input" id="customerDesc" required maxlength="200" placeholder="한빛제약"><span class="hint">customerDesc</span></span>
+
+              <label class="label required" for="factoryCode">공장 코드</label>
+              <span class="field"><input class="input" id="factoryCode" required maxlength="20" placeholder="OSONG"><span class="hint">factoryCode (ADM)</span></span>
+
+              <label class="label required" for="factoryDesc">공장/사이트명</label>
+              <span class="field"><input class="input" id="factoryDesc" required maxlength="100" placeholder="오송 공장"><span class="hint">tenantDesc / site</span></span>
+
+              <label class="label" for="plantCode">Plant 코드</label>
+              <span class="field"><input class="input" id="plantCode" maxlength="20" placeholder="P01"></span>
+
+              <label class="label" for="plantDesc">Plant 명</label>
+              <span class="field"><input class="input" id="plantDesc" maxlength="100" placeholder="오송 제1공장"></span>
+
+              <label class="label required" for="namespace">스키마 NS</label>
+              <span class="field span-2"><input class="input" id="namespace" required maxlength="16" pattern="[A-Z][A-Z0-9]{1,15}" title="대문자 NS (예: CUSTA)" placeholder="CUSTA"><span class="hint">SP-EXT-&lt;NS&gt;</span></span>
+
+              <label class="label required" for="schemaPackId">스키마 팩 ID</label>
+              <span class="field"><input class="input" id="schemaPackId" required maxlength="40" placeholder="SP-EXT-CUSTA"></span>
+
+              <label class="label required" for="schemaPackVer">팩 버전</label>
+              <span class="field"><input class="input" id="schemaPackVer" required maxlength="20" pattern="\d+\.\d+\.\d+" placeholder="1.2.0"><span class="hint">SemVer</span></span>
+
+              <label class="label" for="corePackId">코어 팩</label>
+              <span class="field"><input class="input" id="corePackId" maxlength="40" value="SP-CORE" placeholder="SP-CORE"></span>
+
+              <label class="label" for="corePackVer">코어 버전</label>
+              <span class="field"><input class="input" id="corePackVer" maxlength="20" value="1.0.0" placeholder="1.0.0"></span>
+
+              <label class="label" for="corpNo">사업자번호</label>
+              <span class="field"><input class="input" id="corpNo" maxlength="30" placeholder="123-45-67890"><span class="hint">corpNo</span></span>
+
+              <label class="label" for="ceoName">대표자</label>
+              <span class="field"><input class="input" id="ceoName" maxlength="100" placeholder="홍길동"><span class="hint">ceoName</span></span>
+
+              <label class="label" for="emailAddress">이메일</label>
+              <span class="field span-2"><input class="input" id="emailAddress" maxlength="200" type="email" placeholder="qa@example.com"></span>
+
+              <label class="label" for="officePhoneNo">전화</label>
+              <span class="field"><input class="input" id="officePhoneNo" maxlength="30"></span>
+
+              <label class="label" for="mobilePhoneNo">휴대폰</label>
+              <span class="field"><input class="input" id="mobilePhoneNo" maxlength="30"></span>
+
+              <label class="label" for="address">주소</label>
+              <span class="field span-2 multi"><textarea class="input" id="address" rows="2" maxlength="500"></textarea></span>
+
+              <label class="label" for="activeFlag">Active</label>
+              <span class="field"><label class="checkbox"><input type="checkbox" id="activeFlag" checked> 사용</label></span>
+
+              <label class="label" for="ebmrEnabled">eMBR 사용</label>
+              <span class="field"><label class="checkbox"><input type="checkbox" id="ebmrEnabled" checked> 작성 워크플로 바인딩 대상</label></span>
+
+              <label class="label" for="note">비고</label>
+              <span class="field span-2 multi"><textarea class="input" id="note" rows="2" maxlength="400" placeholder="스키마 팩·사이트 바인딩 메모"></textarea></span>
+            </div>
+          </form>
+        </div>
+
+        <div class="grid-block auto">
+          <div class="grid-toolbar"><span class="group-title">바인딩 미리보기</span><span class="spacer"></span><span class="sub-info">작성 워크플로가 읽는 값</span></div>
+          <div class="form-grid readonly cols-2" id="bindPreview">
+            <span class="label">선택 고객</span><span class="field"><span class="text" id="pvCustomer">—</span></span>
+            <span class="label">사이트</span><span class="field"><span class="text" id="pvSite">—</span></span>
+            <span class="label">스키마 팩</span><span class="field"><span class="text" id="pvPack">—</span></span>
+            <span class="label">NS</span><span class="field"><span class="text"><span class="ns-pill" id="pvNs">—</span></span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+
+<script src="./assets/mesui.js"></script>
+<script>
+(function () {
+  'use strict';
+  var LS_KEY = 'ebmr.customerSetup.v1';
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  };
+  var FIELDS = [
+    'customerCode', 'customerDesc', 'factoryCode', 'factoryDesc', 'plantCode', 'plantDesc',
+    'namespace', 'schemaPackId', 'schemaPackVer', 'corePackId', 'corePackVer',
+    'corpNo', 'ceoName', 'emailAddress', 'officePhoneNo', 'mobilePhoneNo', 'address', 'note'
+  ];
+
+  var SEED = [
+    {
+      customerCode: 'HANBIT', customerDesc: '한빛제약',
+      factoryCode: 'OSONG', factoryDesc: '오송 공장', plantCode: 'P01', plantDesc: '오송 제1공장',
+      namespace: 'CUSTA', schemaPackId: 'SP-EXT-CUSTA', schemaPackVer: '1.2.0',
+      corePackId: 'SP-CORE', corePackVer: '1.0.0',
+      corpNo: '123-45-67890', ceoName: '김한빛', emailAddress: 'mbr@hanbit.example',
+      officePhoneNo: '043-123-4567', mobilePhoneNo: '', address: '충북 청주시 오송읍',
+      activeFlag: true, ebmrEnabled: true, note: '기본 PoC 고객 · 확장 팩 CUSTA'
+    },
+    {
+      customerCode: 'GREENPH', customerDesc: '그린파마',
+      factoryCode: 'ANSAN', factoryDesc: '안산 공장', plantCode: 'P02', plantDesc: '안산 고형제 공장',
+      namespace: 'CUSTB', schemaPackId: 'SP-EXT-CUSTB', schemaPackVer: '1.0.1',
+      corePackId: 'SP-CORE', corePackVer: '1.0.0',
+      corpNo: '234-56-78901', ceoName: '이그린', emailAddress: 'qa@greenph.example',
+      officePhoneNo: '031-987-6543', mobilePhoneNo: '', address: '경기 안산시 단원구',
+      activeFlag: true, ebmrEnabled: true, note: '위탁 제조 이관 시나리오'
+    },
+    {
+      customerCode: 'COREONLY', customerDesc: '코어온리바이오',
+      factoryCode: 'OSONG', factoryDesc: '오송 공장', plantCode: 'P01', plantDesc: '오송 제1공장',
+      namespace: 'CORE', schemaPackId: 'SP-CORE', schemaPackVer: '1.0.0',
+      corePackId: 'SP-CORE', corePackVer: '1.0.0',
+      corpNo: '', ceoName: '', emailAddress: '',
+      officePhoneNo: '', mobilePhoneNo: '', address: '',
+      activeFlag: true, ebmrEnabled: true, note: '확장 팩 없이 코어만'
+    },
+    {
+      customerCode: 'LEGACY', customerDesc: '레거시케미컬',
+      factoryCode: 'LEG01', factoryDesc: '구 공장', plantCode: '', plantDesc: '',
+      namespace: 'LEG', schemaPackId: 'SP-EXT-LEG', schemaPackVer: '0.9.0',
+      corePackId: 'SP-CORE', corePackVer: '1.0.0',
+      corpNo: '', ceoName: '', emailAddress: '',
+      officePhoneNo: '', mobilePhoneNo: '', address: '',
+      activeFlag: false, ebmrEnabled: false, note: '비활성 · 바인딩 제외'
+    }
+  ];
+
+  var state = { rows: [], selected: null, mode: 'new' };
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.customers) && parsed.customers.length) {
+          state.rows = parsed.customers;
+          return;
+        }
+      }
+    } catch (e) { /* ignore */ }
+    state.rows = JSON.parse(JSON.stringify(SEED));
+    save();
+  }
+
+  function save() {
+    localStorage.setItem(LS_KEY, JSON.stringify({ version: 1, updatedAt: MesUI.nowStamp(), customers: state.rows }));
+  }
+
+  function filtered() {
+    var code = ($('schCode').value || '').trim().toUpperCase();
+    var name = ($('schName').value || '').trim();
+    var ns = $('schNs').value;
+    var act = $('schActive').value;
+    return state.rows.filter(function (r) {
+      if (code && String(r.customerCode || '').toUpperCase().indexOf(code) < 0) return false;
+      if (name && String(r.customerDesc || '').indexOf(name) < 0) return false;
+      if (ns && r.namespace !== ns) return false;
+      if (act === '1' && !r.activeFlag) return false;
+      if (act === '0' && r.activeFlag) return false;
+      if (act === 'ebmr' && !r.ebmrEnabled) return false;
+      return true;
+    });
+  }
+
+  function fillNsFilter() {
+    var sel = $('schNs');
+    var cur = sel.value;
+    var set = {};
+    state.rows.forEach(function (r) { if (r.namespace) set[r.namespace] = 1; });
+    sel.innerHTML = '<option value="">전체</option>' + Object.keys(set).sort().map(function (n) {
+      return '<option value="' + esc(n) + '">' + esc(n) + '</option>';
+    }).join('');
+    sel.value = cur;
+  }
+
+  function renderGrid() {
+    var list = filtered();
+    var body = $('grdCustBody');
+    body.innerHTML = list.map(function (r, i) {
+      var sel = state.selected && state.selected.customerCode === r.customerCode ? ' is-selected' : '';
+      return '<tr data-code="' + esc(r.customerCode) + '" class="' + sel.trim() + '">' +
+        '<td class="col-no">' + (i + 1) + '</td>' +
+        '<td><b>' + esc(r.customerCode) + '</b></td>' +
+        '<td>' + esc(r.customerDesc) + '</td>' +
+        '<td>' + esc(r.factoryCode) + (r.factoryDesc ? ' · ' + esc(r.factoryDesc) : '') + '</td>' +
+        '<td><span class="ns-pill">' + esc(r.namespace) + '</span></td>' +
+        '<td>' + esc(r.schemaPackId) + ' <span class="unit">v' + esc(r.schemaPackVer) + '</span></td>' +
+        '<td class="center ' + (r.activeFlag ? 'flag-on' : 'flag-off') + '">' + (r.activeFlag ? 'Y' : 'N') + '</td>' +
+        '<td class="center ' + (r.ebmrEnabled ? 'flag-on' : 'flag-off') + '">' + (r.ebmrEnabled ? 'Y' : 'N') + '</td>' +
+        '</tr>';
+    }).join('');
+    $('custNodata').classList.toggle('hidden', list.length > 0);
+    MesUI.setTotal('grdCust', list.length);
+    $('btnDelete').disabled = !state.selected;
+  }
+
+  function emptyForm() {
+    FIELDS.forEach(function (k) {
+      var el = $(k);
+      if (!el) return;
+      if (k === 'corePackId') el.value = 'SP-CORE';
+      else if (k === 'corePackVer') el.value = '1.0.0';
+      else el.value = '';
+    });
+    $('activeFlag').checked = true;
+    $('ebmrEnabled').checked = true;
+    $('customerCode').readOnly = false;
+  }
+
+  function fillForm(r) {
+    FIELDS.forEach(function (k) { if ($(k)) $(k).value = r[k] == null ? '' : r[k]; });
+    $('activeFlag').checked = !!r.activeFlag;
+    $('ebmrEnabled').checked = !!r.ebmrEnabled;
+    $('customerCode').readOnly = state.mode === 'edit';
+  }
+
+  function formToRow() {
+    var row = {};
+    FIELDS.forEach(function (k) { row[k] = ($(k).value || '').trim(); });
+    row.customerCode = row.customerCode.toUpperCase();
+    row.namespace = row.namespace.toUpperCase();
+    row.factoryCode = row.factoryCode.toUpperCase();
+    if (row.plantCode) row.plantCode = row.plantCode.toUpperCase();
+    row.activeFlag = $('activeFlag').checked;
+    row.ebmrEnabled = $('ebmrEnabled').checked;
+    return row;
+  }
+
+  function setMode(mode, row) {
+    state.mode = mode;
+    state.selected = row || null;
+    $('edMode').textContent = mode === 'edit' ? '수정' : '신규';
+    $('edTitle').textContent = mode === 'edit' ? '고객 상세 · ' + row.customerCode : '고객 상세 · 신규';
+    if (mode === 'edit' && row) fillForm(row); else emptyForm();
+    updatePreview(row);
+    renderGrid();
+  }
+
+  function updatePreview(r) {
+    if (!r) {
+      $('pvCustomer').textContent = '—';
+      $('pvSite').textContent = '—';
+      $('pvPack').textContent = '—';
+      $('pvNs').textContent = '—';
+      return;
+    }
+    $('pvCustomer').textContent = r.customerCode + ' · ' + r.customerDesc;
+    $('pvSite').textContent = (r.factoryCode || '') + (r.factoryDesc ? ' · ' + r.factoryDesc : '') +
+      (r.plantCode ? ' / ' + r.plantCode + (r.plantDesc ? ' · ' + r.plantDesc : '') : '');
+    $('pvPack').textContent = (r.schemaPackId || '—') + ' v' + (r.schemaPackVer || '');
+    $('pvNs').textContent = r.namespace || '—';
+  }
+
+  function selectByCode(code) {
+    var row = state.rows.find(function (r) { return r.customerCode === code; });
+    if (!row) return;
+    setMode('edit', row);
+  }
+
+  $('btnSearch').onclick = function () { renderGrid(); };
+  $('btnReset').onclick = function () {
+    $('schCode').value = ''; $('schName').value = ''; $('schNs').value = ''; $('schActive').value = '';
+    renderGrid();
+  };
+  document.querySelectorAll('[data-clear]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id = btn.getAttribute('data-clear');
+      if ($(id)) { $(id).value = ''; $(id).focus(); }
+    });
+  });
+  ['schCode', 'schName'].forEach(function (id) {
+    $(id).addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); renderGrid(); } });
+  });
+  $('schNs').onchange = renderGrid;
+  $('schActive').onchange = renderGrid;
+
+  $('grdCustBody').addEventListener('click', function (ev) {
+    var tr = ev.target.closest('tr[data-code]');
+    if (!tr) return;
+    selectByCode(tr.getAttribute('data-code'));
+  });
+
+  $('btnNew').onclick = function () { setMode('new', null); $('customerCode').focus(); };
+  $('btnCancel').onclick = function () {
+    if (state.selected) setMode('edit', state.selected);
+    else setMode('new', null);
+  };
+
+  $('btnDelete').onclick = function () {
+    if (!state.selected) return;
+    var code = state.selected.customerCode;
+    MesUI.confirm('고객 "' + code + '" 을(를) 삭제할까요?', function () {
+      state.rows = state.rows.filter(function (r) { return r.customerCode !== code; });
+      save();
+      fillNsFilter();
+      setMode('new', null);
+      MesUI.toast('삭제되었습니다.', 'ok');
+    }, { title: 'Delete', okText: '삭제', cancelText: '취소' });
+  };
+
+  $('btnSeed').onclick = function () {
+    MesUI.confirm('시드 4건으로 덮어쓸까요? (현재 localStorage 내용 교체)', function () {
+      state.rows = JSON.parse(JSON.stringify(SEED));
+      save();
+      fillNsFilter();
+      setMode('edit', state.rows[0]);
+      MesUI.toast('시드를 복원했습니다.', 'ok');
+    }, { title: 'Confirm', okText: '복원', cancelText: '취소' });
+  };
+
+  $('btnSave').onclick = function () {
+    if (!$('custForm').reportValidity()) return;
+    var row = formToRow();
+    if (!row.schemaPackId && row.namespace) row.schemaPackId = 'SP-EXT-' + row.namespace;
+    var idx = state.rows.findIndex(function (r) { return r.customerCode === row.customerCode; });
+    if (state.mode === 'new' && idx >= 0) {
+      MesUI.toast('이미 존재하는 고객 코드입니다: ' + row.customerCode, 'warn');
+      return;
+    }
+    if (state.mode === 'edit' && idx < 0) {
+      MesUI.toast('수정 대상을 찾을 수 없습니다.', 'error');
+      return;
+    }
+    if (idx >= 0) state.rows[idx] = row; else state.rows.push(row);
+    save();
+    fillNsFilter();
+    setMode('edit', row);
+    MesUI.toast('저장되었습니다. 작성 워크플로에서 바인딩됩니다.', 'ok');
+  };
+
+  $('namespace').addEventListener('change', function () {
+    var ns = ($('namespace').value || '').trim().toUpperCase();
+    $('namespace').value = ns;
+    if (ns && !$('schemaPackId').value) $('schemaPackId').value = ns === 'CORE' ? 'SP-CORE' : 'SP-EXT-' + ns;
+  });
+
+  $('btnCopyLink').onclick = function () {
+    var url = location.href;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () { MesUI.toast('링크를 복사했습니다.', 'ok'); });
+    } else {
+      MesUI.toast(url, 'info');
+    }
+  };
+
+  load();
+  fillNsFilter();
+  setMode('edit', state.rows[0] || null);
+
+  /* —— resizable split panes (2-col) —— */
+  /* localStorage shape: {"left": <px>}  key=ebmr.customerSetup.split.v1 */
+  var SPLIT_KEY = 'ebmr.customerSetup.split.v1';
+  var SPLIT_DEFAULT_LEFT = 760;
+  function rsLogicalPx(visualPx) {
+    var wrap = document.getElementById('shellScale');
+    var s = 1;
+    try {
+      if (wrap) s = parseFloat(getComputedStyle(wrap).getPropertyValue('--scale')) || 1;
+    } catch (err) { s = 1; }
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    return visualPx / s;
+  }
+  function applySplitWidths(left) {
+    var split = document.getElementById('custSplit');
+    if (!split) return;
+    var splitW = rsLogicalPx(split.getBoundingClientRect().width) || 1200;
+    var gutter = 6;
+    var minL = 160, minR = 200;
+    var maxL = Math.max(minL, Math.floor(splitW * 0.7));
+    maxL = Math.min(maxL, splitW - gutter - minR);
+    /* also keep right from exceeding ~55% by forcing left floor */
+    var minLByRight = Math.max(minL, Math.ceil(splitW - gutter - Math.floor(splitW * 0.55)));
+    if (minLByRight > maxL) minLByRight = minL;
+    var lo = Math.max(minLByRight, Math.min(maxL, left | 0));
+    var paneL = document.getElementById('paneCustList');
+    if (!paneL) return;
+    paneL.style.flex = '0 0 ' + lo + 'px';
+    paneL.style.width = lo + 'px';
+  }
+  function loadSplit() {
+    try {
+      var s = JSON.parse(localStorage.getItem(SPLIT_KEY) || 'null');
+      if (s && s.left) applySplitWidths(s.left);
+    } catch (e) {}
+  }
+  function saveSplit() {
+    var paneL = document.getElementById('paneCustList');
+    if (!paneL) return;
+    localStorage.setItem(SPLIT_KEY, JSON.stringify({
+      left: rsLogicalPx(paneL.getBoundingClientRect().width)
+    }));
+  }
+  function bindGutter(gutterId) {
+    var gut = document.getElementById(gutterId);
+    if (!gut) return;
+    gut.addEventListener('mousedown', function (ev) {
+      ev.preventDefault();
+      var startX = ev.clientX;
+      var startL = rsLogicalPx(document.getElementById('paneCustList').getBoundingClientRect().width);
+      gut.classList.add('is-drag');
+      document.body.classList.add('is-resizing');
+      function onMove(e) {
+        applySplitWidths(startL + rsLogicalPx(e.clientX - startX));
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        gut.classList.remove('is-drag');
+        document.body.classList.remove('is-resizing');
+        saveSplit();
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+    gut.addEventListener('dblclick', function () {
+      applySplitWidths(SPLIT_DEFAULT_LEFT);
+      saveSplit();
+    });
+  }
+  loadSplit();
+  bindGutter('gutterMain');
+
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>
