@@ -8,7 +8,8 @@
   미결         : 1) 요약 폼 — 사양 '72px 2행'과 항목 8개(4행×2열)가 상충 → T-09 '2열' 규칙을 우선해 cols-2 4행(144px)으로 구현
                  2) 중단 그리드 컬럼 폭은 사양값 고정 → '값/한계'·'보증 범위' 긴 값은 ellipsis + title 툴팁
                  3) 데모 바는 셸 우하단 패딩 모서리의 DEMO 버튼으로 접어 두고 클릭 시 패널 전개(화면 영역 비침범)
-                 4) 전 요소 인증의 카드 태깅·ID 검증은 PoC 한정 시뮬레이션(PIN '000000' = 실패 사례)
+                 4) 검토 · 출하 서명 = 공통 서명 창 #dlgRecSign(ID + 비밀번호) → EbrExecSign.beginReviewSign · beginReleaseSign
+                    게이트 1 · 3 · 4 · 8 · 9 = EbrSignStatus.gateSignItems, 필요 서명 체크리스트 = getSignStatus, 출하 상태 = releaseState (화면 판정 없음)
 -->
 <html lang="ko">
 <head>
@@ -18,7 +19,7 @@
 <link rel="stylesheet" href="./assets/mesui.css">
 <style>
   /* ---- 페이지 전용 보조 스타일(공용 자산에 없는 최소 항목만) ---- */
-  body { margin: 0; background: #fff; }
+  body { margin: 0; background: var(--c-bg); }
 
   /* 링크 텍스트(밑줄 없음) */
   .lnk { color: var(--c-primary); cursor: pointer; }
@@ -30,7 +31,7 @@
   .gate-st.pass .dot { background: var(--c-ok); }
   .gate-st.na { color: var(--c-text-disabled); }
   .gate-st.na .dot { background: var(--c-border-03); }
-  #grdGate tbody tr.blocked td { background: rgba(249, 213, 209, 0.45); }   /* #F9D5D1 연하게 */
+  #grdGate tbody tr.blocked td { background: rgba(249, 213, 209, 0.45); }   /* var(--bc-faulty) 연하게 */
   #grdGate tbody tr.linked td:first-child { box-shadow: inset 4px 0 0 var(--c-primary); }
   #grdGate tbody tr.linked td { background: var(--c-row-editing); }
   #grdGate tbody tr.linked.blocked td { background: rgba(249, 213, 209, 0.7); }
@@ -49,30 +50,16 @@
   /* 폼 값 셀 안의 복합 표시 */
   .form-grid > .field > .text { display: inline-flex; align-items: center; gap: 6px; }
 
-  /* 전자서명 팝업(T-11) 보조 */
-  .sign-meaning { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; vertical-align: middle; background: var(--c-navy); }
-  .auth-panel { display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow: hidden; }
-  .user-card { border: 1px solid var(--c-border-04); border-radius: var(--radius); padding: 6px 12px; display: flex; align-items: baseline; gap: 10px; background: var(--c-board-normal); }
-  .user-card .name { font-size: 20px; font-weight: bold; }
-  .user-card .sub { font-size: 12px; color: var(--c-text-sub); }
-  .auth-row { display: flex; align-items: center; gap: 8px; font-size: 12px; min-height: 28px; }
-  .auth-row > .label { flex: 0 0 72px; font-size: 12px; }
-  .auth-row > .input { flex: 1 1 auto; }
-  #signPad.pinpad.sm { grid-template-columns: repeat(3, 72px); }
-  #signPad.pinpad.sm .key { height: 36px; }
-  #signPad.pinpad.sm .pin-display { height: 34px; }
-  .manifest-foot { flex: 0 0 auto; font-size: 12px; color: var(--c-text-sub); }
-
   /* 화면 밖 데모 바: 셸 우하단 패딩 모서리에 접힌 버튼 → 클릭 시 패널 */
-  .demo-fab { position: fixed; right: 2px; bottom: 0; width: 26px; height: 18px; border: 1px solid #555; border-radius: 3px 3px 0 0; background: #333; color: #fff; font: bold 9px/16px 'Malgun Gothic', sans-serif; text-align: center; cursor: pointer; z-index: 900; opacity: .85; }
+  .demo-fab { position: fixed; right: 2px; bottom: 0; width: 26px; height: 18px; border: 1px solid var(--c-text-sub); border-radius: 3px 3px 0 0; background: var(--c-text); color: var(--c-bg); font: bold 9px/16px 'Malgun Gothic', sans-serif; text-align: center; cursor: pointer; z-index: 900; opacity: .85; }
   .demo-fab:hover { opacity: 1; }
-  .demo-panel { position: fixed; right: 12px; bottom: 24px; z-index: 900; display: none; flex-direction: column; gap: 8px; padding: 10px 14px; background: rgba(40, 40, 40, 0.94); color: #fff; border-radius: 4px; box-shadow: 0 6px 12px rgba(0,0,0,.3); font: 12px 'Malgun Gothic', sans-serif; letter-spacing: -0.03em; }
+  .demo-panel { position: fixed; right: 12px; bottom: 24px; z-index: 900; display: none; flex-direction: column; gap: 8px; padding: 10px 14px; background: rgba(40, 40, 40, 0.94); color: var(--c-bg); border-radius: 4px; box-shadow: 0 6px 12px rgba(0,0,0,.3); font: 12px 'Malgun Gothic', sans-serif; letter-spacing: -0.03em; }
   .demo-panel.open { display: flex; }
-  .demo-panel .dp-title { font-weight: bold; color: #ffb100; }
+  .demo-panel .dp-title { font-weight: bold; color: var(--c-warn); }
   .demo-panel label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
-  .demo-panel input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: #ffb100; }
-  .demo-panel button { font: 12px 'Malgun Gothic', sans-serif; padding: 2px 10px; border: 1px solid #888; background: #555; color: #fff; border-radius: 2px; cursor: pointer; }
-  .demo-panel button:hover { background: #666; }
+  .demo-panel input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: var(--c-warn); }
+  .demo-panel button { font: 12px 'Malgun Gothic', sans-serif; padding: 2px 10px; border: 1px solid var(--c-text-disabled); background: var(--c-text-sub); color: var(--c-bg); border-radius: 2px; cursor: pointer; }
+  .demo-panel button:hover { background: var(--c-text-sub); }
 
   /* primary dual-pane (RBE 예외 | 서명 상태) — flex + gutter; dialog .split untouched */
 
@@ -90,9 +77,9 @@
     font-size: 11px; font-weight: bold; background: var(--bc-gray); color: var(--c-text-sub);
   }
   .flow-strip .fl.done { color: var(--c-text); }
-  .flow-strip .fl.done .n { background: var(--c-ok); color: #fff; }
-  .flow-strip .fl.active { color: var(--c-primary); font-weight: bold; background: #fff; box-shadow: inset 0 -2px 0 var(--c-primary); }
-  .flow-strip .fl.active .n { background: var(--c-primary); color: #fff; }
+  .flow-strip .fl.done .n { background: var(--c-ok); color: var(--c-bg); }
+  .flow-strip .fl.active { color: var(--c-primary); font-weight: bold; background: var(--c-bg); box-shadow: inset 0 -2px 0 var(--c-primary); }
+  .flow-strip .fl.active .n { background: var(--c-primary); color: var(--c-bg); }
   .flow-strip .fl.wait .n { background: var(--bc-gray); color: var(--c-text-disabled); }
   .flow-strip .arrow { color: var(--c-border-03); padding: 0 4px; font-size: 14px; }
   .flow-strip .hint { margin-left: auto; font-size: 11px; color: var(--c-text-disabled); padding-right: 8px; }
@@ -122,10 +109,10 @@
   /* ---- resizable split gutters (rs-*) — do not collide with mesui .split ---- */
   .rs-gutter {
     flex: 0 0 6px; width: 6px; min-width: 6px; cursor: col-resize;
-    background: #e8edf5; border: none; padding: 0; margin: 0;
+    background: var(--c-bg-light); border: none; padding: 0; margin: 0;
     align-self: stretch; position: relative;
   }
-  .rs-gutter:hover, .rs-gutter.is-drag { background: #2C59D9; }
+  .rs-gutter:hover, .rs-gutter.is-drag { background: var(--c-primary); }
   .rs-gutter::after {
     content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px;
   }
@@ -134,11 +121,56 @@
 
 
   /* 카탈로그/iframe 맞춤: mesui .shell-scale — 1920×1080 미만 뷰포트면 축소 */
-  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--c-bg); }
   body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
   #shellScale.shell-scale {
     flex: 0 0 auto;
   }
+  /* ==== 공통 서명 창 #dlgRecSign (1100 × 700 — 발행 서명 창 틀 재사용, 4개 화면 같은 블록) · 공용 클래스(.sign-meaning · .sign-dot · .auth-panel · .auth-row · .qual-msg · .qual-req · .sign-err · .sign-statement)는 Elephant CSS(mesui.css) — 여기는 창별 #id 덮기만 ==== */
+  #dlgRecSign .popup-title .text { display: inline-flex; align-items: center; gap: var(--title-gap); min-width: 0; }
+  #dlgRecSign .split.sign-split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--split-gutter); flex: 1 1 auto; min-height: 0; }
+  #dlgRecSign .split.sign-split > .grid-block { min-height: 0; min-width: 0; }
+  #dlgRecSign .grid-wrap { overflow: hidden; }
+  #grdRecSignVal td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #grdRecSignVal .col-item { width: var(--col-w-200); }
+  #dlgRecSign .form-grid .field .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #dlgRecSign .auth-row > .input { height: var(--ctrl-h-form); }
+  .user-card { border: 1px solid var(--c-border-04); border-radius: var(--radius); padding: var(--title-gap) var(--fs-grid); display: flex; align-items: baseline; gap: var(--title-gap); background: var(--c-board-normal); flex-wrap: wrap; }
+  .user-card .name { font-size: var(--fs-group); font-weight: bold; }
+  .user-card .badges { display: inline-flex; align-items: center; gap: var(--badge-gap); flex-wrap: wrap; align-self: center; }
+  .auth-panel .sign-rule, .auth-panel .qual-req, .auth-panel .one-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #dlgRecSign .auth-panel { overflow: hidden; }
+  #dlgRecSign .sign-err { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #dlgRecSign .sign-statement { flex: 0 0 var(--form-row-h); height: var(--form-row-h); display: flex; align-items: center; padding: 0 var(--fs-grid); border: 1px solid var(--c-border-05); background: var(--bc-gray-light); font-size: var(--fs-grid); min-width: 0; overflow: hidden; }
+  #dlgRecSign .sign-statement > .stmt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35; }
+  #dlgRecSign .dialog-footer .sign-note { margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* 서명 슬롯 표시 (§2 색 대응표): signed = 의미 점 + ID · 시각, pending = .badge.muted, invalid = .badge.error, na = .badge */
+  .sign-slot .sign-dot { margin-right: 0; }
+  .sign-slot { display: inline-flex; align-items: center; gap: var(--badge-gap); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* ==== 현재 사용자 선택기 · 역할 배지 (공통 블록 — 배치 발행 · 칭량 화면과 같음) ==== */
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: var(--split-gutter); min-width: 0; white-space: nowrap; }
+  .title-bar > .user-switch + .breadcrumb { margin-left: var(--fs-grid); }
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: var(--badge-gap); min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  #dlgRecSign [hidden] { display: none; }   /* QA 대행 배지 등 — .badge display 보다 우선 */
+  body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
+  /* 체크리스트 · 게이트 열 폭 (토큰) */
+  #grdSig col.c-area { width: var(--col-w-short); } #grdSig col.c-tgt { width: var(--col-w-140); } #grdSig col.c-rule { width: var(--col-w-140); }
+  #grdSig td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #grdSig td .btn.inner { margin-left: var(--badge-gap); }
+  #grdGate col.c-gst { width: var(--col-w-name); }
+  /* 미종결 일탈 팝업 */
+  #dlgDev #devPanel { flex: 1 1 auto; min-height: 0; }
+  .release-block { color: var(--c-error); font-weight: bold; }
+  /* ==== 서명 무효화 창 #dlgInvalidate ==== */
+  #dlgInvalidate .shell-body { display: flex; flex-direction: column; gap: var(--split-gutter); }
+  #dlgInvalidate .inv-row { display: grid; grid-template-columns: var(--form-label-w) 1fr; align-items: center; gap: var(--split-gutter); }
+  #dlgInvalidate .inv-row .input { height: var(--ctrl-h-form); }
+  #dlgInvalidate .dialog { height: auto; }
+  #dlgInvalidate .dialog .shell-body { flex: none; }
 </style>
 </head>
 <body>
@@ -147,6 +179,7 @@
   <!-- 1) grpTitle 29px: contents_title + 브레드크럼 -->
   <div class="title-bar">
     <span class="main-title">배치 검토 · 출하 게이트</span>
+    <span class="user-switch" id="userSwitch"></span>
     <span class="breadcrumb"><span>eMBR</span><span class="sep">&rsaquo;</span><span>검토 · 출하</span><span class="sep">&rsaquo;</span><span class="current">출하 게이트</span><button class="copy" type="button" title="링크 복사" onclick="MesUI.toast('화면 링크를 복사했습니다.', 'info')"></button></span>
   </div>
 
@@ -169,7 +202,7 @@
     </div>
     <!-- 2) grpSearch search_box 1행 40px: 배치 ID | 제품 | 상태 | Reset · Search -->
     <div class="search-box cols-4">
-      <div class="search-control"><span class="label">배치 ID</span><span class="codeview full"><input class="input code" type="text" value="BR-2026-0412" id="schBatch"><button class="cv-btn" type="button" title="배치 조회" onclick="MesUI.toast('배치 코드뷰 팝업(연동)', 'info')"></button><input class="input desc" type="text" id="schBatchDesc" value="정제 A 10 mg" readonly></span></div>
+      <div class="search-control"><span class="label">배치 ID</span><span class="codeview full"><input class="input code" type="text" value="BR-DEMO-0001" id="schBatch"><button class="cv-btn" type="button" title="배치 조회" onclick="MesUI.toast('배치 코드뷰 팝업(연동)', 'info')"></button><input class="input desc" type="text" id="schBatchDesc" value="정제 A 10 mg" readonly></span></div>
       <div class="search-control"><span class="label">제품</span><input class="input" type="text" value="TAB-A 정제 A 10 mg" id="schProduct"></div>
       <div class="search-control"><span class="label">상태</span><select class="input" id="schStatus"><option>검토</option><option>전체</option><option>실행 중</option><option>출하 승인</option><option>출하 완료</option></select></div>
       <div class="search-actions"><button class="btn search" type="button" id="btnReset">Reset</button><button class="btn search secondary" type="button" id="btnSearch">Search</button></div>
@@ -179,7 +212,7 @@
     <div class="form-grid cols-2 readonly" id="frmSummary">
       <span class="label">배치</span><span class="field"><span class="text" id="smBatch"></span></span>
       <span class="label">MBR</span><span class="field"><span class="text" id="smMbr"></span></span>
-      <span class="label">상태</span><span class="field"><span class="text"><span class="badge info" id="smStatus">검토</span><span class="muted" id="smStatusNote"></span></span></span>
+      <span class="label">상태</span><span class="field"><span class="text"><span class="badge" id="smStatus">검토</span><span class="muted" id="smStatusNote"></span></span></span>
       <span class="label">건강도</span><span class="field"><span class="text"><span class="badge warn" id="smHealth">예외 3 · 미결 1</span></span></span>
       <span class="label">일탈</span><span class="field"><span class="text" id="smDev"></span></span>
       <span class="label">매니페스트</span><span class="field"><span class="text"><span class="lnk" onclick="MesUI.toast('매니페스트 MF-0412 조회 팝업(T-10) 열기', 'info')">MF-0412</span><span class="muted">값 128건 · 해시 체인 검증 정상</span></span></span>
@@ -199,7 +232,7 @@
           <label class="checkbox"><input type="checkbox" id="fltCritical"> critical만</label>
           <span class="spacer"></span>
           <button class="btn search" type="button" id="btnCorrect">정정</button>
-          <button class="btn search secondary" type="button" id="btnQaApprove">QA 승인</button>
+          <span class="tip" id="tipQaApprove"><button class="btn search secondary" type="button" id="btnQaApprove" data-p0-edit>QA 검토 서명</button></span>
         </div>
         <div class="grid-wrap">
           <table class="grid selectable" id="grdRbe">
@@ -215,15 +248,15 @@
       <button type="button" class="rs-gutter" id="gutterMain" aria-label="패널 너비 조절" title="드래그하여 너비 조절"></button>
       <div class="grid-block rs-pane" id="paneGateSig">
         <div class="grid-toolbar">
-          <span class="group-title">서명 현재 상태(값 단위 보증)</span>
-          <span class="total-text" data-total-for="grdSig"></span>
+          <span class="group-title">필요 서명 체크리스트</span>
+          <span class="total-text" id="sigCount"></span>
           <span class="spacer"></span>
-          <span class="muted" style="font-size:12px">부분 대체 = 출하 가능 · 무효 = 차단 (ES-05 5.9)</span>
+          <a class="lnk" id="lnkS42Batch" href="./s-ebr-esign-history-ui.html">S-42 서명 내역 (배치) ›</a>
         </div>
         <div class="grid-wrap">
           <table class="grid" id="grdSig">
-            <colgroup><col style="width:120px"><col style="width:60px"><col><col style="width:110px"><col style="width:120px"><col style="width:60px"></colgroup>
-            <thead><tr><th>서명 그룹</th><th>의미</th><th>서명자</th><th>상태</th><th>보증 범위</th><th class="center">출하</th></tr></thead>
+            <colgroup><col class="c-area"><col class="c-tgt"><col class="c-rule"><col></colgroup>
+            <thead><tr><th>영역</th><th>대상</th><th>규칙</th><th>상태</th></tr></thead>
             <tbody id="grdSigBody"></tbody>
           </table>
         </div>
@@ -237,79 +270,44 @@
         <span class="muted" style="font-size:12px">(레지스트리 v1 · 평가 <span id="evalTime">2026-10-05 16:42</span>)</span>
         <span class="spacer"></span>
         <button class="btn search" type="button" id="btnReeval">재평가</button>
-        <button class="btn search secondary" type="button" id="btnReview2">검토 서명</button>
+        <button class="btn search secondary" type="button" id="btnReviewBatch" data-p0-edit>2차 검토 서명</button>
+        <button class="btn search secondary" type="button" id="btnReviewAudit" data-p0-edit>감사추적 검토 서명</button>
         <span class="tip" id="tipRelease"><button class="btn search primary" type="button" id="btnRelease">출하 승인</button></span>
       </div>
       <div class="grid-wrap">
         <table class="grid" id="grdGate">
-          <colgroup><col style="width:40px"><col style="width:34%"><col style="width:90px"><col><col style="width:150px"><col style="width:90px"><col style="width:90px"></colgroup>
+          <colgroup><col style="width:40px"><col style="width:34%"><col class="c-gst"><col><col style="width:150px"><col style="width:90px"><col style="width:90px"></colgroup>
           <thead><tr><th class="center">#</th><th>조건</th><th>상태</th><th>근거(현재 값)</th><th>생산 컴포넌트</th><th>담당</th><th>바로가기</th></tr></thead>
           <tbody id="grdGateBody"></tbody>
         </table>
-      </div>
-      <div class="grid-block auto" id="devPanel" style="margin-top:6px">
-        <div class="grid-toolbar">
-          <span class="group-title">미종결 일탈 (P0-4 · ebr.deviation.v1)</span>
-          <span class="spacer"></span>
-          <span class="sub-info" id="devOpenCount">open 0</span>
-          <button class="btn search secondary" type="button" id="btnRefreshDev">Refresh</button>
-        </div>
-        <div class="grid-wrap" style="max-height:140px">
-          <table class="grid" id="grdDevOpen">
-            <colgroup><col style="width:140px"><col><col style="width:90px"><col style="width:100px"><col style="width:160px"></colgroup>
-            <thead><tr><th>id</th><th>title</th><th>grade</th><th>status</th><th>액션</th></tr></thead>
-            <tbody id="grdDevOpenBody"></tbody>
-          </table>
-        </div>
-        <p class="muted" style="margin:4px 10px;font-size:12px">CAPA(추후) — capaLink 자리 · QMS 정적 체크박스 제거</p>
       </div>
       <div class="gate-notice" id="gateNotice"></div>
     </div>
   </div>
 </div></div> <!-- #shellScale -->
 
-<!-- ===================== T-11 전자서명 팝업 1100×700 (전 요소 고정 · 랜덤 배열) ===================== -->
-<div class="dialog-backdrop" id="dlgSign" data-no-esc>
-  <div class="dialog">
-    <div class="popup-title">
-      <span class="text"><span class="sign-meaning" id="signDot"></span><span id="signTitle">전자서명 — 승인</span></span>
-      <button class="popup-close" type="button" data-dialog-close aria-label="Close"></button>
-    </div>
+<!-- 미종결 일탈 팝업 (게이트 2 대체 경로 · 화면 높이 안에 검토 · 체크리스트 분할을 남기려고 본문에서 팝업으로) -->
+<div class="dialog-backdrop" id="dlgDev">
+  <div class="dialog sm">
+    <div class="popup-title"><span class="text">미종결 일탈</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
     <div class="shell-body">
-      <div class="form-grid cols-2 readonly">
-        <span class="label">배치</span><span class="field"><span class="text" id="sfBatch"></span></span>
-        <span class="label">단계(서명 그룹)</span><span class="field"><span class="text" id="sfGroup"></span></span>
-        <span class="label">서명 의미</span><span class="field"><span class="text" id="sfMeaning"></span></span>
-        <span class="label">서명자(현재 세션)</span><span class="field"><span class="text" id="sfSigner"></span></span>
-        <span class="label">요구 인증 강도</span><span class="field"><span class="text" id="sfStrength"></span></span>
-        <span class="label">수행–확인 간격</span><span class="field"><span class="text" id="sfGap"></span></span>
-      </div>
-      <div class="split" style="grid-template-columns: 3fr 2fr;">
-        <div class="grid-block">
-          <div class="grid-toolbar"><span class="group-title" id="signTarget">대상 값 요약</span><span class="total-text" data-total-for="grdSignVals"></span></div>
-          <div class="grid-wrap">
-            <table class="grid" id="grdSignVals">
-              <colgroup><col style="width:36px"><col><col style="width:100px"><col style="width:44px"><col style="width:96px"><col style="width:104px"><col style="width:80px"></colgroup>
-              <thead><tr><th class="center">#</th><th>항목</th><th class="num">값</th><th>단위</th><th>판정</th><th>출처</th><th>해시</th></tr></thead>
-              <tbody id="grdSignValsBody"></tbody>
-            </table>
-          </div>
-          <div class="manifest-foot" id="signFoot"></div>
+      <div class="grid-block" id="devPanel">
+        <div class="grid-toolbar">
+          <span class="group-title">미종결 일탈 (P0-4 · ebr.deviation.v1)</span>
+          <span class="spacer"></span>
+          <span class="sub-info" id="devOpenCount">open 0</span>
+          <button class="btn search secondary" type="button" id="btnRefreshDev">Refresh</button>
         </div>
-        <div class="auth-panel">
-          <div class="user-card"><span class="name">QA D</span><span class="sub">사번 QA-0007 · 역할 QA Reviewer · 중앙 상태 활성 · 자격 유효(2027-03)</span></div>
-          <div class="auth-row"><span class="label">전 요소 서명</span><label class="checkbox"><input type="checkbox" checked disabled> ON (고정)</label><span class="muted">승인·검토 의미는 ID + 카드 + PIN 전 요소 · 랜덤 배열 키패드</span></div>
-          <div class="auth-row"><span class="label required">사용자 ID</span><input class="input" type="text" id="signId" placeholder="ID 직접 입력" autocomplete="off"></div>
-          <div class="auth-row"><span class="label required">카드 재태깅</span><span class="badge muted" id="signCard">대기</span><button class="btn inner" type="button" id="btnTagCard">카드 태깅</button><span class="muted" id="signSame"></span></div>
-          <div id="signPad" class="pinpad sm"></div>
+        <div class="grid-wrap" id="devWrap">
+          <table class="grid" id="grdDevOpen">
+            <colgroup><col style="width:140px"><col><col style="width:90px"><col style="width:100px"><col style="width:160px"></colgroup>
+            <thead><tr><th>id</th><th>title</th><th>grade</th><th>status</th><th>액션</th></tr></thead>
+            <tbody id="grdDevOpenBody"></tbody>
+          </table>
         </div>
       </div>
     </div>
-    <div class="dialog-footer">
-      <span class="muted" id="signHint" style="margin-right:auto; font-size:12px"></span>
-      <button class="btn search secondary" type="button" data-dialog-close>취소</button>
-      <button class="btn search primary" type="button" id="btnDoSign" disabled>서명</button>
-    </div>
+    <div class="dialog-footer"><button class="btn search secondary" type="button" data-dialog-close>닫기</button></div>
   </div>
 </div>
 
@@ -318,48 +316,117 @@
 <div class="demo-panel" id="demoPanel">
   <span class="dp-title">데모 바 (화면 밖)</span>
   <span class="muted">#2 = Dev.openCount (정적 QMS 체크 제거)</span>
-  <label><input type="checkbox" id="demoSigInvalid"> 서명 무효 사례</label>
   <button type="button" id="demoReset">초기화</button>
+</div>
+
+<!-- ============================================================ 공통 서명 창 #dlgRecSign (1100 × 700 · 4개 화면 같은 블록)
+     닫힘(취소 · X · Esc) → dialogclose 에서 EbrExecSign.cancel(ticket). 문장은 target.statement 그대로 → input.statement 로 되돌림 -->
+<div class="dialog-backdrop" id="dlgRecSign">
+  <div class="dialog">
+    <div class="popup-title">
+      <span class="text"><span class="sign-meaning" id="rsDot"></span><span id="rsTitle">전자서명</span><span class="badge" id="rsProxy" hidden>PoC 전용 — QA 대행 · QP 인증 아님</span></span>
+      <button class="popup-close" type="button" data-dialog-close aria-label="Close"></button>
+    </div>
+    <div class="shell-body">
+      <div class="form-grid cols-2 readonly" id="rsFacts">
+        <span class="label" id="rsL1">배치</span><span class="field"><span class="text" id="rsF1"></span></span>
+        <span class="label" id="rsL2">대상</span><span class="field"><span class="text" id="rsF2"></span></span>
+        <span class="label" id="rsL3">규칙</span><span class="field"><span class="text" id="rsF3"></span></span>
+        <span class="label" id="rsL4">서명자 (현재 사용자)</span><span class="field"><span class="text" id="rsF4"></span></span>
+        <span class="label" id="rsL5">요구 인증</span><span class="field"><span class="text" id="rsF5"></span></span>
+        <span class="label" id="rsL6">레코드 타입</span><span class="field"><span class="text" id="rsF6"></span></span>
+      </div>
+      <div class="split sign-split">
+        <div class="grid-block">
+          <div class="grid-toolbar"><span class="group-title" id="rsValTitle">서명 값</span><span class="total-text" id="rsValTotal"></span><span class="spacer"></span><span class="sub-info" id="rsValNote">서명은 아래 값 + 서명자 + 시각에 묶입니다</span></div>
+          <div class="grid-wrap">
+            <table class="grid" id="grdRecSignVal">
+              <colgroup><col class="col-no"><col class="col-item"><col></colgroup>
+              <thead><tr><th class="col-no">#</th><th>항목</th><th>값</th></tr></thead>
+              <tbody id="grdRecSignValBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="auth-panel">
+          <div class="user-card" id="signUser"></div>
+          <span class="sub-info sign-rule" id="signRule"></span>
+          <div class="auth-row"><span class="label required">사용자 ID</span><input class="input" type="text" id="signId" placeholder="ID 직접 입력" autocomplete="off"></div>
+          <div class="auth-row"><span class="label required">비밀번호</span><input class="input" type="password" id="signPw" autocomplete="new-password"></div>
+          <div class="auth-row"><span class="label" id="signCmtLabel">코멘트</span><input class="input" type="text" id="signCmt" placeholder="선택 입력" autocomplete="off" maxlength="60"></div>
+          <div class="sign-err sub-info fc-fail" id="signErr" role="alert"></div>
+          <div class="qual-msg" id="signQualMsg" aria-live="polite"></div>
+          <span class="sub-info one-line" id="signPocNote">PoC 전용 — 실서비스는 LDAP(AM-IDPW)</span>
+          <span class="sub-info qual-req" id="signQualReq"></span>
+        </div>
+      </div>
+      <div class="sign-statement" id="signStatement"><span class="stmt" id="signStatementText"></span></div>
+    </div>
+    <div class="dialog-footer">
+      <span class="sub-info sign-note" id="signNote"></span>
+      <button class="btn search secondary" type="button" data-dialog-close>취소</button>
+      <span class="tip" id="btnRecSignWrap" title="ID · 비밀번호를 입력하세요"><button class="btn search primary" type="button" id="btnRecSign" disabled>서명</button></span>
+    </div>
+  </div>
+</div>
+
+<!-- 서명 무효화 창 #dlgInvalidate (QA 조사 · 사유 1–200자 · 현재 사용자 비밀번호 재입력, 실패 카운트 · 잠금 표시) -->
+<div class="dialog-backdrop" id="dlgInvalidate">
+  <div class="dialog w700">
+    <div class="popup-title"><span class="text">서명 무효화 (QA 조사)</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+    <div class="shell-body">
+      <div class="form-grid cols-2 readonly">
+        <span class="label">서명 ID</span><span class="field"><span class="text mono" id="invId"></span></span>
+        <span class="label">대상</span><span class="field"><span class="text" id="invTgt"></span></span>
+        <span class="label">처리자</span><span class="field"><span class="text" id="invActor"></span></span>
+        <span class="label">결과</span><span class="field"><span class="text">서명 상태 무효 · 원래 서명 본문 보존 · 같은 슬롯 재서명 가능</span></span>
+      </div>
+      <div class="auth-row inv-row"><span class="label required">무효화 사유</span><input class="input" type="text" id="invReason" maxlength="200" placeholder="1–200자 필수 (조사 번호 · 근거)" autocomplete="off"></div>
+      <div class="auth-row inv-row"><span class="label required">비밀번호</span><input class="input" type="password" id="invPw" autocomplete="new-password" placeholder="현재 사용자 비밀번호 재입력"></div>
+      <div class="sign-err sub-info fc-fail" id="invErr" role="alert"></div>
+    </div>
+    <div class="dialog-footer">
+      <span class="sub-info sign-note">감사 ESIGN_INVALIDATED 기록 · 게이트 재평가 (무효 슬롯은 차단)</span>
+      <button class="btn search secondary" type="button" data-dialog-close>취소</button>
+      <button class="btn search primary" type="button" id="btnInvalidate" disabled>무효화</button>
+    </div>
+  </div>
 </div>
 
 <script src="./assets/mesui.js"></script>
 <script src="./assets/ebr-p0-stores.js"></script>
+<script src="./assets/ebr-user-session.js"></script>   <!-- 사용자 · 서명 헬퍼 (window.EbrUserSession) -->
+<script src="./assets/ebr-qual-store.js"></script>   <!-- 교육 · 자격 (window.EbrQual) — ⑦ 요구 자격 이름 (읽기만) -->
+<script src="./assets/ebr-exec-sign-store.js"></script>   <!-- 검토 · 출하 서명 래퍼 (window.EbrExecSign) -->
+<script src="./assets/ebr-sign-status.js"></script>   <!-- 서명 상태 · 게이트 서명 항목 (window.EbrSignStatus) -->
+<script src="./exec-sign-ui.js"></script>
+<script src="./exec-sign-invalidate.js"></script>
+
 <script>
 (function () {
   'use strict';
 
   /* ======================= 샘플 데이터 ======================= */
   var BATCH = {
-    id: 'BR-2026-0412', product: '정제 A 10 mg', size: '100 kg',
+    id: 'BR-DEMO-0001', product: '정제 A 10 mg', size: '100 kg',
     mbr: 'MBR-TAB-A v3.2', mbrNote: '판 혼용 없음', manifest: 'MF-0412',
     dev: 'DEV-2026-0198', devClosedAt: '2026-10-06 09:12',
     review1: '감독자 C 2026-10-05 15:10', evalTime: '2026-10-05 16:42', registry: 'v1'
   };
 
-  /* RBE 예외 — 출처 플래그 · 규칙 세트 버전 · 일탈 번호 포함 (EBR-07) */
-  var EXCEPTIONS = [
-    { id: 'RBE-0412-01', cat: 'WARNING_ACK', step: 'OP3-2', item: 'IPC #3', value: '103.4 mg / 경고 97~103', src: 'AUTO',
-      status: '검토 완료', note: '설명됨', reviewer: '감독자 C', dev: '', rule: 'RBE v5', critical: true, links: [] },
-    { id: 'RBE-0412-02', cat: '규격 이탈(IPC)', step: 'OP3-2', item: 'IPC #5 시도1', value: '106.1 mg / 95~105 (재측정 99.8)', src: 'AUTO',
-      status: '미결', note: '', reviewer: '—', dev: 'DEV-2026-0198', rule: 'RBE v5', critical: true, links: [1, 2] },
-    { id: 'RBE-0412-03', cat: 'MANUAL_BY_DESIGN + 정정', step: 'OP3-2', item: '경도', value: '85 → 83 N / ≥ 60', src: 'MANUAL + 사진',
-      status: '검토 완료(부분 대체)', note: '정정 1건 — 정정자 A · 확인자 B', reviewer: '감독자 C', dev: '', rule: 'RBE v5', critical: true, links: [] }
-  ];
-
-  /* 서명 현재 상태 — 서명 상태 6종(유효 · 부분 대체 · 대체 대기 · 확인 대기 · 무효 · UNSIGNED) 중 유효 · 부분 대체 · 무효 (ES-05 5.9) */
-  var SIGS = [
-    { grp: 'OP1 원료 칭량', meaning: '수행/확인', signer: 'A / B', state: '유효', scope: '7/7', ship: '가능' },
-    { grp: 'OP2 혼합', meaning: '수행/확인', signer: "A / B (+브리핑 '읽고 이해함' A·B)", state: '유효', scope: '5/5', ship: '가능' },
-    { grp: 'OP3 타정', meaning: '수행/확인', signer: 'A / B', state: '부분 대체', scope: '19/20 + 대체 1(정정자 A · 확인자 B)', ship: '가능' },
-    { grp: '1차 검토', meaning: '검토', signer: '감독자 C', state: '유효', scope: '—', ship: '가능' }
-  ];
-
+  /* RBE 예외 — 원천 EbrSignStatus.rbeExceptions(batchId) (데모 배치 전용 목록 · 동적 수집은 다음 작업). 화면 상수 없음 */
+  function exList() {
+    var a = SignView.api(), l = [];
+    try { l = a && typeof a.rbeExceptions === 'function' ? (a.rbeExceptions(currentBatchId()) || []) : []; } catch (e) { l = []; }
+    return l.map(function (e) { return { id: e.id, cat: e.cat, step: e.step, item: e.item, value: e.value, src: e.src, status: e.status, open: !!e.open, critical: !!e.critical,
+      note: e.open ? '' : e.status, reviewer: '—', dev: e.open ? BATCH.dev : '', rule: 'RBE v5', links: [] }; });
+  }
+  function firstOpenEx() { var o = exList().filter(function (e) { return e.open; })[0]; return o ? o.id : ''; }
   /* 통합 출하 게이트 12조건 (§7.2 번호 · 문구 그대로). 1~3 은 상태 파생, 나머지 고정 */
   var GATE = [
     { no: 1,  cond: '미결 RBE 예외', comp: '예외 수집기', owner: 'QA', link: '예외' },
     { no: 2,  cond: '미종결 일탈(초안 포함)', comp: 'DeviationLink', owner: 'QMS/QA', link: '일탈' },
     { no: 3,  cond: '서명 상태 대체 대기·확인 대기·무효인 critical 값', comp: '서명 서비스', owner: '—', link: '서명' },
-    { no: 4,  cond: '출하 전 감사추적 검토(critical 전수) 서명', st: '통과', basis: 'QA D 2026-10-05 16:40', comp: '감사추적 검토', owner: '—', link: '감사추적' },
+    { no: 4,  cond: '출하 전 감사추적 검토(critical 전수) 서명', st: '', basis: '', comp: '감사추적 검토', owner: '—', link: '감사추적' },
     { no: 5,  cond: '인터페이스 대사', st: '통과', basis: '미전송 0 · 데드레터 0 · critical 차이 0', comp: '신뢰성 계층', owner: '—', link: '대사' },
     { no: 6,  cond: '히스토리안 기준선·샘플 밀도', st: '통과', basis: '위반 0 · MX01.RPM 밀도 100 %', comp: '히스토리안 연계', owner: '—', link: '스냅샷' },
     { no: 7,  cond: '다운타임 QA 전수 검토·비상 양식 회수', st: 'N/A', basis: '다운타임 없음 · EF 5매 회수 예정', comp: '다운타임 도구', owner: '—', link: '대장' },
@@ -370,17 +437,9 @@
     { no: 12, cond: '복원 탐지 후 QA 확인 전 읽기 전용', st: '통과', basis: '시스템 정상', comp: '무결성 검증', owner: '—', link: '검증' }
   ];
 
-  /* 서명 의미 색 (T-11) */
-  var MEANING = {
-    '승인': { color: '#0b043e', en: 'Approved by' },
-    '검토': { color: '#6952db', en: 'Reviewed by' }
-  };
-
   /* ======================= 상태(메모리) ======================= */
   var initial = function () {
-    return { qmsClosed: false, sigInvalid: false, rbe02Approved: false, rbe02ApprovedAt: '',
-             review2Signed: false, review2At: '', released: false, releasedAt: '',
-             evalTime: BATCH.evalTime, selectedRbe: null };
+    return { qmsClosed: false, evalTime: BATCH.evalTime, selectedRbe: null };
   };
   var state = initial();
 
@@ -440,31 +499,6 @@
     return Dev.listOpen(currentBatchId());
   }
 
-  /* P0: 출하 합격 → matching order status=completed (orderNo 있고 issued 존재 시) */
-  function markOrderCompleted(orderNo, batchId) {
-    orderNo = String(orderNo || '').trim().toUpperCase();
-    batchId = String(batchId || '').trim();
-    if (!orderNo) return { ok: false, skipped: true, reason: 'orderNo 없음' };
-    var issued = findIssued({ orderNo: orderNo, batchId: batchId });
-    if (!issued) return { ok: false, skipped: true, reason: 'issued 없음 — completed 미반영' };
-    var rows = [];
-    try { rows = JSON.parse(localStorage.getItem(ORDER_LS_KEY) || '[]') || []; } catch (e) { rows = []; }
-    if (!Array.isArray(rows)) rows = [];
-    var found = null;
-    for (var i = 0; i < rows.length; i++) {
-      if (String(rows[i].orderNo || '').toUpperCase() === orderNo) { found = rows[i]; break; }
-    }
-    if (!found) return { ok: false, error: '오더를 찾을 수 없습니다: ' + orderNo };
-    found.status = 'completed';
-    found.completedAt = new Date().toISOString();
-    if (batchId) found.batchNo = batchId;
-    try {
-      localStorage.setItem(ORDER_LS_KEY, JSON.stringify(rows));
-      return { ok: true, order: found };
-    } catch (e2) {
-      return { ok: false, error: '오더 저장 실패: ' + (e2.message || e2) };
-    }
-  }
   function flowQuery() {
     var q = [];
     var on = uiCtx.orderNo || '';
@@ -496,7 +530,7 @@
     b.classList.remove('hidden');
   }
 
-  var DEMO_BATCH_SNAP = { id: 'BR-2026-0412', product: '정제 A 10 mg', processTreeId: 'MBR-TAB-A', ver: '3.2', contentHash: '', mf: 'MF-0412' };
+  var DEMO_BATCH_SNAP = { id: 'BR-DEMO-0001', product: '정제 A 10 mg', processTreeId: 'MBR-TAB-A', ver: '3.2', contentHash: '', mf: 'MF-0412' };
 
   function applyIssuedLabels(rec) {
     uiCtx.hasSnapshot = true;
@@ -558,51 +592,64 @@
   }
 
   /* ---------- 파생 데이터 ---------- */
+  /* ==== 서명 원천 어댑터 — 게이트 1 · 3 · 4 · 8 · 9 = EbrSignStatus.gateSignItems, 체크리스트 = getSignStatus, 출하 = releaseState (화면 판정 없음 · fail-closed) ==== */
+  var SIG = { ok: false, why: 'not_loaded', items: [], counts: {} }, GSI = { ok: false, items: {} }, REL = null;
+  function loadSigns() {
+    var bid = currentBatchId();
+    var r = SignView.call('getSignStatus', { batchId: bid });
+    SIG = r && r.ok ? { ok: true, items: r.items || [], counts: r.counts || {}, signers: r.signers || [] } : { ok: false, why: (r && r.why) || 'no_store', message: r && r.message, items: [], counts: {} };
+    var g = SignView.call('gateSignItems', bid);
+    GSI = g && g.ok ? { ok: true, items: g.items || {}, voidIntegrity: g.voidIntegrity || null } : { ok: false, why: (g && g.why) || 'no_store', message: g && g.message, items: {} };
+    var rs = SignView.call('releaseState', bid);
+    REL = rs && rs.released ? rs : null;
+  }
+  function reviewItem(kind, exId) {
+    var hit = null;
+    SIG.items.forEach(function (it) {
+      if (it.scope !== 'review') return;
+      var k = String(it.stepKey || '');
+      if (kind === 'rbe' ? (it.exceptionId === exId || k === exId || k === 'rbe:' + exId) : (k === kind || it.slot === kind || k === kind + ':' + currentBatchId())) hit = it;
+    });
+    return hit;
+  }
+  function batchReviewOk() { var it = reviewItem('batch'); return !!(it && it.status === 'signed'); }
+  var AREA = { prod: '생산', pack: '포장', review: '검토', matqc: '자재 QC' };
   function exceptions() {
-    return EXCEPTIONS.map(function (e) {
+    var g1 = GSI.items['1'];
+    return exList().map(function (e) {
       var o = {}; for (var k in e) o[k] = e[k];
-      if (e.id === 'RBE-0412-02') {
-        if (state.rbe02Approved) { o.status = 'QA 승인'; o.reviewer = 'QA D'; o.note = 'QA 승인 ' + state.rbe02ApprovedAt; }
+      var it = reviewItem('rbe', e.id);
+      if (it && it.status === 'signed') { o.status = 'QA 승인'; o.reviewer = it.signerId || ''; o.note = 'QA 검토 서명 ' + (it.signatureId || '') + ' · ' + (it.signedAt || ''); }
+      else if (it && it.status === 'invalid') { o.status = '무효'; o.note = '서명 무효 ' + (it.signatureId || ''); }
+      if (e.open) {
         var _open = Dev ? Dev.openCount(currentBatchId()) : (state.qmsClosed ? 0 : 1);
         o.devText = _open > 0 ? ('미종결 일탈 ' + _open + '건') : '일탈 종결';
         o.links = [];
-        if (!state.rbe02Approved) o.links.push(1);
+        if (!(g1 && g1.st === 'pass')) o.links.push(1);
         if (_open > 0) o.links.push(2);
       }
       return o;
     });
   }
-  function signatures() {
-    var rows = SIGS.map(function (s) { var o = {}; for (var k in s) o[k] = s[k]; return o; });
-    if (state.sigInvalid) { rows[1].state = '무효'; rows[1].note = '분실 카드 사후 판명 · QA 조사'; rows[1].ship = '차단'; }
-    if (state.review2Signed) rows.push({ grp: '2차 검토', meaning: '검토', signer: 'QA D', state: '유효', scope: 'critical 32/32', ship: '가능' });
-    return rows;
-  }
+  var SIGN_GATES = { 1: 1, 3: 1, 4: 1, 8: 1, 9: 1 };
   function gate() {
     var openN = Dev ? Dev.openCount(currentBatchId()) : (state.qmsClosed ? 0 : 1);
-    var mq = matQcGate();
     return GATE.map(function (g) {
       var o = {}; for (var k in g) o[k] = g[k];
-      if (g.no === 1) { o.st = state.rbe02Approved ? '통과' : '차단'; o.basis = state.rbe02Approved ? '0건 미결(QA 승인 1 · 검토 완료 2)' : 'RBE-0412-02 1건 미결'; }
-      if (g.no === 2) {
+      if (SIGN_GATES[g.no]) {   /* 서명 원천 판정 — 근거 문구는 basis 그대로 */
+        var it = GSI.items[String(g.no)];
+        if (!GSI.ok || !it) { o.st = '차단'; o.basis = '서명 상태 확인 불가 — ' + RecSign.whyMsg({ why: GSI.why, message: GSI.message }); }
+        else { o.st = it.st === 'pass' ? '통과' : '차단'; o.basis = it.basis || ''; o.refs = it.refs || []; }
+        if (g.no === 9) { o.cond = '자재 QC 판정 서명 · 칭량물 미처분·물질수지'; o.comp = 'MatQC/칭량'; }
+        if (g.no === 3 || g.no === 8) o.comp = '서명 원장';
+        if (g.no === 4) o.comp = '감사추적 검토';
+        if (o.st === '차단') o.owner = 'QA';
+      } else if (g.no === 2) {
         o.st = openN > 0 ? '차단' : '통과';
-        o.basis = openN > 0
-          ? ('Dev.openCount=' + openN + ' (미종결 일탈)')
-          : '미종결 일탈 0건 (ebr.deviation.v1)';
+        o.basis = openN > 0 ? ('Dev.openCount=' + openN + ' (미종결 일탈)') : '미종결 일탈 0건 (ebr.deviation.v1)';
         o.comp = 'Dev / DeviationLink';
-      }
-      if (g.no === 3) { o.st = state.sigInvalid ? '차단' : '통과'; o.basis = state.sigInvalid ? 'OP2 혼합 서명 무효 — critical 값 5건(분실 카드 사후 판명)' : '0건(부분 대체 1건 허용)'; if (state.sigInvalid) o.owner = 'QA'; }
-      if (g.no === 9) {
-        o.cond = '자재 QC · 칭량물 미처분·물질수지';
-        if (!mq.ok) {
-          o.st = '차단';
-          o.basis = mq.reason || '자재 QC 미적합';
-          o.comp = 'MatQC';
-        } else {
-          o.st = '통과';
-          o.basis = '자재 QC 전 LOT released · 미처분 0 · 수율 99.8 %';
-          o.comp = 'MatQC/칭량';
-        }
+      } else {
+        o.fixed = true; o.fixedSt = g.st; o.basis = '데모 고정값 (다음 작업) — ' + g.basis;
       }
       return o;
     });
@@ -612,7 +659,7 @@
   /* ======================= 렌더 ======================= */
   function badgeClass(status) {
     if (status === '미결' || status === '무효') return 'error';
-    if (status === '부분 대체') return 'info';
+    if (status === '부분 대체') return '';
     if (status === 'QA 승인' || status === '유효' || status.indexOf('검토 완료') === 0) return 'ok';
     return 'muted';
   }
@@ -620,20 +667,20 @@
   function renderSummary() {
     $('smBatch').textContent = BATCH.id + ' · ' + BATCH.product + ' · ' + BATCH.size;
     $('smMbr').textContent = BATCH.mbr + ' (' + BATCH.mbrNote + ')';
-    if (state.released) { MesUI.setBadge($('smStatus'), 'ok', '출하 승인'); $('smStatusNote').textContent = state.releasedAt + ' · 확정본 FR-0412 v1 생성 대기'; }
-    else { MesUI.setBadge($('smStatus'), 'info', '검토'); $('smStatusNote').textContent = ''; }
-    var open = state.rbe02Approved ? 0 : 1;
+    if (REL) { MesUI.setBadge($('smStatus'), 'ok', '출하 완료'); $('smStatusNote').textContent = ' ' + (REL.signatureId || '') + ' · ' + (REL.releasedAt || '') + ' · manifest ' + String(REL.manifestHash || '').slice(0, 8); $('smStatusNote').title = REL.manifestHash || ''; }
+    else { MesUI.setBadge($('smStatus'), '', '검토'); $('smStatusNote').textContent = ''; }
+    var open = exceptions().filter(function (e) { return e.status === '미결'; }).length;
     var openDevN = Dev ? Dev.openCount(currentBatchId()) : 0;
-    MesUI.setBadge($('smHealth'), open ? 'warn' : 'ok', '예외 3 · 미결 ' + open);
+    MesUI.setBadge($('smHealth'), open ? 'warn' : 'ok', '예외 ' + exList().length + ' · 미결 ' + open);
     var dev = $('smDev'); dev.innerHTML = '';
     var a = document.createElement('span'); a.className = 'lnk'; a.textContent = '일탈 open ' + openDevN;
-    a.onclick = function () { renderDevPanel(); MesUI.toast('미종결 일탈 패널 갱신', 'info'); };
+    a.onclick = function () { renderDevPanel(); MesUI.openDialog('dlgDev'); };
     dev.appendChild(a);
     var t = document.createElement('span'); t.textContent = openDevN > 0 ? ' 미종결' : ' 종결';
     if (openDevN > 0) t.className = 'fc-fail';
     dev.appendChild(t);
     $('smReview1').textContent = BATCH.review1 + ' ✓';
-    $('smReview2').innerHTML = state.review2Signed ? esc('QA D ' + state.review2At + ' ✓') : 'QA D — <span class="muted">미완료</span>';
+    $('smReview2').innerHTML = SIG.ok ? SignView.slotHtml(reviewItem('batch'), '2차 검토 대기') : '<span class="badge muted" title="' + esc(RecSign.whyMsg(SIG)) + '">확인 불가</span>';
   }
 
   function renderRbe() {
@@ -670,32 +717,39 @@
     });
   }
 
+  /* 필요 서명 체크리스트 — getSignStatus 항목 그대로 (n / m = counts) */
   function renderSig() {
-    var tb = $('grdSigBody'); tb.innerHTML = '';
-    signatures().forEach(function (s) {
-      var tr = document.createElement('tr');
-      var stateCell = '<span class="badge ' + badgeClass(s.state) + '" title="' + esc(s.note || '') + '">' + esc(s.state) + '</span>';
-      var ship = s.ship === '차단' ? '<span class="fc-fail" style="font-weight:bold">차단</span>' : '가능';
-      tr.innerHTML =
-        '<td>' + esc(s.grp) + '</td><td>' + esc(s.meaning) + '</td>' +
-        '<td title="' + esc(s.signer) + '">' + esc(s.signer) + '</td>' +
-        '<td>' + stateCell + (s.note ? '<span class="muted" style="margin-left:6px;font-size:11px">' + esc(s.note) + '</span>' : '') + '</td>' +
-        '<td title="' + esc(s.scope) + '">' + esc(s.scope) + '</td>' +
-        '<td class="center">' + ship + '</td>';
-      tb.appendChild(tr);
-    });
-    MesUI.setTotal('grdSig');
+    var tb = $('grdSigBody');
+    $('lnkS42Batch').href = './s-ebr-esign-history-ui.html?batchId=' + encodeURIComponent(currentBatchId());
+    if (!SIG.ok) {
+      tb.innerHTML = '<tr><td colspan="4" class="sub-info" title="' + esc(RecSign.whyMsg(SIG)) + '">서명 상태를 읽지 못함 — ' + esc(RecSign.whyMsg(SIG)) + '</td></tr>';
+      $('sigCount').textContent = '— / — 서명';
+      return;
+    }
+    var canInv = window.Invalidate && Invalidate.canUse(), relDone = !!(REL && REL.released);   /* 무효화 = QA 만 · 출하 뒤에는 표시 안 함 */
+    tb.innerHTML = SIG.items.map(function (it) {
+      var tgt = it.label || ((it.stepKey || '') + ' ' + (it.slot || ''));
+      var gn = it.gateNo ? ' · 게이트 ' + it.gateNo : '';
+      return '<tr data-key="' + esc(it.key) + '"><td>' + esc(AREA[it.scope] || it.scope || '') + '</td>' +
+        '<td title="' + esc(tgt + gn) + '">' + esc(tgt) + '</td>' +
+        '<td title="' + esc(it.signRuleId || '') + '">' + esc(it.signRuleId || '') + '</td>' +
+        '<td>' + SignView.slotHtml(it) + (canInv && it.status === 'signed' && it.signatureId && !relDone ? ' <button class="btn inner" type="button" data-inv="' + esc(it.signatureId) + '" data-inv-tgt="' + esc((AREA[it.scope] || it.scope || '') + ' · ' + tgt + gn) + '" title="QA 조사 — 서명 무효화 (사유 필수)">무효화</button>' : '') + '</td></tr>';
+    }).join('') || '<tr><td colspan="4" class="sub-info">필요 서명 없음</td></tr>';
+    var c = SIG.counts || {}, m = (c.signed || 0) + (c.pending || 0) + (c.invalid || 0);
+    $('sigCount').textContent = (c.signed || 0) + ' / ' + m + ' 서명';
+    $('sigCount').title = '서명 ' + (c.signed || 0) + ' · 대기 ' + (c.pending || 0) + ' · 무효 ' + (c.invalid || 0) + ' · N/A ' + (c.na || 0);
   }
-
   function renderGate() {
     var tb = $('grdGateBody'); tb.innerHTML = '';
     var sel = null;
     exceptions().forEach(function (e) { if (e.id === state.selectedRbe) sel = e; });
     gate().forEach(function (g) {
       var tr = document.createElement('tr');
-      var stHtml = g.st === '차단' ? '<span class="gate-st block"><span class="dot error"></span>차단</span>'
-                 : g.st === '통과' ? '<span class="gate-st pass"><span class="dot"></span>통과</span>'
-                 : '<span class="gate-st na"><span class="dot"></span>N/A</span>';
+      /* 상태 배지 (§2): 동적 통과 ok · 차단 error · 고정값 수식 없는 .badge "고정" */
+      var stHtml = g.fixed ? '<span class="badge" title="' + esc('데모 고정값 ' + (g.fixedSt || '')) + '">고정</span>'
+                 : g.st === '차단' ? '<span class="badge error">차단</span>'
+                 : g.st === '통과' ? '<span class="badge ok">통과</span>'
+                 : '<span class="badge">N/A</span>';
       var link = g.link ? '<span class="lnk" data-link="' + esc(g.link) + '" data-no="' + g.no + '">' + esc(g.link) + '</span>' : '<span class="muted">—</span>';
       tr.innerHTML =
         '<td class="center">' + g.no + '</td>' +
@@ -711,41 +765,48 @@
     renderRelease();
   }
 
+  var GATE_NAMES = { 1: '미결 RBE 예외', 2: '미종결 일탈', 3: '실행 서명', 4: '감사추적 검토 서명', 8: '그 밖 필요 서명', 9: '자재 QC 판정 서명' };
   function renderRelease() {
     var blocked = blockedNos(), btn = $('btnRelease'), tip = $('tipRelease'), n = $('gateNotice');
-    var tipText;
-    if (state.released) tipText = '출하 승인 완료 ' + state.releasedAt + ' — 재서명 불가(배치별 개별 서명)';
-    else if (blocked.length) {
-      tipText = '차단 조건 ' + blocked.length + '건: #' + blocked.join(', #');
-      if (state.sigInvalid) tipText += ' — 서명 무효 critical 값 5건 — QA 조사';
-    } else tipText = '출하 승인 가능 — 전 요소 서명(배치별 개별)';
-    btn.disabled = state.released || blocked.length > 0;
+    var needReview = !batchReviewOk(), tipText;
+    var vi = GSI.voidIntegrity, voidBroken = !GSI.ok || !vi || vi.intact !== true;   /* 무효화 기록 대조 불일치 → 출하 서명 차단 (fail-closed) */
+    var viText = '무효화 기록 대조 불일치' + (vi && vi.mismatches && vi.mismatches.length ? ' ' + vi.mismatches.length + '건' : '') + ' — 출하 승인 불가 (QA 조사 필요)';
+    if (REL) tipText = '출하 완료 ' + (REL.releasedAt || '') + ' · ' + (REL.signatureId || '') + ' — 재서명 불가(배치별 개별 서명)';
+    else if (voidBroken) tipText = viText;
+    else if (blocked.length) tipText = '차단 ' + blocked.length + '건 — 출하 승인 불가 (#' + blocked.join(', #') + ')';
+    else if (needReview) tipText = '2차 검토 서명 전 — 출하 승인 불가';
+    else tipText = '출하 승인 가능 — 배치별 개별 서명(일괄 불가)';
+    btn.disabled = !!REL || voidBroken || blocked.length > 0 || needReview;
     btn.title = tipText; tip.title = tipText;
-
+    var sel = selectedException();
+    $('btnQaApprove').disabled = !sel; $('tipQaApprove').title = sel ? '' : 'RBE 예외 행을 선택하세요 (예외 1건 = 서명 1건)';
     n.innerHTML = ''; n.className = 'gate-notice';
     function add(html) { var s = document.createElement('span'); s.innerHTML = html; n.appendChild(s); }
     function addBtn(text, fn) { var b = document.createElement('button'); b.type = 'button'; b.className = 'btn inner'; b.textContent = text; b.onclick = fn; n.appendChild(b); }
-    if (state.released) {
-      n.classList.add('info');
-      add('<b>출하 승인 완료</b> ' + esc(state.releasedAt) + ' · QA D(전 요소) — <b>확정본 FR-0412 v1 생성 대기</b>');
-      addBtn('확정본 조회', function () { MesUI.toast('확정본 FR-0412 v1 생성 대기 중 — 생성 완료 시 열람 가능(연동)', 'info'); });
+    if (REL) {
+      n.classList.add('ok');
+      add('<span class="badge ok">출하 완료</span> ' + esc(REL.signatureId || '') + ' · ' + esc(REL.releasedAt || '') + ' · manifest <span class="mono" title="' + esc(REL.manifestHash || '') + '">' + esc(String(REL.manifestHash || '').slice(0, 8)) + '</span>');
+      addBtn('S-42 서명 보기', function () { location.href = './s-ebr-esign-history-ui.html?signatureId=' + encodeURIComponent(REL.signatureId || ''); });
+    } else if (voidBroken) {
+      n.classList.add('block');
+      add('<span class="release-block fc-fail">' + esc(viText) + '</span>' + (vi && vi.mismatches && vi.mismatches.length ? ' · <span class="mono" title="' + esc(vi.mismatches.join(', ')) + '">' + esc(String(vi.mismatches.slice(0, 3).join(', '))) + '</span>' : ''));
+      addBtn('S-42 서명 이력', function () { location.href = './s-ebr-esign-history-ui.html'; });
     } else if (blocked.length) {
       n.classList.add('block');
-      var names = { 1: '미결 RBE 예외', 2: '미종결 일탈', 3: '서명 무효 critical 값' };
-      add('<b>출하 승인 불가</b> — 차단 조건 ' + blocked.length + '건: ' + blocked.map(function (b) { return '#' + b + ' ' + names[b]; }).join(' · ') + '<span class="sep"> | </span>대체 경로:');
-      if (blocked.indexOf(1) >= 0) addBtn('예외 검토', function () { selectRbe('RBE-0412-02'); MesUI.toast('RBE-0412-02 선택 — [QA 승인]으로 전 요소 서명 진입', 'info'); });
-      if (blocked.indexOf(2) >= 0) addBtn('일탈 패널', function () { renderDevPanel(); MesUI.toast('미종결 일탈을 종결 처리(데모)하세요', 'warn'); });
+      add('<span class="release-block fc-fail">차단 ' + blocked.length + '건 — 출하 승인 불가</span> · ' + blocked.map(function (b) { return '#' + b + ' ' + (GATE_NAMES[b] || ''); }).join(' · ') + '<span class="sep"> | </span>대체 경로:');
+      if (blocked.indexOf(1) >= 0) addBtn('예외 검토', function () { var x = firstOpenEx(); if (x) selectRbe(x); MesUI.toast((x || '미결 예외') + ' 선택 — [QA 검토 서명]', 'info'); });
+      if (blocked.indexOf(2) >= 0) addBtn('일탈 패널', function () { renderDevPanel(); MesUI.openDialog('dlgDev'); });
+      if (blocked.indexOf(3) >= 0) addBtn('생산 실행', function () { location.href = './s-ebr-production-exec-ui.html' + flowQuery(); });
+      if (blocked.indexOf(4) >= 0) addBtn('감사추적 검토 서명', function () { openReview('audit'); });
+      if (blocked.indexOf(8) >= 0) addBtn('2차 검토 서명', function () { openReview('batch'); });
       if (blocked.indexOf(9) >= 0) addBtn('자재 QC', function () { location.href = './s-ebr-material-qc-ui.html'; });
-      if (blocked.indexOf(3) >= 0) addBtn('서명 조사 요청', function () { MesUI.toast('QA 조사 요청 — OP2 혼합 critical 값 5건 재서명 경로 안내(연동)', 'warn'); });
-      addBtn('QA 호출', function () { MesUI.toast('QA 담당 호출 — 알림 전송(연동)', 'info'); });
     } else {
-      n.classList.add('ok');
-      add('<b>차단 조건 없음</b> — 출하 승인 가능(전 요소 서명 · 배치별 개별 서명 · 일괄 불가)' + (state.review2Signed ? '' : ' · 2차 검토 서명 미완료'));
-      if (!state.review2Signed) addBtn('검토 서명', function () { openReview2(); });
+      n.classList.add(needReview ? 'block' : 'ok');
+      if (needReview) { add('<span class="release-block fc-fail">2차 검토 서명 전 — 출하 승인 불가</span>'); addBtn('2차 검토 서명', function () { openReview('batch'); }); }
+      else add('<b>차단 조건 없음</b> — 출하 승인 가능(배치별 개별 서명 · 일괄 불가)');
     }
   }
-
-  function renderAll() { renderSummary(); renderRbe(); renderSig(); renderGate(); if (typeof renderDevPanel === "function") renderDevPanel(); }
+  function renderAll() { loadSigns(); renderSummary(); renderRbe(); renderSig(); renderGate(); if (typeof renderDevPanel === "function") renderDevPanel(); }
   function reevaluate(msg, type) { state.evalTime = MesUI.nowStamp(); renderAll(); if (msg) MesUI.toast(msg, type || 'info'); }
 
   /* ======================= 그리드 상호작용 ======================= */
@@ -766,8 +827,9 @@
     if (!l) return;
     var k = l.dataset.link;
     if (k === '일탈') MesUI.toast('QMS ' + BATCH.dev + ' 열기(연동)', 'info');
-    else if (k === '예외') { selectRbe('RBE-0412-02'); MesUI.toast('RBE 예외 그리드 — RBE-0412-02 선택', 'info'); }
-    else if (k === '서명') MesUI.toast('서명 서비스 — 값 단위 보증 상태 상세(연동)', 'info');
+    else if (k === '예외') { var x = firstOpenEx(); if (x) selectRbe(x); MesUI.toast('RBE 예외 그리드 — ' + (x || '미결 없음'), 'info'); }
+    else if (k === '서명' || k === '큐' || k === '감사추적') location.href = './s-ebr-esign-history-ui.html?batchId=' + encodeURIComponent(currentBatchId());
+    else if (k === '칭량') location.href = './s-ebr-material-qc-ui.html';
     else MesUI.toast(k + ' 화면 열기(연동) — 조건 #' + l.dataset.no, 'info');
   });
 
@@ -796,159 +858,82 @@
     if (!e) return MesUI.alert('정정할 예외 행을 선택하세요.', 'Warning');
     MesUI.toast('정정 입력 팝업(T-10) 열기 — ' + e.id + ' (정정은 원값 보존 · 사유 코드 필수)', 'info');
   };
+  /* ==== 검토 · 출하 서명 → 공통 서명 창 (서명자 = ID + 비밀번호 입력, 고정 서명자 없음) ==== */
+  $('grdRbe').addEventListener('rowselect', function () { renderRelease(); });
   $('btnQaApprove').onclick = function () {
     var e = selectedException();
-    if (!e) return MesUI.alert('QA 승인할 예외 행을 선택하세요.', 'Warning');
-    if (e.status !== '미결') return MesUI.alert(e.id + ' 은(는) 이미 "' + e.status + '" 상태입니다. 미결 예외만 QA 승인할 수 있습니다.', 'Information');
-    openSign({
-      meaning: '승인', group: e.id + ' (' + e.step + ' ' + e.item + ')', target: e.id + ' QA 승인 대상',
-      gap: '—', same: '동일인 차단: 정정자 A · 확인자 B · 1차 검토자 C 와 동일 계정 불가',
-      rows: [
-        ['IPC #5 시도1 중량', '106.1', 'mg', '규격 이탈(95~105)', 'AUTO'],
-        ['IPC #5 재측정 중량', '99.8', 'mg', '통과', 'AUTO'],
-        ['재측정 사유 코드', 'RM-02', '', '—', 'MANUAL'],
-        ['일탈 ' + BATCH.dev, state.qmsClosed ? '종결' : '조사 중', '', state.qmsClosed ? '통과' : '미종결', 'INTERFACE(QMS)'],
-        ['규칙 세트', 'RBE v5', '', '—', 'CALCULATED']
-      ],
-      foot: '값 5건 · manifest 해시 5건 · 규칙 세트 RBE v5',
-      onDone: function (stamp) {
-        state.rbe02Approved = true; state.rbe02ApprovedAt = stamp;
-        reevaluate('RBE-0412-02 QA 승인 — 게이트 #1 통과' + (blockedNos().length ? '' : ' · 출하 승인 활성'), 'ok');
-      }
+    if (!e) return;
+    var bid = currentBatchId();
+    RecSign.open({
+      meaning: 'reviewed', title: 'RBE 예외 검토',
+      f1: bid + ' · ' + BATCH.product, l2: '예외', f2: e.id + ' · ' + e.cat, f6: 'rbe_review (RBE 예외 검토)',
+      valTitle: '예외 ' + e.id,
+      rows: [{ k: '예외', v: e.id }, { k: '카테고리', v: e.cat }, { k: '단계 · 항목', v: e.step + ' ' + e.item }, { k: '값 / 한계', v: e.value },
+        { k: '출처', v: e.src }, { k: '현재 상태', v: e.status }, { k: '일탈', v: e.devText || e.dev || '—' }, { k: '규칙 세트', v: e.rule }],
+      note: '서명 뒤 예외 검토 기록 · 게이트 1 반영',
+      begin: function (x) { return x.beginReviewSign({ batchId: bid, kind: 'rbe', exceptionId: e.id, screen: 'S-EBR-RELEASE' }); },
+      okText: '검토 서명 완료',
+      onDone: function () { reevaluate(); }
     });
   };
-
-  function openReview2() {
-    openSign({
-      meaning: '검토', group: '배치 검토(2차) — critical 값 32건 전수', target: 'critical 값 32건 전수 검토',
-      gap: '1차 검토(감독자 C 15:10) 이후 1h 45m', same: '동일인 차단: 1차 검토자 감독자 C 와 동일 계정 불가',
-      fixedTime: '2026-10-05 16:55',
-      rows: [
-        ['OP1 API 칭량 중량', '12.504', 'kg', '통과', 'AUTO'],
-        ['OP1 MCC 칭량 중량', '68.210', 'kg', '통과', 'AUTO'],
-        ['OP2 혼합 시간', '15', 'min', '통과', 'AUTO'],
-        ['OP2 혼합기 RPM(히스토리안)', '12', 'rpm', '통과', 'INTERFACE'],
-        ['OP3 IPC #3 중량', '103.4', 'mg', '경고(설명됨)', 'AUTO'],
-        ['OP3 IPC #5 재측정 중량', '99.8', 'mg', '통과', 'AUTO'],
-        ['OP3 경도(정정)', '83', 'N', '통과', 'MANUAL + 사진'],
-        ['OP3 수율', '99.8', '%', '통과', 'CALCULATED']
-      ],
-      foot: '값 32건 · manifest 해시 32건 (표시 8건 · 나머지 24건은 스크롤 없이 요약)',
-      onDone: function (stamp) { state.review2Signed = true; state.review2At = stamp; reevaluate('2차 검토 서명 기록 — QA D ' + stamp, 'ok'); }
+  function openReview(kind) {
+    var bid = currentBatchId(), audit = kind === 'audit';
+    RecSign.open({
+      meaning: 'reviewed', title: audit ? '감사추적 검토' : '배치 2차 검토',
+      f1: bid + ' · ' + BATCH.product, l2: '검토 범위', f2: audit ? '감사추적 (critical 전수)' : 'critical 기록 전수 · 예외 포함',
+      f6: audit ? 'audit_trail (감사추적 검토)' : 'batch_review (배치 검토)',
+      valTitle: audit ? '감사추적 검토 대상' : '검토 대상 요약',
+      note: audit ? '서명 뒤 감사추적 검토 기록 · 게이트 4 반영' : '서명 뒤 배치 검토 기록 · 게이트 8 반영',
+      begin: function (x) { return x.beginReviewSign({ batchId: bid, kind: audit ? 'audit' : 'batch', screen: 'S-EBR-RELEASE' }); },
+      okText: '검토 서명 완료',
+      onDone: function () { reevaluate(); }
     });
   }
-  $('btnReview2').onclick = function () {
-    if (state.review2Signed) return MesUI.alert('2차 검토 서명은 이미 기록되었습니다(' + state.review2At + ').', 'Information');
-    openReview2();
-  };
+  $('btnReviewBatch').onclick = function () { openReview('batch'); };
+  $('btnReviewAudit').onclick = function () { openReview('audit'); };
+  $('grdSigBody').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-inv]'); if (!b) return;
+    e.stopPropagation();
+    Invalidate.open({ signatureId: b.getAttribute('data-inv'), target: b.getAttribute('data-inv-tgt'), screen: 'S-EBR-RELEASE', onDone: function () { reevaluate('서명 무효 — 게이트 재평가', 'warn'); } });
+  });
+  if (window.P0Ui) P0Ui.onUserChange(function () { renderAll(); });   /* 사용자 전환 → 서명 버튼 · 안내 다시 계산 */
 
+  /* 출하 승인 — 오더 완료는 store 출하 커밋 안에서 함께 처리 (화면 별도 호출 없음) */
   $('btnRelease').onclick = function () {
-    if (blockedNos().length || state.released) return;
-    MesUI.confirm(BATCH.id + ' 출하를 승인합니다.\n전 요소 인증 · 배치별 개별 서명(일괄 불가)' + (state.review2Signed ? '' : '\n※ 2차 검토 서명 미완료 상태입니다.'), function () {
-      var rows = gate().map(function (g) { return [g.no + '. ' + g.cond, g.st, '', g.st === 'N/A' ? '해당 없음' : '통과', g.comp]; });
-      openSign({
-        meaning: '승인', group: '출하 게이트 — 12조건', target: '출하 전제 조건 12건 통과 요약',
-        gap: '2차 검토 ' + (state.review2Signed ? state.review2At : '미완료'), same: '동일인 차단: 1차 검토자 감독자 C 와 동일 계정 불가 · 일괄 서명 없음',
-        rows: rows, foot: '조건 12건(통과 10 · N/A 2) · manifest 해시 1건(게이트 평가 ' + state.evalTime + ')',
-        onDone: function (stamp) {
-          state.released = true; state.releasedAt = stamp;
-          var mc = markOrderCompleted(uiCtx.orderNo, uiCtx.batchId || BATCH.id);
-          renderAll();
-          if (mc.ok) {
-            MesUI.toast('출하 승인 · 오더 ' + uiCtx.orderNo + ' → completed', 'ok', 4000);
-          } else if (mc.skipped) {
-            MesUI.toast('출하 승인 기록 — 확정본 대기 (' + (mc.reason || '오더 미갱신') + ')', 'ok', 4000);
-          } else {
-            MesUI.toast('출하 승인됨 · 오더 갱신 실패: ' + (mc.error || ''), 'warn', 4500);
-          }
-        }
-      });
-    }, { title: 'Confirm', okText: 'OK', cancelText: 'Cancel' });
-  };
-
-  /* ======================= T-11 전자서명 팝업 ======================= */
-  var signCtx = null, pinApi = null, pinValue = '', cardTagged = false;
-
-  function shuffleKeys(host) {               /* 랜덤 배열: 숫자 키 10개의 값만 섞는다(Clear/Del 위치 고정) */
-    var keys = Array.prototype.filter.call(host.querySelectorAll('.key'), function (k) { return !k.classList.contains('fn'); });
-    var digits = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-    for (var i = digits.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = digits[i]; digits[i] = digits[j]; digits[j] = t; }
-    keys.forEach(function (k, i) { k.textContent = digits[i]; k.dataset.key = digits[i]; });
-  }
-  function updateSignReady() {
-    var ok = !!signCtx && $('signId').value.trim().length > 0 && cardTagged && pinValue.length === 6;
-    $('btnDoSign').disabled = !ok;
-    var miss = [];
-    if (!$('signId').value.trim()) miss.push('ID');
-    if (!cardTagged) miss.push('카드 재태깅');
-    if (pinValue.length < 6) miss.push('PIN ' + pinValue.length + '/6');
-    $('signHint').textContent = ok ? '전 요소 충족 — 서명 시 서버 시각으로 기록' : '남은 요소: ' + miss.join(' · ');
-  }
-  function openSign(ctx) {
-    signCtx = ctx; pinValue = ''; cardTagged = false;
-    var m = MEANING[ctx.meaning];
-    $('signDot').style.background = m.color;
-    $('signTitle').textContent = '전자서명 — ' + ctx.meaning;
-    $('sfBatch').textContent = BATCH.id + ' · ' + BATCH.product;
-    $('sfGroup').textContent = ctx.group;
-    $('sfMeaning').innerHTML = '<span class="sign-meaning" style="background:' + m.color + '"></span>' + esc(ctx.meaning + ' (' + m.en + ')');
-    $('sfSigner').textContent = 'QA D (QA-0007) · 현재 세션 · 중앙 상태 활성';
-    $('sfStrength').textContent = '전 요소(ID + 카드 + PIN) — 고정 · 랜덤 배열 키패드';
-    $('sfGap').textContent = ctx.gap || '—';
-    $('signTarget').textContent = ctx.target;
-    $('signSame').textContent = ctx.same || '';
-    var tb = $('grdSignValsBody'); tb.innerHTML = '';
-    ctx.rows.forEach(function (r, i) {
-      var tr = document.createElement('tr');
-      var judge = r[3], jc = /이탈|미종결/.test(judge) ? 'fc-fail' : '';
-      tr.innerHTML = '<td class="center">' + (i + 1) + '</td><td title="' + esc(r[0]) + '">' + esc(r[0]) + '</td><td class="num">' + esc(r[1]) + '</td><td>' + esc(r[2]) + '</td>' +
-        '<td class="' + jc + '">' + esc(judge) + '</td><td>' + esc(r[4]) + '</td><td class="muted">' + hash8(BATCH.id + r.join('|')) + '</td>';
-      tb.appendChild(tr);
+    if ($('btnRelease').disabled) return;
+    var bid = currentBatchId();
+    var COND = {}; GATE.forEach(function (g) { COND[g.no] = g.cond; });
+    RecSign.open({
+      meaning: 'approved', title: '출하 승인',
+      f1: bid + ' · ' + BATCH.product, l2: 'manifest',
+      f2: function (t) { return [(t.manifestHash8 || String(t.manifestHash || '').slice(0, 8)) + '…', t.manifestHash || '']; },
+      l5: '조건 · 동일인',
+      f5: function (t) {
+        var g = t.gate || [], nb = g.filter(function (x) { return x.st === 'block'; }).length, d = t.distinctFrom || [];
+        return ['조건 12건 · 차단 ' + nb + ' · 동일인 제외 ' + d.length + '명', '동일인 제외: ' + (d.join(' · ') || '없음')];
+      },
+      f6: 'release (출하 승인)',
+      valTitle: '게이트 요약 (서명 직전 재평가)',
+      rows: function (t) {
+        var rows = (t.gate || []).filter(function (g) { return [1, 2, 3, 4, 8, 9].indexOf(+g.no) >= 0; }).map(function (g) {
+          return { k: g.no + '. ' + (COND[g.no] || ''), v: (g.st === 'pass' ? '통과' : g.st === 'block' ? '차단' : g.st) + ((g.refs && g.refs.length) ? ' · 근거 ' + g.refs.length + '건' : ''), t: (g.refs || []).join(' · ') };
+        });
+        rows.push({ k: '고정 6조건 (5 · 6 · 7 · 10 · 11 · 12)', v: '데모 고정값 (다음 작업)' });
+        return rows;
+      },
+      note: '서명 뒤 출하 기록 저장 · 오더 완료 (실패 시 전부 되돌림)',
+      begin: function (x) { return x.beginReleaseSign({ batchId: bid, screen: 'S-EBR-RELEASE' }); },
+      okText: '출하 승인 완료',
+      onDone: function () { reevaluate(); }
     });
-    MesUI.setTotal('grdSignVals');
-    $('signFoot').textContent = ctx.foot;
-    $('signId').value = '';
-    MesUI.setBadge($('signCard'), 'muted', '대기');
-    /* 키패드 재생성(리스너 중복 방지를 위해 호스트 교체) */
-    var old = $('signPad'), host = old.cloneNode(false); old.parentNode.replaceChild(host, old);
-    pinApi = MesUI.pinpad(host, { length: 6,
-      onChange: function (v) { pinValue = v; updateSignReady(); },
-      onComplete: function (v) { pinValue = v; updateSignReady(); } });
-    shuffleKeys(host);
-    updateSignReady();
-    MesUI.openDialog('dlgSign');
-    $('signId').focus();
-  }
-  $('signId').addEventListener('input', updateSignReady);
-  $('btnTagCard').onclick = function () {
-    cardTagged = true; MesUI.setBadge($('signCard'), 'ok', '태깅 완료');
-    updateSignReady(); MesUI.toast('카드 태깅 확인 — QA D (QA-0007)', 'ok', 1500);
   };
-  $('btnDoSign').onclick = function () {
-    if (!signCtx) return;
-    if (pinValue === '000000') {                       /* PoC 실패 사례 */
-      pinApi.error(); pinValue = ''; pinApi.reset(); updateSignReady();
-      return MesUI.alert('PIN 이 일치하지 않습니다. (실패 1/5 — 5회 실패 시 계정 잠금)', 'Error');
-    }
-    var stamp = signCtx.fixedTime || MesUI.nowStamp();
-    var ctx = signCtx; signCtx = null;
-    MesUI.closeDialog('dlgSign');
-    MesUI.toast('서명 기록 — ' + ctx.meaning + ' · QA D · ' + stamp, 'ok');
-    ctx.onDone(stamp);
-  };
-  $('dlgSign').addEventListener('dialogclose', function () { signCtx = null; });
 
   /* ======================= 데모 바 ======================= */
   $('demoFab').onclick = function () { $('demoPanel').classList.toggle('open'); };
-  $('demoSigInvalid').onchange = function () {
-    state.sigInvalid = this.checked;
-    reevaluate(state.sigInvalid ? '서명 무효 탐지 — OP2 혼합 critical 값 5건 · 게이트 #3 차단' : 'OP2 서명 상태 유효로 복귀 · 게이트 #3 통과', state.sigInvalid ? 'error' : 'ok');
-  };
   $('demoReset').onclick = function () {
     state = initial();
-    if ($('demoSigInvalid')) $('demoSigInvalid').checked = false;
     $('fltCat').value = ''; $('fltStatus').value = ''; $('fltCritical').checked = false;
-    renderAll(); MesUI.toast('데모 초기화 — 초기 상태(차단 #1, #2)', 'info');
+    renderAll(); MesUI.toast('화면 조회 조건 초기화 — 서명 · 출하 기록은 서명 원장 기준', 'info');
   };
 
   function renderDevPanel() {

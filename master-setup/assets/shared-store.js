@@ -306,7 +306,8 @@
     var SIGN_ALLOWED = {
       'SM-PERF-STEP': ['OP', 'SV'], 'SM-PERF-WEIGH': ['OP', 'SV'], 'SM-VERI-STEP': ['OP', 'SV', 'QA'], 'SM-VERI-WEIGH': ['OP', 'SV', 'QA'],
       'SM-VERI-CORR': ['SV', 'QA'], 'SM-APPR-MBR': ['QA'], 'SM-APPR-REL': ['QP', 'QA'], 'SM-APPR-OVR': ['QA'], 'SM-APPR-EQC': ['QA'],
-      'SM-APPR-ISSUE': ['SV', 'QA'], 'SM-APPR-REWEIGH': ['SV', 'QA'], 'SM-PERF-BALCHK': ['OP', 'SV'], 'SM-READ-BRIEF': ['OP', 'SV', 'QA', 'QP'], 'SM-REV-RBE': ['QA', 'QP'], 'SM-REV-AUDIT': ['QA', 'QP']
+      'SM-APPR-ISSUE': ['SV', 'QA'], 'SM-APPR-REWEIGH': ['SV', 'QA'], 'SM-PERF-BALCHK': ['OP', 'SV'], 'SM-PERF-BALRECHK': ['SV'], 'SM-READ-BRIEF': ['OP', 'SV', 'QA', 'QP'], 'SM-REV-RBE': ['QA', 'QP'], 'SM-REV-AUDIT': ['QA', 'QP'],
+      'SM-VERI-PKLAB': ['QA'], 'SM-REV-PACK': ['SV'], 'SM-APPR-MATQC': ['QA'], 'SM-REV-BATCH': ['QA'], 'SM-REV-MBR': ['QA', 'SV']
     };
     function S(id, ver, meaning, rec, auth, batch, status, upd, note) { return { id: id, ver: ver, meaning: meaning, recType: rec, auth: auth, batch: batch, samePerson: meaning !== 'performed' && meaning !== 'read_understood', status: status, upd: upd, note: note || '', author: '이수진', allowedRoles: (SIGN_ALLOWED[id] || []).slice() }; }
     var sign = [
@@ -321,10 +322,17 @@
       S('SM-APPR-EQC', 1, 'approved', 'eqclass_approval', 'full_factor', false, 'effective', '2026-07-02', '장비 클래스 승인 · 적격 목록 스냅샷 고정'),
       S('SM-APPR-ISSUE', 1, 'approved', 'batch_issue', 'full_factor', false, 'effective', '2026-10-09', '배치 발행 승인 (P0 1인 · 감독자/QA)'),
       S('SM-APPR-REWEIGH', 1, 'approved', 'weigh_reweigh', 'full_factor', false, 'effective', '2026-10-09', '재칭량 승인 (허용오차 이탈 1회차 · 감독자/QA)'),
-      S('SM-PERF-BALCHK', 1, 'performed', 'balance_check', 'pin_session', false, 'effective', '2026-10-09', 'P1 예약 — 저울 일일점검 (흐름 없음)'),
+      S('SM-PERF-BALCHK', 1, 'performed', 'balance_check', 'pin_session', false, 'effective', '2026-10-09', '저울 일상 점검 (분동 점검 · 작업자/감독자)'),
+      S('SM-PERF-BALRECHK', 1, 'performed', 'balance_check', 'pin_session', false, 'effective', '2026-10-11', '저울 재점검 (불합격 후 사용 금지 해제 · 감독자)'),
       S('SM-READ-BRIEF', 2, 'read_understood', 'briefing', 'pin_session', true, 'effective', '2026-08-20'),
       S('SM-REV-RBE', 1, 'reviewed', 'rbe_exception', 'full_factor', true, 'effective', '2026-08-10'),
       S('SM-REV-AUDIT', 1, 'reviewed', 'audit_trail', 'full_factor', true, 'review', '2026-09-30'),
+      S('SM-REV-AUDIT', 2, 'reviewed', 'audit_trail', 'full_factor', false, 'effective', '2026-10-12', '감사추적 검토 (출하 게이트 4 · 배치별)'),
+      S('SM-VERI-PKLAB', 1, 'verified', 'step_value', 'full_factor', false, 'effective', '2026-10-12', '포장 라벨 · 코딩 첫 시료 QA 확인'),
+      S('SM-REV-PACK', 1, 'reviewed', 'batch_review', 'full_factor', false, 'effective', '2026-10-12', '포장 기록 검토 (1차 · 감독자)'),
+      S('SM-APPR-MATQC', 1, 'approved', 'material_qc', 'full_factor', false, 'effective', '2026-10-12', '자재 QC 판정 (적합 해제 · 부적합 · QA)'),
+      S('SM-REV-BATCH', 1, 'reviewed', 'batch_review', 'full_factor', false, 'effective', '2026-10-12', '배치 기록 2차 검토 (critical 전수 · QA)'),
+      S('SM-REV-MBR', 1, 'reviewed', 'mbr_approval', 'full_factor', false, 'effective', '2026-10-12', 'MBR 독립 검토 (작성자와 다른 사람)'),
       S('SM-APPR-CC', 1, 'approved', 'cc_approval', 'biometric_opt', false, 'draft', '2026-10-03', '생체 옵션 시범')
     ];
     function AM(id, ver, name, auth, zone, temp, plugin, status, upd) { return { id: id, ver: ver, name: name, auth: auth, zone: zone, temp: temp, plugin: plugin, status: status, upd: upd, author: '김민수', note: '' }; }
@@ -359,14 +367,14 @@
     ['phase', 'config', 'sign', 'auth', 'terminal'].forEach(function (k) { all[k].forEach(function (r) { r.hash = MS.calcHash(r); }); });
     return all;
   }
-  function seedAll() { var g = seedGcm(), d = seedDomain(); d.gcmTables = g.tables; d.gcmData = g.data; d.v = VERSION; return d; }
+  function seedAll() { var g = seedGcm(), d = seedDomain(); d.gcmTables = g.tables; d.gcmData = g.data; d.v = VERSION; d.signMigrations = ['MIG-SM-REV-AUDIT-V2']; return d; }   /* 새 시드는 이관 내용 포함 */
   MS.seedAll = seedAll;
 
   /* ================================================================== 저장소 (메모리 + localStorage, 화면 간 공유) */
   MS.DB = null; MS.persisted = false;
   /* 시드 보충 (병합만): 저장된 S-39 sign 에 해당 id 행이 하나도 없을 때만 시드 행을 추가한다.
      기존 행(사용자 편집 포함)은 읽기만 하고 고치지 않는다 — 예: allowedRoles 를 비운 행은 그대로 둔다(서명은 fail-closed) */
-  var BACKFILL_SIGN_IDS = ['SM-APPR-ISSUE', 'SM-APPR-REWEIGH', 'SM-PERF-BALCHK'];
+  var BACKFILL_SIGN_IDS = ['SM-APPR-ISSUE', 'SM-APPR-REWEIGH', 'SM-PERF-BALCHK', 'SM-PERF-BALRECHK', 'SM-VERI-PKLAB', 'SM-REV-PACK', 'SM-APPR-MATQC', 'SM-REV-BATCH', 'SM-REV-MBR'];
   MS.backfillSign = function (db) {
     if (!db || !Array.isArray(db.sign)) return 0;
     var seedSign = null, n = 0;
@@ -377,6 +385,33 @@
     });
     return n;
   };
+  /* 규칙 이관 (실행 · 출하 서명 설계 §5.1, 1회 · 추가만): backfillSign 은 같은 id 행이 있으면 건너뛰므로 저장된 마스터의
+     SM-REV-AUDIT v1(status review) 은 효력이 없다 → effective 행이 하나도 없을 때만 시드 v2 행을 추가(v1 보존 · getSignRule 은 effective 최고 버전).
+     표지 db.signMigrations 에 id 를 남겨, 사용자가 뒤에 v2 를 폐기해도 다시 넣지 않는다. 추가했으면 변경 감사 MASTER_MIGRATE(uid SYSTEM) — 감사 헬퍼가 없으면 감사 없이 표지만.
+     → 추가한 행 수 */
+  var SIGN_MIGRATIONS = [{ id: 'MIG-SM-REV-AUDIT-V2', ruleId: 'SM-REV-AUDIT', ver: 2 }];
+  MS.migrateSign = function (db) {
+    if (!db || !Array.isArray(db.sign)) return 0;
+    if (!Array.isArray(db.signMigrations)) db.signMigrations = [];
+    var n = 0, seedSign = null, audits = [];
+    SIGN_MIGRATIONS.forEach(function (m) {
+      if (db.signMigrations.indexOf(m.id) >= 0) return;
+      var rows = db.sign.filter(function (r) { return r && r.id === m.ruleId; });
+      if (!rows.some(function (r) { return r.status === 'effective'; })) {
+        if (!seedSign) seedSign = seedDomain().sign;
+        var row = seedSign.filter(function (r) { return r.id === m.ruleId && r.ver === m.ver; })[0];
+        if (row && !rows.some(function (r) { return r.ver === m.ver; })) {
+          db.sign.push(clone(row)); n++;
+          audits.push({ uid: 'SYSTEM', userName: '시스템 (기준정보 이관)', act: 'MASTER_MIGRATE', tgt: 'S-39 ' + m.ruleId, val: m.id + ' · v' + m.ver + ' effective 추가 (기존 행 보존)',
+                        before: rows.map(function (r) { return { id: r.id, ver: r.ver, status: r.status }; }), after: { id: row.id, ver: row.ver, status: row.status, allowedRoles: row.allowedRoles.slice() }, screen: 'migrateSign' });
+        }
+      }
+      db.signMigrations.push(m.id);
+    });
+    var A = global.EbrUserSession && global.EbrUserSession.Audit;
+    if (audits.length && A && typeof A.appendMany === 'function') { try { A.appendMany(audits); } catch (e) { /* 감사 실패 — 행 추가는 유지 (기준정보 화면 진행) */ } }
+    return n;
+  };
   MS.load = function () {
     try {
       var s = global.localStorage && localStorage.getItem(LS_KEY);
@@ -384,7 +419,8 @@
         var o = JSON.parse(s);
         if (o && o.v === VERSION && o.gcmTables) {
           MS.DB = o; MS.persisted = true;
-          if (MS.backfillSign(o)) { try { localStorage.setItem(LS_KEY, JSON.stringify(o)); } catch (e1) { MS.persisted = false; } }
+          var mk0 = Array.isArray(o.signMigrations) ? o.signMigrations.length : -1;
+          if (MS.backfillSign(o) + MS.migrateSign(o) || mk0 !== o.signMigrations.length) { try { localStorage.setItem(LS_KEY, JSON.stringify(o)); } catch (e1) { MS.persisted = false; } }
           return MS.DB;
         }
       }
@@ -475,7 +511,8 @@
     REC: [{ v: 'step_value', t: '단계 실행 값' }, { v: 'weigh_value', t: '칭량 값' }, { v: 'correction', t: '정정' }, { v: 'mbr_approval', t: 'MBR 승인' }, { v: 'release', t: '출하 승인' },
       { v: 'interlock_override', t: '인터록 override' }, { v: 'eqclass_approval', t: '장비 클래스 승인' }, { v: 'briefing', t: '변경점 브리핑' }, { v: 'rbe_exception', t: 'RBE 예외 검토' },
       { v: 'audit_trail', t: '감사추적 검토' }, { v: 'cc_approval', t: 'CC 승인' }, { v: 'batch_issue', t: '배치 발행' },
-      { v: 'weigh_reweigh', t: '재칭량 승인' }, { v: 'balance_check', t: '저울 일일점검' }],
+      { v: 'weigh_reweigh', t: '재칭량 승인' }, { v: 'balance_check', t: '저울 일일점검' },
+      { v: 'material_qc', t: '자재 QC 판정' }, { v: 'batch_review', t: '배치 기록 검토' }],
     LINE: [{ v: 'L-01', t: 'L-01 정제 1라인' }, { v: 'L-02', t: 'L-02 정제 2라인' }, { v: 'L-03', t: 'L-03 캡슐 라인' }, { v: 'L-04', t: 'L-04 액제 라인' }],
     ONLINE: [{ v: 'online', t: '온라인', b: 'ok' }, { v: 'offline', t: '오프라인', b: 'error' }, { v: 'maint', t: '점검', b: 'warn' }],
     ROLE: [{ v: 'none', t: '— 없음' }, { v: 'self', t: '작업자 본인' }, { v: 'supervisor', t: '감독자' }, { v: 'qa', t: 'QA' }],

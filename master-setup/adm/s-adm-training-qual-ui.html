@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-adm-training-qual-ui  (ADM 모듈 · S-43 교육 · 자격)
+  클래스       : CAdmSetupTrainingQualMain   — 교육 · 자격 P0 (ui-items UI-01 ~ UI-05)
+  근거         : /workspace/poc-training-qualification-design.md 개정 4 · poc-training-qualification-ui-items.md (J1~J11 권고안 확정)
+  구조         : S-41 사용자 · 역할(s-adm-user-role-ui.html)과 같은 셸 · 공통 사용자 선택기 블록(P0Ui)
+  권한         : QA 역할만 편집(부여 · 회수 · 이수 등록 · 요구 매핑). 그 밖 역할은 조회만 (Q1)
+  저장         : 화면은 저장소를 직접 읽지 않음 — window.EbrQual(assets/ebr-qual-store.js) 경유.
+                 EbrQual 미로드 시 화면 안 데모 데이터(메모리, 저장 없음)로 레이아웃만 시연 → TQApi 구역 TODO 참고.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>S-43 교육 · 자격 — eMBR 기준정보 PoC</title>
+<link rel="stylesheet" href="../assets/mesui.css">
+<link rel="stylesheet" href="../assets/master-setup.css">
+<style>
+  /* 색은 mesui.css 토큰 · 클래스만 사용 (hex 금지). 열 폭 · 간격은 mesui.css 토큰(--col-w-* · --grid-cell-pad-tight · --badge-gap)만 — 대체값 · px 리터럴 없음 (공통 사용자 선택기 블록 제외) */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--c-bg); }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale { flex: 0 0 auto; }
+  .tip { display: inline-flex; }
+  /* ==== 공통 블록: 현재 사용자 선택기 · 역할 배지 (S-41 35–45 그대로) ==== */
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: calc(var(--badge-gap) * 1.5); min-width: 0; white-space: nowrap; }   /* 6 = 배지 간격 × 1.5 (분할 거터 토큰 아님)
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: var(--badge-gap); min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
+
+  /* ==== 탭 (master-setup.css .tabs 28 재사용, J2) ==== */
+  .tabs .tab[disabled] { cursor: not-allowed; opacity: .6; }
+  .tq-pane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--body-gap); }
+  .tq-pane.hidden { display: none; }
+
+  /* ==== UI-02 분할 .rs-pane 3fr │ .rs-gutter var(--split-gutter) │ .rs-pane 2fr (DESIGN §14-b R-S4, 칭량 선례) — 비율 키 ebr.trainingQual.split.v1 {left} ==== */
+  .rs-split.tq-split { flex: 1 1 auto; min-height: 0; display: flex; }
+  .tq-split > .rs-pane { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  #paneMatrix { flex: 3 1 0; }
+  #tqDetail { flex: 2 1 0; }
+  .rs-gutter { flex: 0 0 var(--split-gutter); width: var(--split-gutter); cursor: col-resize; background: var(--bc-gray-light); border: 0; padding: 0; margin: 0; position: relative; }
+  .rs-gutter:hover, .rs-gutter.is-drag { background: var(--c-border-03); }
+  .rs-gutter::after { content: ''; position: absolute; top: 0; bottom: 0; left: calc(var(--split-gutter) / -2); right: calc(var(--split-gutter) / -2); }
+  body.is-resizing { cursor: col-resize; user-select: none; }
+  body.is-resizing .rs-pane { pointer-events: none; }
+  /* 탭 3 교육 과정 · SOP: 고정 비율 3fr 2fr (드래그 없음 — 기존 크기 유지) */
+  .tq-fixed-split { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 3fr 2fr; gap: var(--split-gutter); }
+  .tq-fixed-split > * { min-width: 0; min-height: 0; }
+  .tq-detail { display: flex; flex-direction: column; gap: var(--body-gap); min-height: 0; }
+  .tq-detail > .grid-block { flex: 1 1 0; min-height: 0; }
+  .tq-detail .form-grid { flex: 0 0 auto; }
+
+  /* 열 폭 (ui-items UI-02 · UI-10) */
+  col.cw-id   { width: var(--col-w-id); }
+  col.cw-name { width: var(--col-w-name); }
+  col.cw-role { width: var(--col-w-role); }
+  col.cw-qual { width: var(--col-w-qual); }
+  col.cw-date { width: var(--col-w-date); }
+  col.cw-key  { width: var(--col-w-key); }
+  col.cw-ts   { width: var(--col-w-ts); }
+  col.cw-140  { width: var(--col-w-140); }
+  col.cw-160  { width: var(--col-w-160); }
+  col.cw-200  { width: var(--col-w-200); }
+  col.cw-240  { width: var(--col-w-240); }
+  /* 180 · 80: 전용 토큰 없음 → 기존 토큰 계산식(같은 폭) */
+  col.cw-180  { width: calc(var(--col-w-name) * 1.8); }
+  col.cw-80   { width: calc(var(--col-w-name) * .8); }
+  .grid-block.tq-fit { flex: 0 0 auto; }
+  /* J11: 자격 열만 좁은 padding → 글자 칸 88 */
+  #grdMatrix th.q, #grdMatrix td.q { padding: var(--grid-cell-pad-tight); text-align: center; }
+  .grid td.ell, .grid th.ell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grid td .badge + .badge { margin-left: var(--badge-gap); }
+  .q-none { color: var(--c-text-disabled); }
+  .mono { font-family: var(--font-mono); }
+
+  /* ==== 팝업: 본문 스크롤 없음 (dlg-scroll 금지) ==== */
+  .dialog .tq-body { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: var(--body-gap); }
+  .dialog .form-grid > .field.multi { align-items: flex-start; min-height: auto; padding-top: calc((var(--form-row-h) - var(--ctrl-h-form)) / 2); padding-bottom: calc((var(--form-row-h) - var(--ctrl-h-form)) / 2); }
+  .dialog .form-grid > .field > textarea.input { height: calc(var(--ctrl-h-form) * 2.5); margin: 0; resize: none; }
+  .dialog .checkbox-group .checkbox { margin-right: calc(var(--title-gap) * 3); }   /* §13-6 체크박스 그룹 24 */
+  .tq-judge { min-height: var(--form-row-h); display: flex; align-items: center; gap: var(--title-gap); }
+  .tq-chips { display: flex; flex-wrap: wrap; gap: var(--badge-gap); align-items: center; }
+</style>
+</head>
+<body data-root="../">
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="main-title"><span class="mod-tag adm">ADM</span>교육 · 자격</span>
+    <span class="user-switch" id="userSwitch"></span>
+    <span class="breadcrumb">
+      <span>eMBR</span><span class="sep">&rsaquo;</span><span>설정 · 관리</span><span class="sep">&rsaquo;</span><a href="../index.html">기준정보</a><span class="sep">&rsaquo;</span><span class="current">S-43 교육 · 자격</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+  <div class="shell-body">
+    <div class="ms-layout">
+      <div class="ms-main"><section class="view" id="view-tq">
+        <div class="tabs" id="tqTabs" role="tablist">
+          <button class="tab active" type="button" data-tab="status" role="tab">사용자 현황</button>
+          <button class="tab" type="button" data-tab="quals" role="tab">자격 정의</button>
+          <button class="tab" type="button" data-tab="courses" role="tab">교육 과정 · SOP</button>
+          <button class="tab" type="button" data-tab="req" role="tab">요구 매핑</button>
+          <span class="tip" title="P1 — 감사 필터 조회 예정"><button class="tab" type="button" data-tab="hist" role="tab" disabled>이력 (P1)</button></span>
+        </div>
+
+        <!-- ==== 탭 1 사용자 현황 (UI-02) ==== -->
+        <div class="tq-pane" id="pane-status">
+          <div class="search-box cols-3">
+            <div class="search-control"><span class="label">부서</span><select class="input" id="qDept" aria-label="부서"></select></div>
+            <div class="search-control"><span class="label">역할</span><select class="input" id="qRole" aria-label="역할"></select></div>
+            <div class="search-control"><span class="label">자격 상태</span><select class="input" id="qState" aria-label="자격 상태">
+              <option value="">전체</option><option value="valid">유효</option><option value="expiring">만료 임박</option><option value="expired">만료</option><option value="outdated">SOP 재교육</option><option value="none">없음</option></select></div>
+            <div class="search-control"><span class="label">기준일</span><input class="input" type="date" id="qAt" aria-label="기준일"></div>
+            <div class="search-control"><span class="label">만료 임박</span><input class="input" type="number" id="qWarn" value="30" min="1" aria-label="만료 임박 n일" title="표시 필터 — 판정 기준은 자격 정의 warnDays (Q10)"></div>
+            <div class="search-actions"><button class="btn search" type="button" data-act="reset">Reset</button><button class="btn search secondary" type="button" data-act="search">Search</button></div>
+          </div>
+          <div class="rs-split tq-split" id="tqSplit">
+            <div class="rs-pane grid-block" id="paneMatrix">
+              <div class="grid-title-area">
+                <div class="title-row"><span class="group-title">사용자 현황 매트릭스 <span class="sub-info">S-43</span></span><span class="lc-legend" id="legend"></span></div>
+                <div class="grid-toolbar"><span class="total-text" data-total-for="grdMatrix"></span><span class="vbar"></span>
+                  <select class="input page-size" data-pagesize><option>Views 20</option><option>Views 50</option></select>
+                  <span class="sub-info" id="selInfo"></span><span class="spacer"></span>
+                  <span class="tip" data-edit-tip><button class="btn search" type="button" data-act="record" data-p0-edit>교육 이수 등록</button></span>
+                  <span class="tip" data-edit-tip><button class="btn search" type="button" data-act="grant" data-p0-edit>자격 부여</button></span>
+                  <span class="tip" data-edit-tip id="tipRevoke"><button class="btn search" type="button" data-act="revoke" data-p0-edit id="btnRevoke">자격 회수</button></span>
+                  <button class="btn search" type="button" data-act="excel">Excel</button>
+                </div>
+              </div>
+              <div class="grid-wrap"><table class="grid selectable" id="grdMatrix">
+                <colgroup id="mxCols"></colgroup><thead id="mxHead"></thead><tbody></tbody></table>
+                <div class="nodata hidden" id="mxNodata">조회 결과가 없습니다</div></div>
+              <div class="paging" id="paging"></div>
+            </div>
+            <div class="rs-gutter" id="tqGutter" title="드래그 — 좌우 폭 조절 · 더블클릭 — 3:2 복원"></div>
+            <div class="rs-pane tq-detail" id="tqDetail">
+              <div class="grid-block tq-fit">
+                <div class="title-row"><span class="group-title" id="dtTitle">선택 사용자</span></div>
+                <div class="form-grid cols-2 readonly" id="dtSummary"></div>
+              </div>
+              <div class="grid-block">
+                <div class="grid-toolbar"><span class="group-title">보유 자격</span><span class="spacer"></span><span class="sub-info">회수 = 행 선택 후 [자격 회수]</span></div>
+                <div class="grid-wrap"><table class="grid selectable" id="grdHeld">
+                  <colgroup><col class="cw-140"><col class="cw-date"><col class="cw-date"><col class="cw-date"><col></colgroup>
+                  <thead><tr><th>자격</th><th>상태</th><th>부여일</th><th>만료일</th><th>근거 교육</th></tr></thead><tbody></tbody></table></div>
+              </div>
+              <div class="grid-block">
+                <div class="grid-toolbar"><span class="group-title">교육 이력</span></div>
+                <div class="grid-wrap"><table class="grid" id="grdTr">
+                  <colgroup><col class="cw-name"><col class="cw-role"><col class="cw-date"><col class="cw-date"><col class="cw-name"><col></colgroup>
+                  <thead><tr><th>TR ID</th><th>과정</th><th>SOP 버전</th><th>이수일</th><th>결과</th><th>교육자</th></tr></thead><tbody></tbody></table></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==== 탭 2 자격 정의 (UI-01, 읽기 전용 P0) ==== -->
+        <div class="tq-pane hidden" id="pane-quals">
+          <div class="grid-block">
+            <div class="grid-title-area">
+              <div class="title-row"><span class="group-title">자격 정의 <span class="sub-info">조회 전용 (편집 P1)</span></span></div>
+              <div class="grid-toolbar"><span class="total-text" data-total-for="grdQual"></span><span class="spacer"></span><button class="btn search" type="button" data-act="excel">Excel</button></div>
+            </div>
+            <div class="grid-wrap"><table class="grid" id="grdQual">
+              <colgroup><col class="cw-id"><col class="cw-200"><col class="cw-name"><col class="cw-180"><col><col class="cw-name"><col class="cw-name"><col class="cw-name"></colgroup>
+              <thead><tr><th>자격 ID</th><th>이름</th><th>종류</th><th>범위</th><th>선행 과정</th><th class="num">유효일</th><th class="num">경고일</th><th class="center">상태</th></tr></thead><tbody></tbody></table></div>
+          </div>
+        </div>
+
+        <!-- ==== 탭 3 교육 과정 · SOP (UI-01, 읽기 전용 P0) ==== -->
+        <div class="tq-pane hidden" id="pane-courses">
+          <div class="tq-fixed-split">
+            <div class="grid-block">
+              <div class="grid-title-area">
+                <div class="title-row"><span class="group-title">교육 과정 <span class="sub-info">조회 전용</span></span></div>
+                <div class="grid-toolbar"><span class="total-text" data-total-for="grdCourse"></span><span class="spacer"></span><button class="btn search" type="button" data-act="excel">Excel</button></div>
+              </div>
+              <div class="grid-wrap"><table class="grid selectable" id="grdCourse">
+                <colgroup><col class="cw-140"><col class="cw-200"><col class="cw-140"><col class="cw-qual"><col class="cw-id"><col></colgroup>
+                <thead><tr><th>과정 ID</th><th>이름</th><th>SOP</th><th>현재 버전</th><th>재교육 주기</th><th class="center">상태</th></tr></thead><tbody></tbody></table></div>
+            </div>
+            <div class="grid-block">
+              <div class="grid-title-area">
+                <div class="title-row"><span class="group-title" id="sopTitle">SOP 버전</span></div>
+                <div class="grid-toolbar"><span class="total-text" data-total-for="grdSop"></span></div>
+              </div>
+              <div class="grid-wrap"><table class="grid" id="grdSop">
+                <colgroup><col class="cw-140"><col class="cw-name"><col class="cw-id"><col class="cw-name"><col></colgroup>
+                <thead><tr><th>SOP</th><th>버전</th><th>효력일</th><th class="center">상태</th><th class="num">재교육 대상</th></tr></thead><tbody></tbody></table></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ==== 탭 4 요구 매핑 (UI-05) ==== -->
+        <div class="tq-pane hidden" id="pane-req">
+          <div class="search-box cols-3">
+            <div class="search-control"><span class="label">구분</span><select class="input" id="rKind" aria-label="구분"><option value="">전체</option><option>ISSUE</option><option>SIGN</option><option>BALCLASS</option><option>OP</option><option>LINE</option></select>
+              <label class="checkbox"><input type="checkbox" id="rUnset"> 미설정만</label></div>
+            <div class="search-control"><span class="label">모드</span><select class="input" id="rMode" aria-label="모드"><option value="">전체</option><option value="block">차단</option><option value="warn">경고</option></select></div>
+            <div class="search-actions"><button class="btn search" type="button" data-act="rreset">Reset</button><button class="btn search secondary" type="button" data-act="rsearch">Search</button></div>
+          </div>
+          <div class="grid-block">
+            <div class="grid-title-area">
+              <div class="title-row"><span class="group-title">요구 매핑 <span class="sub-info">미설정 키 = 차단 (fail-closed, Q9)</span></span></div>
+              <div class="grid-toolbar"><span class="total-text" data-total-for="grdReq"></span><span class="spacer"></span>
+                <span class="tip" data-edit-tip><button class="btn search" type="button" data-act="rnew" data-p0-edit>New</button></span>
+                <span class="tip" data-edit-tip id="tipREdit"><button class="btn search" type="button" data-act="redit" data-p0-edit id="btnREdit">편집</button></span>
+                <button class="btn search" type="button" data-act="excel">Excel</button></div>
+            </div>
+            <div class="grid-wrap"><table class="grid selectable" id="grdReq">
+              <colgroup><col class="cw-key"><col class="cw-name"><col><col class="cw-80"><col class="cw-id"><col class="cw-240"><col class="cw-ts"></colgroup>
+              <thead><tr><th>대상 키</th><th>구분</th><th>요구 자격 (AND)</th><th>모드</th><th class="center">상태</th><th>비고</th><th>수정</th></tr></thead><tbody></tbody></table>
+              <div class="nodata hidden" id="reqNodata">조회 결과가 없습니다</div></div>
+          </div>
+        </div>
+        <div class="plan-banner bc-plan hidden" id="apiBanner"><span class="status-dot navy"></span><span><b>데모 데이터</b></span>
+          <span class="sub-info">교육 · 자격 저장소(assets/ebr-qual-store.js) 미로드 — 화면 안 데모 데이터로 레이아웃만 시연합니다(저장 없음).</span></div>
+      </section></div>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+
+<!-- ==== UI-03 자격 부여 (.dialog.md 900×700, J1) ==== -->
+<div class="dialog-backdrop" id="dlgQualGrant"><div class="dialog md">
+  <div class="popup-title"><span class="text">자격 부여</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+  <div class="shell-body tq-body">
+    <div class="form-grid cols-2">
+      <span class="label required">대상 사용자</span><span class="field"><select class="input" id="gUser"></select></span>
+      <span class="label">역할 · 상태</span><span class="field"><span class="text" id="gUserInfo">—</span></span>
+      <span class="label required">자격</span><span class="field"><select class="input" id="gQual"></select></span>
+      <span class="label">유효기간</span><span class="field"><span class="text" id="gValid">—</span></span>
+    </div>
+    <div class="grid-block tq-fit">
+      <div class="grid-toolbar"><span class="group-title">선행 교육 확인</span></div>
+      <div class="grid-wrap"><table class="grid" id="grdPre">
+        <colgroup><col class="cw-160"><col><col class="cw-role"><col class="cw-160"></colgroup>
+        <thead><tr><th>과정</th><th>이름</th><th>요구 SOP 버전</th><th>이수 상태</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="tq-judge" id="gJudge"></div>
+    <div class="form-grid cols-2">
+      <span class="label required">부여일</span><span class="field"><input class="input" type="date" id="gFrom"></span>
+      <span class="label required">만료일</span><span class="field"><input class="input" type="date" id="gTo"></span>
+      <span class="label required">사유</span><span class="field span-2 multi"><textarea class="input" id="gReason" maxlength="200"></textarea><span class="sub-info" id="gCount">0/200</span></span>
+    </div>
+    <span class="sub-info" id="gActor"></span>
+  </div>
+  <div class="dialog-footer"><span class="spacer"></span>
+    <button class="btn search secondary" type="button" data-dialog-close>취소</button>
+    <span class="tip" id="tipGSave"><button class="btn search primary" type="button" id="gSave" data-p0-edit>부여</button></span>
+  </div>
+</div></div>
+
+<!-- ==== UI-03 자격 회수 (.dialog.sm 600×480) ==== -->
+<div class="dialog-backdrop" id="dlgQualRevoke"><div class="dialog sm">
+  <div class="popup-title"><span class="text">자격 회수</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+  <div class="shell-body tq-body">
+    <div class="form-grid readonly" id="rvInfo"></div>
+    <div class="form-grid">
+      <span class="label required">사유</span><span class="field multi"><textarea class="input" id="rvReason" maxlength="200"></textarea></span>
+    </div>
+    <span class="sub-info">회수 즉시 무효 · 감사 QUAL_REVOKE</span>
+  </div>
+  <div class="dialog-footer"><span class="spacer"></span>
+    <button class="btn search secondary" type="button" data-dialog-close>취소</button>
+    <span class="tip" id="tipRvSave"><button class="btn search primary" type="button" id="rvSave" data-p0-edit>회수</button></span>
+  </div>
+</div></div>
+
+<!-- ==== UI-04 교육 이수 등록 (.dialog.md 900×700) ==== -->
+<div class="dialog-backdrop" id="dlgTrainingRecord"><div class="dialog md">
+  <div class="popup-title"><span class="text">교육 이수 등록</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+  <div class="shell-body tq-body">
+    <div class="form-grid cols-2">
+      <span class="label required">교육 과정</span><span class="field span-2"><select class="input" id="tCourse"></select></span>
+      <span class="label">SOP 버전</span><span class="field span-2"><span class="text" id="tSop">—</span></span>
+      <span class="label required">이수자</span><span class="field span-2 multi"><span class="tq-chips" id="tTrainees"></span><select class="input w-200" id="tAdd" aria-label="이수자 추가"></select></span>
+      <span class="label required">이수일</span><span class="field"><input class="input" type="date" id="tDate"></span>
+      <span class="label">방식</span><span class="field"><select class="input" id="tMethod"><option>강의</option><option>OJT</option><option>자가학습</option></select></span>
+      <span class="label required">평가</span><span class="field"><select class="input" id="tResult"><option value="pass">합격</option><option value="fail">불합격</option></select></span>
+      <span class="label required">교육자</span><span class="field"><select class="input" id="tTrainer"></select></span>
+      <span class="label">비고</span><span class="field span-2 multi"><textarea class="input" id="tNote" maxlength="200"></textarea></span>
+    </div>
+    <div class="tq-judge" id="tJudge"></div>
+    <span class="sub-info">저장 시 이수자별 TR 1건씩 · 감사 TRAINING_RECORDED</span>
+  </div>
+  <div class="dialog-footer"><span class="spacer"></span>
+    <button class="btn search secondary" type="button" data-dialog-close>취소</button>
+    <span class="tip" id="tipTSave"><button class="btn search primary" type="button" id="tSave" data-p0-edit>저장</button></span>
+  </div>
+</div></div>
+
+<!-- ==== UI-05 요구 매핑 편집 (.dialog.sm 600×480) ==== -->
+<div class="dialog-backdrop" id="dlgQualReq"><div class="dialog sm">
+  <div class="popup-title"><span class="text" id="rqTitle">요구 매핑</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+  <div class="shell-body tq-body">
+    <div class="form-grid">
+      <span class="label required">대상 키</span><span class="field"><input class="input mono" type="text" id="rqTarget" placeholder="예) SIGN:SM-PERF-WEIGH"></span>
+      <span class="label required">요구 자격</span><span class="field multi"><span class="checkbox-group" id="rqQuals"></span></span>
+      <span class="label">자격 불요</span><span class="field"><label class="checkbox"><input type="checkbox" id="rqNone"> 자격 불요 (명시)</label></span>
+      <span class="label required">모드</span><span class="field"><label class="radio"><input type="radio" name="rqMode" value="block" checked> 차단</label>&nbsp;&nbsp;<label class="radio"><input type="radio" name="rqMode" value="warn"> 경고</label></span>
+      <span class="label required">사유</span><span class="field multi"><textarea class="input" id="rqReason" maxlength="200"></textarea></span>
+    </div>
+    <span class="sub-info">저장 즉시 게이트 적용 · 감사 QUAL_REQ_UPDATE</span>
+  </div>
+  <div class="dialog-footer"><span class="spacer"></span>
+    <button class="btn search secondary" type="button" data-dialog-close>취소</button>
+    <span class="tip" id="tipRqSave"><button class="btn search primary" type="button" id="rqSave" data-p0-edit>저장</button></span>
+  </div>
+</div></div>
+
+<script src="../assets/mesui.js"></script>
+<script src="../assets/shared-store.js"></script>
+<script src="../assets/ebr-user-session.js"></script>
+<script src="../../assets/ebr-qual-store.js"></script>   <!-- UI-08 (window.EbrQual) — 없으면 TQApi DEMO 로 대체. master-setup/assets 사본이 생기면 경로만 바꿈 -->
+<!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 + 배치 발행 동일) ==== -->
+<script>
+/* 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+ *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
+ *   hasSodConflict(roles) · onChange(fn) → unsub
+ * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
+ * 헬퍼가 없으면(파일 미배포) 선택기는 「사용자 API 미연결」로 비활성 표시만 하고 화면 기존 동작은 그대로 둔다(게이트 미적용, 오류 없음). */
+(function (global) {
+  'use strict';
+  var WATCH_KEYS = ['ebmr.currentUser.v1', 'ebmr.userRole.v1'];   /* onChange 가 없을 때만: 다른 탭 변경 감지용 키 이름 (값은 헬퍼로만 읽음) */
+  var ROLE = { QP: ['QP', 'role-qp'], QA: ['QA', 'role-qa'], SV: ['감독자', 'ok'], OP: ['작업자', ''], ADMIN: ['관리자', ''] };
+  var ROLE_ORDER = ['QP', 'QA', 'SV', 'OP', 'ADMIN'];   /* 배지 우선순위 QP>QA>SV>OP>ADMIN (기획 마스터 §3.1) */
+  var GATE_SEL = '[data-p0-edit],[data-act="new"],[data-act="delete"],[data-act="submit"],[data-act="approve"],[data-act="activate"],[data-act="reject"],[data-act="retire"],#dmSave,#dmNewVer';
+  var GATE_TIP = '사용자를 선택하세요';
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var listeners = [], readyQ = [], isReady = false;
+
+  function api() { return global.EbrUserSession || null; }
+  function call(fn) {
+    var a = api(); if (!a || typeof a[fn] !== 'function') return undefined;
+    try { return a[fn].apply(a, Array.prototype.slice.call(arguments, 1)); } catch (e) { if (global.console) console.error('[EbrUserSession] ' + fn, e); return undefined; }
+  }
+  function sortRoles(roles) { return (roles || []).slice().sort(function (a, b) { return ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b); }); }
+  function roleBadge(code) { var r = ROLE[code] || [code, 'muted']; return '<span class="badge' + (r[1] ? ' ' + r[1] : '') + '" title="' + esc(code) + '">' + esc(r[0]) + '</span>'; }
+  function roleBadges(roles) { return sortRoles(roles).map(roleBadge).join(''); }
+  function statusBadge(st) { return st === 'locked' ? '<span class="badge error">잠김</span>' : st === 'inactive' ? '<span class="badge muted">비활성</span>' : ''; }
+  function rolesOfUser(u) { return !u ? [] : (Array.isArray(u.roles) ? u.roles : (call('rolesOf', u.userId) || [])); }
+  function users(filter) { var l = call('listUsers', filter || {}); return Array.isArray(l) ? l : []; }
+  function current() { return call('getCurrentUser') || null; }
+  function connected() { var a = api(); return !!(a && typeof a.getCurrentUser === 'function' && typeof a.listUsers === 'function'); }
+  function hasRole(u, code) { return rolesOfUser(u).indexOf(code) >= 0; }
+  function sod(roles) { var v = call('hasSodConflict', roles || []); return typeof v === 'boolean' ? v : false; }
+  function gateOn() { return connected() && !current(); }
+  function userLabel(u) { return u ? u.name + ' (' + u.userId + ')' : '—'; }
+
+  function render() {
+    var host = document.getElementById('userSwitch');
+    if (host) {
+      if (!connected()) {
+        host.innerHTML = '<span class="tip" title="사용자 · 서명 헬퍼(ebr-user-session.js)가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+      } else {
+        var cur = current(), list = users();
+        var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
+          var bad = u.status === 'locked' ? ' — 잠김' : u.status === 'inactive' ? ' — 비활성' : '';
+          return '<option value="' + esc(u.userId) + '"' + (bad ? ' disabled' : '') + (cur && cur.userId === u.userId ? ' selected' : '') + '>' + esc(userLabel(u) + bad) + '</option>';
+        }).join('');
+        host.innerHTML = '<select class="input w-200" id="userSwitchSel" aria-label="현재 사용자" title="현재 사용자 (인증 아님 — 서명 시 ID · 비밀번호 재입력)">' + opts + '</select>' +
+          '<span class="us-roles">' + (cur ? roleBadges(rolesOfUser(cur)) + statusBadge(cur.status) : '<span class="badge warn">' + GATE_TIP + '</span>') + '</span>';
+        var sel = document.getElementById('userSwitchSel');
+        sel.addEventListener('change', function () {
+          var r = call('setCurrentUser', sel.value || null);
+          if (r && r.ok === false && global.MesUI) {
+            MesUI.toast(r.message || (r.code === 'LOCKED' ? '잠긴 계정은 선택할 수 없습니다 — 관리자(ADMIN)에게 해제를 요청하세요.'
+              : r.code === 'INACTIVE' ? '비활성 계정은 선택할 수 없습니다.' : r.code === 'SAVE_ERROR' ? '감사 기록을 저장하지 못해 사용자를 전환하지 못했습니다.' : '사용자를 찾을 수 없습니다.'),
+              r.code === 'SAVE_ERROR' ? 'error' : 'warn', 2600);   /* SAVE_ERROR: 헬퍼가 변경을 되돌림 → 선택값도 아래 refresh 로 되돌림 */
+          }
+          if (!hasOnChange || (r && r.ok === false)) refresh();   /* onChange 는 성공 시 헬퍼가 발생 — 거부(LOCKED 등)면 선택 되돌림 */
+        });
+      }
+    }
+    applyGate();
+  }
+  function applyGate() {
+    var on = gateOn();
+    document.body.classList.toggle('p0-no-user', on);
+    Array.prototype.forEach.call(document.querySelectorAll(GATE_SEL), function (b) { b.classList.toggle('p0-gated', on); });
+  }
+  function refresh() { render(); listeners.forEach(function (fn) { try { fn(current()); } catch (e) { if (global.console) console.error(e); } }); }
+
+  /* 선택 없음 게이트: 편집 버튼 클릭 차단 + 툴팁 (동적으로 그려지는 T-02 버튼 포함) */
+  document.addEventListener('click', function (e) {
+    if (!gateOn()) return;
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    if (global.MesUI) MesUI.toast(GATE_TIP + ' — 상단 사용자 선택기에서 현재 사용자를 고른 뒤 다시 시도하세요.', 'warn', 2200);
+  }, true);
+  document.addEventListener('mouseover', function (e) {
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    if (gateOn()) { if (!b.hasAttribute('data-p0-tip')) b.setAttribute('data-p0-tip', b.getAttribute('title') || ''); b.setAttribute('title', GATE_TIP); b.classList.add('p0-gated'); }
+    else if (b.hasAttribute('data-p0-tip')) { b.setAttribute('title', b.getAttribute('data-p0-tip')); b.removeAttribute('data-p0-tip'); b.classList.remove('p0-gated'); }
+  }, true);
+
+  var hasOnChange = false;
+  function start() {
+    isReady = true;
+    var a = api();
+    if (a && typeof a.onChange === 'function') { hasOnChange = true; call('onChange', function () { refresh(); }); }
+    else global.addEventListener('storage', function (e) { if (WATCH_KEYS.indexOf(e.key) >= 0) refresh(); });
+    render();
+    readyQ.splice(0).forEach(function (fn) { try { fn(); } catch (e) { if (global.console) console.error(e); } });
+  }
+
+  global.P0Ui = {
+    api: api, call: call, connected: connected, users: users, current: current, hasRole: hasRole, rolesOf: rolesOfUser, sod: sod, userLabel: userLabel,
+    roleBadge: roleBadge, roleBadges: roleBadges, statusBadge: statusBadge, sortRoles: sortRoles, ROLE: ROLE, ROLE_ORDER: ROLE_ORDER,
+    gateOn: gateOn, refresh: refresh, applyGate: applyGate, esc: esc, GATE_TIP: GATE_TIP,
+    onUserChange: function (fn) { listeners.push(fn); },
+    ready: function (fn) { if (isReady) fn(); else readyQ.push(fn); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})(window);
+</script>
+<script src="../assets/master-t02.js"></script>
+<script>
+/* ==== S-43 — EbrQual(UI-08, assets/ebr-qual-store.js) 어댑터 (화면 → store 호출은 이 구역만) ====
+ * 사용 API (설계 §3.3 + ui-items J9 제안, 읽기 전용 사용 · store 수정 없음):
+ *   matrix({at,userIds}) → {qualIds, rows:[{userId, cells:{qualId:{state,expiresAt,label,title}}}]}
+ *   userStatus(userId, at) → {retrain:[], quals:[{uqId,qualId,state,grantedAt,expiresAt,trIds,status}], trainings:[{trId,courseId,sopVer,completedAt,result,trainerId}]}
+ *   grant({userId,qualId,grantedAt,expiresAt,reason,actorId,screen}) · revoke({uqId,reason,actorId,screen})
+ *   recordTraining({courseId,userIds,completedAt,method,result,trainerId,note,actorId,screen}) → {ok,trIds}
+ *   listRequirements() · saveRequirement({target,qualIds,mode,reason,actorId,screen}) · gateTargets()(제안)
+ *   listQualDefs() · listCourses() · listSopVersions(sopId) (제안, J9)
+ * TODO(store 연동): EbrQual 시그니처 확정 시 아래 함수 본문만 맞춘다. EbrQual 이 없으면 DEMO(메모리) 로 레이아웃만 시연 — 판정 · 날짜 계산은 DEMO 고정값.
+ */
+var TQApi = (function () {
+  'use strict';
+  function Q() { return window.EbrQual || null; }
+  function has(fn) { var q = Q(); return !!(q && typeof q[fn] === 'function'); }
+  function call(fn) { var q = Q(); try { return q[fn].apply(q, Array.prototype.slice.call(arguments, 1)); } catch (e) { console.error('[EbrQual] ' + fn, e); return null; } }
+
+  /* ---- DEMO (EbrQual 미로드 시) — 설계 §3.4 시드 모양, 날짜는 seedBase 2026-10-11 고정값 ---- */
+  var D = {
+    quals: [
+      { qualId: 'QD-WEIGH', name: '칭량 수행', kind: '작업', scope: 'SIGN:SM-PERF-WEIGH', pre: ['CRS-WEIGH-01'], validDays: 365, warnDays: 30, status: 'active' },
+      { qualId: 'QD-BAL-01', name: '저울 EC-BAL-01 사용', kind: '장비', scope: 'BALCLASS:EC-BAL-01', pre: ['CRS-BAL-01'], validDays: 365, warnDays: 30, status: 'active' },
+      { qualId: 'QD-BAL-02', name: '저울 EC-BAL-02 사용', kind: '장비', scope: 'BALCLASS:EC-BAL-02', pre: ['CRS-BAL-02'], validDays: 365, warnDays: 30, status: 'active' },
+      { qualId: 'QD-BALCHK', name: '저울 일상 점검', kind: '작업', scope: 'SIGN:SM-PERF-BALCHK · BALRECHK', pre: ['CRS-WEIGH-01'], validDays: 365, warnDays: 30, status: 'active' },
+      { qualId: 'QD-WVERI', name: '칭량 확인', kind: '작업', scope: 'SIGN:SM-VERI-WEIGH', pre: ['CRS-WEIGH-01'], validDays: 365, warnDays: 30, status: 'active' },
+      { qualId: 'QD-ISSUE', name: '배치 발행 승인', kind: '승인', scope: 'ISSUE · SIGN:SM-APPR-ISSUE', pre: ['CRS-GMP-BASIC'], validDays: 365, warnDays: 30, status: 'active' },
+      { qualId: 'QD-REWEIGH', name: '재칭량 승인', kind: '승인', scope: 'SIGN:SM-APPR-REWEIGH', pre: ['CRS-WEIGH-01'], validDays: 365, warnDays: 30, status: 'active' },
+      { qualId: 'QD-PK-L02', name: '포장 라인 L02', kind: '라인', scope: 'LINE:PK-L02 (P1)', pre: ['CRS-PK-01'], validDays: 365, warnDays: 30, status: 'active' }
+    ],
+    courses: [
+      { courseId: 'CRS-WEIGH-01', name: '칭량 SOP 교육', sopId: 'SOP-WEIGH-01', ver: 2, cycle: '12개월', status: 'active' },
+      { courseId: 'CRS-BAL-01', name: '저울 EC-BAL-01 교육', sopId: 'SOP-BAL-01', ver: 1, cycle: '12개월', status: 'active' },
+      { courseId: 'CRS-BAL-02', name: '저울 EC-BAL-02 교육', sopId: 'SOP-BAL-02', ver: 1, cycle: '12개월', status: 'active' },
+      { courseId: 'CRS-GMP-BASIC', name: 'GMP 기본', sopId: 'SOP-GMP-01', ver: 3, cycle: '12개월', status: 'active' },
+      { courseId: 'CRS-PK-01', name: '포장 라인 교육', sopId: 'SOP-PK-01', ver: 1, cycle: '12개월', status: 'active' }
+    ],
+    sops: {
+      'SOP-WEIGH-01': [{ ver: 2, eff: '2026-10-01', status: 'effective', retrain: 1 }, { ver: 1, eff: '2025-10-01', status: 'superseded', retrain: 0 }],
+      'SOP-BAL-01': [{ ver: 1, eff: '2025-06-01', status: 'effective', retrain: 0 }], 'SOP-BAL-02': [{ ver: 1, eff: '2025-06-01', status: 'effective', retrain: 0 }],
+      'SOP-GMP-01': [{ ver: 3, eff: '2026-01-02', status: 'effective', retrain: 0 }], 'SOP-PK-01': [{ ver: 1, eff: '2026-03-02', status: 'effective', retrain: 0 }]
+    },
+    users: [
+      { userId: 'OP-0101', name: '작업자 A', dept: '생산1팀', roles: ['OP'] }, { userId: 'OP-0102', name: '작업자 B', dept: '생산1팀', roles: ['OP'] },
+      { userId: 'SV-0003', name: '감독자 C', dept: '생산1팀', roles: ['SV'] }, { userId: 'SV-0011', name: '최반장', dept: '생산2팀', roles: ['SV'] },
+      { userId: 'QA-0011', name: '이수진', dept: '품질보증', roles: ['QA'] }, { userId: 'QA-0012', name: '박품질', dept: '품질보증', roles: ['QA'] },
+      { userId: 'QA-0013', name: '정검증', dept: '품질보증', roles: ['QA'] }, { userId: 'QP-0001', name: 'QP D', dept: '품질보증', roles: ['QP'] },
+      { userId: 'PE-0011', name: '한공정', dept: '공정기술', roles: [] }, { userId: 'AD-0001', name: '김민수', dept: 'IT', roles: ['ADMIN'] }
+    ],
+    /* uq: state = valid|expiring|expired|outdated, status = active|superseded|revoked */
+    uq: [
+      ['UQ-0001', 'OP-0101', 'QD-WEIGH', 'valid', '2026-04-29', '2027-04-29'], ['UQ-0002', 'OP-0101', 'QD-BAL-01', 'valid', '2026-04-29', '2027-04-29'],
+      ['UQ-0003', 'OP-0101', 'QD-BAL-02', 'valid', '2026-04-29', '2027-04-29'], ['UQ-0004', 'OP-0101', 'QD-BALCHK', 'valid', '2026-04-29', '2027-04-29'],
+      ['UQ-0005', 'OP-0102', 'QD-WEIGH', 'expiring', '2025-10-21', '2026-10-21'], ['UQ-0006', 'OP-0102', 'QD-BAL-01', 'valid', '2026-03-02', '2027-03-02'],
+      ['UQ-0007', 'SV-0003', 'QD-WEIGH', 'valid', '2026-04-29', '2027-04-29'], ['UQ-0008', 'SV-0003', 'QD-BALCHK', 'valid', '2026-04-29', '2027-04-29'],
+      ['UQ-0009', 'SV-0003', 'QD-WVERI', 'valid', '2026-04-29', '2027-04-29'], ['UQ-0010', 'SV-0003', 'QD-ISSUE', 'valid', '2026-04-29', '2027-04-29'],
+      ['UQ-0011', 'SV-0003', 'QD-REWEIGH', 'valid', '2026-04-29', '2027-04-29'], ['UQ-0012', 'SV-0011', 'QD-WVERI', 'valid', '2026-04-29', '2027-04-29'],
+      ['UQ-0013', 'QA-0011', 'QD-WVERI', 'valid', '2026-04-29', '2027-04-29'], ['UQ-0014', 'QA-0011', 'QD-ISSUE', 'valid', '2026-04-29', '2027-04-29'],
+      ['UQ-0015', 'QA-0012', 'QD-ISSUE', 'expired', '2025-10-06', '2026-10-06'], ['UQ-0016', 'QA-0013', 'QD-WVERI', 'outdated', '2026-04-29', '2027-04-29'],
+      ['UQ-0017', 'QA-0013', 'QD-ISSUE', 'valid', '2026-04-29', '2027-04-29']
+    ].map(function (a) { return { uqId: a[0], userId: a[1], qualId: a[2], state: a[3], grantedAt: a[4], expiresAt: a[5], status: 'active', trIds: ['TR-0001'] }; }),
+    tr: [
+      { trId: 'TR-0001', userId: 'OP-0101', courseId: 'CRS-WEIGH-01', sopVer: 'SOP-WEIGH-01 v2', completedAt: '2026-10-02', result: 'pass', trainerId: 'SV-0011' },
+      { trId: 'TR-0002', userId: 'OP-0102', courseId: 'CRS-WEIGH-01', sopVer: 'SOP-WEIGH-01 v1', completedAt: '2025-10-15', result: 'pass', trainerId: 'SV-0011' },
+      { trId: 'TR-0003', userId: 'OP-0102', courseId: 'CRS-BAL-01', sopVer: 'SOP-BAL-01 v1', completedAt: '2026-03-02', result: 'pass', trainerId: 'SV-0011' },
+      { trId: 'TR-0004', userId: 'OP-0102', courseId: 'CRS-BAL-02', sopVer: 'SOP-BAL-02 v1', completedAt: '2026-03-02', result: 'fail', trainerId: 'SV-0011' },
+      { trId: 'TR-0005', userId: 'QA-0013', courseId: 'CRS-WEIGH-01', sopVer: 'SOP-WEIGH-01 v1', completedAt: '2025-10-15', result: 'pass', trainerId: 'SV-0003' }
+    ],
+    req: [
+      ['ISSUE', ['QD-ISSUE'], ''], ['SIGN:SM-APPR-ISSUE', ['QD-ISSUE'], ''], ['SIGN:SM-PERF-WEIGH', ['QD-WEIGH'], ''], ['SIGN:SM-VERI-WEIGH', ['QD-WVERI'], ''],
+      ['SIGN:SM-APPR-REWEIGH', ['QD-REWEIGH'], ''], ['SIGN:SM-PERF-BALCHK', ['QD-BALCHK'], '저울 일상 점검 (OP · SV)'],
+      ['SIGN:SM-PERF-BALRECHK', ['QD-BALCHK'], '규칙 추가 대기 — 저울 점검 B1-11'], ['BALCLASS:EC-BAL-01', ['QD-BAL-01'], ''], ['BALCLASS:EC-BAL-02', ['QD-BAL-02'], '']
+    ].map(function (a) { return { target: a[0], qualIds: a[1], mode: 'block', note: a[2], updBy: 'QA-0011', upd: '2026-10-11 09:00' }; }),
+    seq: 100
+  };
+  D.gate = D.req.map(function (r) { return r.target; });
+  var DEMO_LABEL = { valid: '', expiring: '임박 ', expired: '만료 ', outdated: '' };
+  function demoCell(u) {
+    var md = u.expiresAt.slice(5);
+    if (u.state === 'outdated') return { state: 'outdated', expiresAt: u.expiresAt, label: 'SOP v2' };
+    return { state: u.state, expiresAt: u.expiresAt, label: DEMO_LABEL[u.state] + md };
+  }
+  function at0() { return (document.getElementById('qAt') || {}).value || undefined; }
+  function demoActive(userId) { return D.uq.filter(function (u) { return u.userId === userId && u.status === 'active'; }); }
+
+  /* ---- EbrQual 결과 → 화면 모양 (표시 글자만 만듦 · 판정/날짜 계산 없음) ---- */
+  function cellLabel(c) {
+    var md = String(c.expiresAt || '').slice(5);
+    return c.state === 'outdated' ? 'SOP v' + (c.requiredVer || '?') : c.state === 'expiring' ? '임박 ' + md : c.state === 'expired' ? '만료 ' + md : md;
+  }
+  function normCell(c) { if (!c || c.state === 'none') return null; var o = {}; for (var k in c) o[k] = c[k]; o.label = cellLabel(c); if (c.daysLeft != null && c.state === 'expiring') o.dl = 'D-' + c.daysLeft; return o; }
+  if (Q() && typeof Q().ensureSeed === 'function') { try { var es = Q().ensureSeed({ today: (function () { return new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10); })() }); if (es && es.ok === false) console.warn('[EbrQual] ensureSeed', es); } catch (e) { console.error(e); } }
+
+  return {
+    live: function () { return !!Q(); },
+    users: function () { var l = window.P0Ui && P0Ui.connected() ? P0Ui.users() : []; return l.length ? l : D.users; },
+    qualDefs: function () { return has('listQualDefs') ? (call('listQualDefs') || []).map(function (q) { q.pre = q.pre || q.requiredCourses || []; return q; }) : D.quals; },
+    courses: function () { return has('listCourses') ? (call('listCourses') || []).map(function (c) { c.ver = c.ver != null ? c.ver : c.currentSopVer; c.cycle = c.cycle || (c.retrainDays ? c.retrainDays + '일' : '—'); return c; }) : D.courses; },
+    sopVersions: function (sopId) { return has('listSopVersions') ? (call('listSopVersions', sopId) || []).map(function (v) { v.eff = v.eff || v.effectiveFrom; v.retrain = v.retrain != null ? v.retrain : '—'; return v; }) : (D.sops[sopId] || []); },
+    matrix: function (at, userIds) {
+      if (has('matrix')) { var m = call('matrix', { at: at, userIds: userIds }) || { rows: [] }; (m.rows || []).forEach(function (r) { var c = {}; for (var k in (r.cells || {})) { var n = normCell(r.cells[k]); if (n) c[k] = n; } r.cells = c; }); return m; }
+      return { rows: userIds.map(function (id) { var c = {}; demoActive(id).forEach(function (u) { c[u.qualId] = demoCell(u); }); return { userId: id, cells: c }; }) };
+    },
+    userStatus: function (userId, at) {
+      if (has('userStatus')) {
+        var s = call('userStatus', userId, at) || {};
+        return { quals: (s.quals || []).map(function (q) { q.trIds = q.trIds || q.basisTrIds || []; return q; }), retrain: s.retrainCourses || [], courseStatus: s.courseStatus || [],
+          trainings: (s.training || []).map(function (t) { return { trId: t.trId, courseId: t.courseId, sopVer: (t.sopId || '') + ' v' + t.sopVer, completedAt: t.completedAt, result: t.result, trainerId: t.trainerId }; }) };
+      }
+      var qs = D.uq.filter(function (u) { return u.userId === userId; }).sort(function (a, b) { return (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1); });
+      return { quals: qs, trainings: D.tr.filter(function (t) { return t.userId === userId; }),
+        retrain: qs.some(function (u) { return u.status === 'active' && u.state === 'outdated'; }) ? ['CRS-WEIGH-01 (SOP-WEIGH-01 v2)'] : [] };
+    },
+    /* 선행 교육 판정은 store — DEMO 는 고정 규칙(QA-0013 · QD-WVERI = v1만 이수) */
+    prereq: function (userId, qualId) {
+      if (has('userStatus') && has('listQualDefs')) {   /* EbrQual: userStatus.courseStatus(현재 효력 버전 이수 여부) 를 표시만 */
+        var def = (call('listQualDefs') || []).filter(function (x) { return x.qualId === qualId; })[0]; if (!def) return [];
+        var cs = (call('userStatus', userId, at0()) || {}).courseStatus || [];
+        return (def.requiredCourses || []).map(function (cid) {
+          var st = cs.filter(function (x) { return x.courseId === cid; })[0] || { courseId: cid };
+          return { courseId: cid, name: st.name || '', reqVer: (st.sopId || '') + ' v' + (st.currentVer || '?'), ok: !!st.ok,
+            text: st.ok ? '이수 ' + String(st.completedAt || '').slice(5) : st.completedVer ? 'v' + st.completedVer + '만 이수' : '미이수' };
+        });
+      }
+      var q = D.quals.filter(function (x) { return x.qualId === qualId; })[0]; if (!q) return [];
+      return q.pre.map(function (cid) {
+        var c = D.courses.filter(function (x) { return x.courseId === cid; })[0] || { name: cid, sopId: '', ver: '' };
+        var t = D.tr.filter(function (x) { return x.userId === userId && x.courseId === cid && x.result === 'pass'; }).pop();
+        var ok = t && t.sopVer === c.sopId + ' v' + c.ver;
+        return { courseId: cid, name: c.name, reqVer: c.sopId + ' v' + c.ver, ok: !!ok, text: ok ? '이수 ' + t.completedAt.slice(5) : t ? t.sopVer.replace(/^.* /, '') + '만 이수' : '미이수' };
+      });
+    },
+    grant: function (p) {
+      if (has('grant')) return call('grant', p) || { ok: false, why: 'api_error' };
+      D.uq.forEach(function (u) { if (u.userId === p.userId && u.qualId === p.qualId && u.status === 'active') u.status = 'superseded'; });
+      D.uq.push({ uqId: 'UQ-' + (++D.seq), userId: p.userId, qualId: p.qualId, state: 'valid', grantedAt: p.grantedAt, expiresAt: p.expiresAt, status: 'active', trIds: [] });
+      return { ok: true, demo: true };
+    },
+    revoke: function (p) {
+      if (has('revoke')) return call('revoke', p) || { ok: false, why: 'api_error' };
+      D.uq.forEach(function (u) { if (u.uqId === p.uqId) u.status = 'revoked'; }); return { ok: true, demo: true };
+    },
+    recordTraining: function (p) {
+      if (has('recordTraining')) return call('recordTraining', p) || { ok: false, why: 'api_error' };
+      var c = D.courses.filter(function (x) { return x.courseId === p.courseId; })[0];
+      var ids = p.userIds.map(function (uid) { var id = 'TR-' + (++D.seq); D.tr.push({ trId: id, userId: uid, courseId: p.courseId, sopVer: c.sopId + ' v' + c.ver, completedAt: p.completedAt, result: p.result, trainerId: p.trainerId }); return id; });
+      return { ok: true, trIds: ids, demo: true };
+    },
+    requirements: function () { return has('listRequirements') ? (call('listRequirements') || []).map(function (r) { r.updBy = r.updBy || r.updatedBy; r.upd = r.upd || String(r.updatedAt || '').replace('T', ' ').replace(/(\d\d:\d\d)(:\d\d)?(\.\d+)?([+-]09:?00)$/, '$1 KST'); return r; }) : D.req; },
+    gateTargets: function () { return has('gateTargets') ? (call('gateTargets') || []).map(function (g) { return typeof g === 'string' ? g : g.target; }) : D.gate; },
+    saveRequirement: function (p) {
+      if (has('saveRequirement')) return call('saveRequirement', p) || { ok: false, why: 'api_error' };
+      var r = D.req.filter(function (x) { return x.target === p.target; })[0];
+      if (!r) { r = { target: p.target }; D.req.push(r); }
+      r.qualIds = p.qualIds; r.mode = p.mode; r.note = p.reason; r.updBy = p.actorId; r.upd = '(데모)';
+      return { ok: true, demo: true };
+    },
+    today: function () { var d = new Date(Date.now() + 9 * 3600000); return d.toISOString().slice(0, 10); }   /* KST 오늘 (기본값 표시용) */
+  };
+})();
+</script>
+<script>
+(function () {
+  'use strict';
+  var $ = MS.$, $$ = MS.$$, esc = MS.esc;
+  MS.load();
+  MT.shell('training-qual');
+  $('#paging').innerHTML = MT.PAGING_HTML;
+  var SCREEN = 's-adm-training-qual-ui';
+  /* 역할 목록: EbrUserSession.ROLE_PRIORITY(없으면 ROLES) — 세션 API 미로드 시에만 아래 기본값 (편집 권한 판정은 P0Ui.hasRole 'QA' 그대로) */
+  var ROLES = (function () {
+    var S = window.EbrUserSession, l = S && (Array.isArray(S.ROLE_PRIORITY) ? S.ROLE_PRIORITY : Array.isArray(S.ROLES) ? S.ROLES : null);
+    return l && l.length ? l.slice() : ['QP', 'QA', 'SV', 'OP', 'ADMIN'];
+  })();
+  var EDIT_TIP = '교육 · 자격 편집은 QA만 할 수 있습니다';
+  var ST_BADGE = { valid: ['ok', '유효'], expiring: ['warn', '만료 임박'], expired: ['error', '만료'], outdated: ['error', 'SOP 재교육'] };
+  var sel = { userId: null, uqId: null, req: null };
+
+  function isQA() { var u = P0Ui.current(); return !!u && P0Ui.hasRole(u, 'QA'); }
+  function canEdit() { return isQA(); }
+  function actor() { var u = P0Ui.current(); return u ? u.userId : ''; }
+  function userById(id) { return TQApi.users().filter(function (u) { return u.userId === id; })[0] || null; }
+  function qualName(id) { var q = TQApi.qualDefs().filter(function (x) { return x.qualId === id; })[0]; return q ? q.name : ''; }
+  /* 목록 · 상세 · 팝업 역할 배지 = 공통 블록 ROLE 그대로 (OP 포함 .badge.info 미사용 — 선택기와 같은 배지) */
+  function listRoleBadges(roles) { return P0Ui.sortRoles(roles).map(function (c) { return P0Ui.roleBadge(c); }).join(''); }
+  function rolesCell(u) { var r = P0Ui.rolesOf(u); return '<td class="ell" title="' + esc(P0Ui.sortRoles(r).join(' · ')) + '">' + (r.length ? listRoleBadges(r) : '<span class="q-none">—</span>') + '</td>'; }
+  function cellHtml(qid, c) {
+    if (!c || c.state === 'none') return '<td class="q" title="' + esc(qid + ' ' + qualName(qid) + ' · 자격 없음') + '"><span class="q-none">─</span></td>';
+    var b = ST_BADGE[c.state] || ['muted', c.state];
+    var title = c.title || (qid + ' ' + qualName(qid) + ' · ' + b[1] + ' · ' + (c.expiresAt || '') + (c.dl ? ' (' + c.dl + ')' : ''));
+    return '<td class="q" title="' + esc(title) + '"><span class="badge ' + b[0] + '">' + esc(c.label || b[1]) + '</span></td>';
+  }
+
+  /* ---------------------------------------------------------------- 탭 (UI-01) */
+  $('#tqTabs').addEventListener('click', function (e) {
+    var t = e.target.closest('.tab'); if (!t || t.disabled) return;
+    $$('#tqTabs .tab').forEach(function (x) { x.classList.toggle('active', x === t); });
+    ['status', 'quals', 'courses', 'req'].forEach(function (k) { $('#pane-' + k).classList.toggle('hidden', k !== t.dataset.tab); });
+    if (t.dataset.tab === 'quals') renderQuals(); else if (t.dataset.tab === 'courses') renderCourses(); else if (t.dataset.tab === 'req') renderReq(); else renderMatrix();
+  });
+
+  /* ---------------------------------------------------------------- 권한 (Q1) */
+  function setTip(wrap, btn, disabled, tip) { btn.disabled = !!disabled; if (wrap) wrap.title = disabled ? tip : ''; }
+  function applyAuth() {
+    var noUser = P0Ui.connected() && !P0Ui.current(), ed = canEdit();
+    var tip = noUser ? P0Ui.GATE_TIP : EDIT_TIP;
+    $$('[data-edit-tip]').forEach(function (w) { var b = w.querySelector('button'); setTip(w, b, !ed && !noUser, tip); });
+    if (ed) {
+      setTip($('#tipRevoke'), $('#btnRevoke'), !sel.uqId, '보유 자격에서 회수할 행을 선택하세요');
+      setTip($('#tipREdit'), $('#btnREdit'), !sel.req, '편집할 행을 선택하세요');
+    }
+    P0Ui.applyGate();
+  }
+
+  /* ---------------------------------------------------------------- 탭 1 매트릭스 (UI-02) */
+  function fillSearch() {
+    var depts = {}; TQApi.users().forEach(function (u) { if (u.dept) depts[u.dept] = 1; });
+    $('#qDept').innerHTML = '<option value="">전체</option>' + Object.keys(depts).map(function (d) { return '<option>' + esc(d) + '</option>'; }).join('');
+    $('#qRole').innerHTML = '<option value="">전체</option>' + ROLES.map(function (r) { return '<option>' + r + '</option>'; }).join('');
+    $('#qAt').value = TQApi.today();
+    $('#legend').innerHTML = '<span class="badge ok">유효</span><span class="badge warn">임박</span><span class="badge error">만료</span><span class="badge error">SOP 재교육</span><span class="q-none">─ 없음</span>';
+  }
+  function renderMatrix(notify) {
+    var quals = TQApi.qualDefs().slice(0, 8);   /* P0 8종 (P1: 9종 이상 가로 스크롤) */
+    $('#mxCols').innerHTML = '<col class="cw-id"><col class="cw-name"><col class="cw-role">' + quals.map(function () { return '<col class="cw-qual">'; }).join('');
+    $('#mxHead').innerHTML = '<tr><th>사용자 ID</th><th>이름</th><th>역할</th>' + quals.map(function (q) { return '<th class="q ell" title="' + esc(q.qualId + ' ' + q.name + ' · 선행 ' + (q.pre || []).join(' · ')) + '">' + esc(q.qualId) + '</th>'; }).join('') + '</tr>';
+    var dept = $('#qDept').value, role = $('#qRole').value, stf = $('#qState').value;
+    var users = TQApi.users().filter(function (u) { return (!dept || u.dept === dept) && (!role || P0Ui.rolesOf(u).indexOf(role) >= 0); });
+    var mx = TQApi.matrix($('#qAt').value, users.map(function (u) { return u.userId; }));
+    var byId = {}; (mx.rows || []).forEach(function (r) { byId[r.userId] = r.cells || {}; });
+    var list = users.filter(function (u) {
+      if (!stf) return true; var c = byId[u.userId] || {};
+      return stf === 'none' ? quals.some(function (q) { return !c[q.qualId]; }) : quals.some(function (q) { return c[q.qualId] && c[q.qualId].state === stf; });
+    });
+    $('#grdMatrix tbody').innerHTML = list.map(function (u) {
+      var c = byId[u.userId] || {};
+      return '<tr data-id="' + esc(u.userId) + '"' + (u.userId === sel.userId ? ' class="selected"' : '') + '><td class="ell mono">' + esc(u.userId) + '</td><td class="ell" title="' + esc(u.name) + '">' + esc(u.name) + '</td>' + rolesCell(u) +
+        quals.map(function (q) { return cellHtml(q.qualId, c[q.qualId]); }).join('') + '</tr>';
+    }).join('');
+    $('#mxNodata').classList.toggle('hidden', list.length > 0);
+    MesUI.setTotal('grdMatrix', list.length);
+    $('#apiBanner').classList.toggle('hidden', TQApi.live());
+    renderDetail(); applyAuth();
+    if (notify) MesUI.toast('조회 완료 — ' + list.length + '명', 'info', 1500);
+  }
+  function renderDetail() {
+    var u = sel.userId && userById(sel.userId);
+    $('#selInfo').textContent = u ? u.userId + ' 선택' : '';
+    if (!u) {
+      $('#dtTitle').textContent = '선택 사용자';
+      $('#dtSummary').innerHTML = '<span class="label">안내</span><span class="field span-2"><span class="sub-info">왼쪽 매트릭스에서 사용자를 선택하세요</span></span>';
+      $('#grdHeld tbody').innerHTML = ''; $('#grdTr tbody').innerHTML = ''; sel.uqId = null; return;
+    }
+    var s = TQApi.userStatus(u.userId, $('#qAt').value);
+    $('#dtTitle').textContent = u.userId + ' ' + u.name;
+    var rt = (s.retrain || []).join(' · ');
+    $('#dtSummary').innerHTML = '<span class="label">사용자 ID</span><span class="field"><span class="text mono">' + esc(u.userId) + '</span></span><span class="label">이름</span><span class="field"><span class="text">' + esc(u.name) + '</span></span>' +
+      '<span class="label">역할</span><span class="field"><span class="text">' + (listRoleBadges(P0Ui.rolesOf(u)) || '—') + '</span></span><span class="label">상태</span><span class="field"><span class="text">' + (P0Ui.statusBadge(u.status) || '활성') + '</span></span>' +
+      '<span class="label">재교육 필요 과정</span><span class="field span-2"><span class="text ell" title="' + esc(rt) + '">' + (rt ? '<span class="badge error">' + esc(rt) + '</span>' : '<span class="q-none">없음</span>') + '</span></span>';
+    $('#grdHeld tbody').innerHTML = (s.quals || []).map(function (q) {
+      var b = q.status === 'superseded' ? ['muted', '대체됨'] : q.status === 'revoked' ? ['muted', '회수'] : (ST_BADGE[q.state] || ['muted', q.state]);
+      var tr = (q.trIds || []).join(' · ');
+      return '<tr data-uq="' + esc(q.uqId) + '" data-active="' + (q.status === 'active' ? 1 : 0) + '"' + (q.uqId === sel.uqId ? ' class="selected"' : '') + '><td class="mono">' + esc(q.qualId) + '</td><td><span class="badge ' + b[0] + '">' + b[1] + '</span></td><td>' + esc(q.grantedAt || '') + '</td><td>' + esc(q.expiresAt || '') + '</td><td class="ell" title="' + esc(tr) + '">' + esc(tr || '—') + '</td></tr>';
+    }).join('');
+    $('#grdTr tbody').innerHTML = (s.trainings || []).map(function (t) {
+      return '<tr><td class="mono">' + esc(t.trId) + '</td><td class="ell">' + esc(t.courseId) + '</td><td class="ell">' + esc(t.sopVer) + '</td><td>' + esc(t.completedAt) + '</td><td>' + (t.result === 'fail' ? '<span class="badge error">불합격</span>' : '합격') + '</td><td>' + esc(t.trainerId || '') + '</td></tr>';
+    }).join('');
+  }
+  $('#grdMatrix').addEventListener('click', function (e) { var tr = e.target.closest('tbody tr[data-id]'); if (!tr) return; sel.userId = tr.dataset.id; sel.uqId = null; $$('#grdMatrix tbody tr').forEach(function (x) { x.classList.toggle('selected', x === tr); }); renderDetail(); applyAuth(); });
+  $('#grdHeld').addEventListener('click', function (e) { var tr = e.target.closest('tbody tr[data-uq]'); if (!tr) return; sel.uqId = tr.dataset.active === '1' ? tr.dataset.uq : null; $$('#grdHeld tbody tr').forEach(function (x) { x.classList.toggle('selected', x === tr && !!sel.uqId); }); applyAuth(); });
+
+  /* ---------------------------------------------------------------- 탭 2 · 3 (읽기 전용) */
+  function renderQuals() {
+    var l = TQApi.qualDefs();
+    $('#grdQual tbody').innerHTML = l.map(function (q) {
+      var pre = (q.pre || []).join(' · ');
+      return '<tr><td class="mono">' + esc(q.qualId) + '</td><td class="ell">' + esc(q.name) + '</td><td>' + esc(q.kind || '') + '</td><td class="ell mono" title="' + esc(q.scope || '') + '">' + esc(q.scope || '') + '</td>' +
+        '<td class="ell" title="' + esc(pre) + '">' + (q.pre || []).map(function (c) { return '<span class="badge">' + esc(c) + '</span>'; }).join('') + '</td><td class="num">' + esc(q.validDays) + '</td><td class="num">' + esc(q.warnDays) + '</td>' +
+        '<td class="center">' + (q.status === 'active' ? '<span class="badge lc-effective">사용</span>' : '<span class="badge muted">중지</span>') + '</td></tr>';
+    }).join('');
+    MesUI.setTotal('grdQual', l.length);
+  }
+  var selCourse = null;
+  function renderCourses() {
+    var l = TQApi.courses(); if (!selCourse && l[0]) selCourse = l[0].courseId;
+    $('#grdCourse tbody').innerHTML = l.map(function (c) {
+      return '<tr data-c="' + esc(c.courseId) + '"' + (c.courseId === selCourse ? ' class="selected"' : '') + '><td class="mono">' + esc(c.courseId) + '</td><td class="ell">' + esc(c.name) + '</td><td class="mono">' + esc(c.sopId) + '</td><td>v' + esc(c.ver) + '</td><td>' + esc(c.cycle || '') + '</td><td class="center"><span class="badge lc-effective">사용</span></td></tr>';
+    }).join('');
+    MesUI.setTotal('grdCourse', l.length);
+    var c = l.filter(function (x) { return x.courseId === selCourse; })[0];
+    var v = c ? TQApi.sopVersions(c.sopId) : [];
+    $('#sopTitle').textContent = 'SOP 버전' + (c ? ' — ' + c.sopId : '');
+    $('#grdSop tbody').innerHTML = v.map(function (s) {
+      return '<tr><td class="mono">' + esc(c.sopId) + '</td><td>v' + esc(s.ver) + '</td><td>' + esc(s.eff) + '</td><td class="center">' + (s.status === 'effective' ? '<span class="badge lc-effective">효력</span>' : '<span class="badge lc-superseded">대체됨</span>') + '</td><td class="num">' + esc(s.retrain) + '명</td></tr>';
+    }).join('');
+    MesUI.setTotal('grdSop', v.length);
+  }
+  $('#grdCourse').addEventListener('click', function (e) { var tr = e.target.closest('tbody tr[data-c]'); if (tr) { selCourse = tr.dataset.c; renderCourses(); } });
+
+  /* ---------------------------------------------------------------- 탭 4 요구 매핑 (UI-05) */
+  function renderReq(notify) {
+    var reqs = TQApi.requirements(), gate = TQApi.gateTargets(), have = {};
+    reqs.forEach(function (r) { have[r.target] = 1; });
+    var unset = gate.filter(function (k) { return !have[k]; }).map(function (k) { return { target: k, unset: true }; });
+    var kind = $('#rKind').value, mode = $('#rMode').value, onlyUnset = $('#rUnset').checked;
+    var rows = unset.concat(onlyUnset ? [] : reqs).filter(function (r) {
+      return (!kind || r.target.split(':')[0] === kind) && (!mode || r.unset || r.mode === mode);
+    });
+    $('#grdReq tbody').innerHTML = rows.map(function (r) {
+      var k = r.target.split(':')[0];
+      if (r.unset) return '<tr data-t="' + esc(r.target) + '" data-unset="1"><td class="mono">' + esc(r.target) + '</td><td>' + esc(k) + '</td><td class="q-none">—</td><td class="q-none">—</td><td class="center"><span class="badge error">미설정</span></td><td class="ell">게이트 사용 키 — 매핑 없음(차단)</td><td>—</td></tr>';
+      var qs = (r.qualIds || []).join(' · ');
+      return '<tr data-t="' + esc(r.target) + '"' + (sel.req === r.target ? ' class="selected"' : '') + '><td class="mono">' + esc(r.target) + '</td><td>' + esc(k) + '</td><td class="ell" title="' + esc(qs) + '">' +
+        ((r.qualIds || []).length ? r.qualIds.map(function (q) { return '<span class="badge">' + esc(q) + '</span>'; }).join('') : '자격 불요(명시)') + '</td>' +
+        '<td>' + (r.mode === 'warn' ? '경고' : '차단') + '</td><td class="center"></td><td class="ell" title="' + esc(r.note || '') + '">' + esc(r.note || '') + '</td><td class="ell">' + esc((r.updBy || '') + ' · ' + (r.upd || '')) + '</td></tr>';
+    }).join('');
+    $('#reqNodata').classList.toggle('hidden', rows.length > 0);
+    MesUI.setTotal('grdReq', rows.length);
+    applyAuth();
+    if (notify) MesUI.toast('조회 완료 — ' + rows.length + '건', 'info', 1500);
+  }
+  $('#grdReq').addEventListener('click', function (e) { var tr = e.target.closest('tbody tr[data-t]'); if (!tr) return; sel.req = tr.dataset.t; $$('#grdReq tbody tr').forEach(function (x) { x.classList.toggle('selected', x === tr); }); applyAuth(); });
+  $('#grdReq').addEventListener('dblclick', function (e) { var tr = e.target.closest('tbody tr[data-t]'); if (tr && canEdit()) openReq(tr.dataset.t); });
+
+  /* ---------------------------------------------------------------- 툴바 */
+  $('#view-tq').addEventListener('click', function (e) {
+    var t = e.target.closest('[data-act]'); if (!t || t.disabled) return;
+    var a = t.dataset.act;
+    if (a === 'search') renderMatrix(true);
+    else if (a === 'reset') { $('#qDept').value = ''; $('#qRole').value = ''; $('#qState').value = ''; $('#qAt').value = TQApi.today(); $('#qWarn').value = 30; renderMatrix(); }
+    else if (a === 'rsearch') renderReq(true);
+    else if (a === 'rreset') { $('#rKind').value = ''; $('#rMode').value = ''; $('#rUnset').checked = false; renderReq(); }
+    else if (a === 'excel') MesUI.toast('(데모) Excel 내보내기는 PoC 범위 밖입니다.', 'info');
+    else if (!canEdit()) MesUI.toast(EDIT_TIP, 'warn', 2000);
+    else if (a === 'grant') openGrant();
+    else if (a === 'revoke') openRevoke();
+    else if (a === 'record') openRecord();
+    else if (a === 'rnew') openReq(null);
+    else if (a === 'redit') openReq(sel.req);
+  });
+
+  /* ---------------------------------------------------------------- UI-03 부여 */
+  function userOpts(selId) { return '<option value="">선택</option>' + TQApi.users().map(function (u) { return '<option value="' + esc(u.userId) + '"' + (u.userId === selId ? ' selected' : '') + '>' + esc(u.userId + ' ' + u.name) + '</option>'; }).join(''); }
+  function addDays(d, n) { /* 기본 만료일 제안값 (수정 가능) — 판정 아님 */ var t = Date.parse(d); if (isNaN(t)) return ''; return new Date(t + n * 86400000).toISOString().slice(0, 10); }
+  function openGrant() {
+    $('#gUser').innerHTML = userOpts(sel.userId);
+    $('#gQual').innerHTML = '<option value="">선택</option>' + TQApi.qualDefs().map(function (q) { return '<option value="' + esc(q.qualId) + '">' + esc(q.qualId + ' ' + q.name) + '</option>'; }).join('');
+    $('#gFrom').value = TQApi.today(); $('#gTo').value = ''; $('#gReason').value = '';
+    var c = P0Ui.current(); $('#gActor').textContent = '부여자 = 현재 사용자 ' + (c ? c.userId + ' ' + c.name : '—') + ' · 감사 QUAL_GRANT';
+    syncGrant(); MesUI.openDialog('dlgQualGrant');
+  }
+  function syncGrant() {
+    var uid = $('#gUser').value, qid = $('#gQual').value, u = userById(uid), q = TQApi.qualDefs().filter(function (x) { return x.qualId === qid; })[0];
+    $('#gUserInfo').innerHTML = u ? (listRoleBadges(P0Ui.rolesOf(u)) || '—') : '—';
+    $('#gValid').textContent = q ? '기본 ' + q.validDays + '일' : '—';
+    if (q && !$('#gTo').value) $('#gTo').value = addDays($('#gFrom').value, q.validDays);
+    var pre = uid && qid ? TQApi.prereq(uid, qid) : [];
+    $('#grdPre tbody').innerHTML = pre.map(function (p) { return '<tr><td class="mono">' + esc(p.courseId) + '</td><td class="ell">' + esc(p.name) + '</td><td>' + esc(p.reqVer) + '</td><td><span class="badge ' + (p.ok ? 'ok' : 'error') + '">' + esc(p.text) + '</span></td></tr>'; }).join('');
+    var bad = pre.some(function (p) { return !p.ok; }), self = uid && uid === actor();
+    var exist = uid && qid && (TQApi.userStatus(uid, $('#gFrom').value).quals || []).filter(function (x) { return x.qualId === qid && x.status === 'active'; })[0];
+    var tip = '';
+    if (bad) { $('#gJudge').innerHTML = '<span class="badge error">부여 불가</span><span>선행 교육 미충족 (training_outdated_sop)</span>'; tip = '선행 교육 미충족 (training_outdated_sop)'; }
+    else if (exist) $('#gJudge').innerHTML = '<span class="sub-info">기존 자격(만료 ' + esc((exist.expiresAt || '').slice(5)) + ')은 대체됩니다 — 감사 QUAL_SUPERSEDE</span>';
+    else $('#gJudge').innerHTML = '';
+    if (self) tip = '자기 자신에게는 부여할 수 없습니다 (self_grant)';
+    else if (!uid || !qid) tip = '대상 사용자와 자격을 고르세요';
+    else if (!$('#gFrom').value || !$('#gTo').value) tip = '부여일 · 만료일을 입력하세요';
+    else if (!tip && !$('#gReason').value.trim()) tip = '사유를 입력하세요';
+    $('#gCount').textContent = $('#gReason').value.length + '/200';
+    setTip($('#tipGSave'), $('#gSave'), !!tip || !canEdit(), tip || EDIT_TIP);
+  }
+  ['gUser', 'gQual'].forEach(function (id) { $('#' + id).addEventListener('change', function () { $('#gTo').value = ''; syncGrant(); }); });
+  ['gFrom', 'gTo', 'gReason'].forEach(function (id) { $('#' + id).addEventListener('input', syncGrant); });
+  $('#gSave').addEventListener('click', function () {
+    if ($('#gSave').disabled) return;
+    var r = TQApi.grant({ userId: $('#gUser').value, qualId: $('#gQual').value, grantedAt: $('#gFrom').value, expiresAt: $('#gTo').value, reason: $('#gReason').value.trim(), actorId: actor(), screen: SCREEN });
+    if (!r || !r.ok) { $('#gJudge').innerHTML = '<span class="badge error">부여 실패</span><span>' + esc((r && (r.message || r.why)) || '저장하지 못했습니다') + (r && r.why === 'audit_error' ? ' — 감사 저장 실패로 저장 취소' : '') + '</span>'; return; }
+    MesUI.closeDialog('dlgQualGrant'); sel.userId = $('#gUser').value; renderMatrix();
+    MesUI.toast('자격을 부여했습니다' + (r.demo ? ' (데모 — 저장 없음)' : '') + '.', 'ok');
+  });
+
+  /* ---------------------------------------------------------------- UI-03 회수 */
+  function openRevoke() {
+    if (!sel.uqId) return;
+    var q = (TQApi.userStatus(sel.userId, $('#qAt').value).quals || []).filter(function (x) { return x.uqId === sel.uqId; })[0]; if (!q) return;
+    var u = userById(sel.userId);
+    $('#rvInfo').innerHTML = '<span class="label">사용자</span><span class="field"><span class="text">' + esc(u.userId + ' ' + u.name) + '</span></span>' +
+      '<span class="label">자격</span><span class="field"><span class="text">' + esc(q.qualId + ' ' + qualName(q.qualId)) + '</span></span>' +
+      '<span class="label">만료일 · 근거</span><span class="field"><span class="text">' + esc((q.expiresAt || '') + ' · ' + (q.trIds || []).join(' · ')) + '</span></span>';
+    $('#rvReason').value = ''; syncRevoke(); MesUI.openDialog('dlgQualRevoke');
+  }
+  function syncRevoke() { setTip($('#tipRvSave'), $('#rvSave'), !$('#rvReason').value.trim() || !canEdit(), canEdit() ? '사유를 입력하세요' : EDIT_TIP); }
+  $('#rvReason').addEventListener('input', syncRevoke);
+  $('#rvSave').addEventListener('click', function () {
+    if ($('#rvSave').disabled) return;
+    var r = TQApi.revoke({ uqId: sel.uqId, reason: $('#rvReason').value.trim(), actorId: actor(), screen: SCREEN });
+    if (!r || !r.ok) { MesUI.alert((r && (r.message || r.why)) || '회수하지 못했습니다', 'Warning'); return; }
+    MesUI.closeDialog('dlgQualRevoke'); sel.uqId = null; renderMatrix();
+    MesUI.toast('자격을 회수했습니다' + (r.demo ? ' (데모 — 저장 없음)' : '') + '.', 'ok');
+  });
+
+  /* ---------------------------------------------------------------- UI-04 이수 등록 */
+  var trainees = [];
+  function openRecord() {
+    var cs = TQApi.courses();
+    $('#tCourse').innerHTML = cs.map(function (c) { return '<option value="' + esc(c.courseId) + '">' + esc(c.courseId + ' ' + c.name) + '</option>'; }).join('');
+    trainees = sel.userId ? [sel.userId] : [];
+    $('#tTrainer').innerHTML = userOpts('');
+    $('#tDate').value = TQApi.today(); $('#tNote').value = ''; $('#tResult').value = 'pass';
+    syncRecord(); MesUI.openDialog('dlgTrainingRecord');
+  }
+  function syncRecord() {
+    var c = TQApi.courses().filter(function (x) { return x.courseId === $('#tCourse').value; })[0];
+    var eff = c ? (TQApi.sopVersions(c.sopId).filter(function (s) { return s.status === 'effective'; })[0] || {}) : {};
+    $('#tSop').textContent = c ? c.sopId + ' v' + c.ver + (eff.eff ? ' (효력 ' + eff.eff + ')' : '') : '—';
+    var shown = trainees.slice(0, 12);
+    $('#tTrainees').innerHTML = shown.map(function (id) { return '<span class="badge" data-rm="' + esc(id) + '" title="클릭하여 제거">' + esc(id) + ' ×</span>'; }).join('') + (trainees.length > 12 ? '<span class="sub-info" title="' + esc(trainees.slice(12).join(' · ')) + '">외 ' + (trainees.length - 12) + '명</span>' : '');
+    $('#tAdd').innerHTML = '<option value="">+ 추가</option>' + TQApi.users().filter(function (u) { return trainees.indexOf(u.userId) < 0; }).map(function (u) { return '<option value="' + esc(u.userId) + '">' + esc(u.userId + ' ' + u.name) + '</option>'; }).join('');
+    var tr = $('#tTrainer').value, clash = tr && trainees.indexOf(tr) >= 0, tip = '';
+    $('#tJudge').innerHTML = clash ? '<span class="badge error">등록 불가</span><span>이수자와 교육자가 같습니다 (trainer_is_trainee)</span>' : '';
+    if (clash) tip = '이수자와 교육자가 같습니다 (trainer_is_trainee)';
+    else if (!trainees.length) tip = '이수자를 추가하세요'; else if (!tr) tip = '교육자를 고르세요'; else if (!$('#tDate').value) tip = '이수일을 입력하세요';
+    setTip($('#tipTSave'), $('#tSave'), !!tip || !canEdit(), tip || EDIT_TIP);
+  }
+  $('#tAdd').addEventListener('change', function () { if (this.value) trainees.push(this.value); syncRecord(); });
+  $('#tTrainees').addEventListener('click', function (e) { var b = e.target.closest('[data-rm]'); if (b) { trainees = trainees.filter(function (x) { return x !== b.dataset.rm; }); syncRecord(); } });
+  ['tCourse', 'tTrainer', 'tDate'].forEach(function (id) { $('#' + id).addEventListener('change', syncRecord); });
+  $('#tSave').addEventListener('click', function () {
+    if ($('#tSave').disabled) return;
+    var r = TQApi.recordTraining({ courseId: $('#tCourse').value, userIds: trainees.slice(), completedAt: $('#tDate').value, method: $('#tMethod').value, result: $('#tResult').value, trainerId: $('#tTrainer').value, note: $('#tNote').value.trim(), actorId: actor(), screen: SCREEN });
+    if (!r || !r.ok) { $('#tJudge').innerHTML = '<span class="badge error">저장 실패</span><span>' + esc((r && (r.message || r.why)) || '저장하지 못했습니다') + '</span>'; return; }
+    MesUI.closeDialog('dlgTrainingRecord'); renderMatrix();
+    MesUI.toast('교육 이수 ' + (r.trIds || []).length + '건 등록' + (r.demo ? ' (데모 — 저장 없음)' : '') + '.', 'ok');
+  });
+
+  /* ---------------------------------------------------------------- UI-05 요구 매핑 편집 */
+  var rqOrig = null;
+  function openReq(target) {
+    var r = target ? TQApi.requirements().filter(function (x) { return x.target === target; })[0] : null;
+    rqOrig = target;
+    $('#rqTitle').textContent = target ? '요구 매핑 편집' : '요구 매핑 신규';
+    $('#rqTarget').value = target || ''; $('#rqTarget').readOnly = !!target;
+    var qs = (r && r.qualIds) || [];
+    $('#rqQuals').innerHTML = TQApi.qualDefs().map(function (q) { return '<label class="checkbox" title="' + esc(q.name) + '"><input type="checkbox" value="' + esc(q.qualId) + '"' + (qs.indexOf(q.qualId) >= 0 ? ' checked' : '') + '> ' + esc(q.qualId) + '</label>'; }).join('');
+    $('#rqNone').checked = !!(r && !qs.length);
+    $$('input[name=rqMode]').forEach(function (x) { x.checked = x.value === ((r && r.mode) || 'block'); });
+    $('#rqReason').value = '';
+    syncReq(); MesUI.openDialog('dlgQualReq');
+  }
+  function rqChecked() { return $$('#rqQuals input:checked').map(function (c) { return c.value; }); }
+  function syncReq() {
+    var none = $('#rqNone').checked;
+    $$('#rqQuals input').forEach(function (c) { if (none) c.checked = false; c.disabled = none; });
+    var tip = !$('#rqTarget').value.trim() ? '대상 키를 입력하세요' : (!none && !rqChecked().length) ? "요구 자격을 고르거나 '자격 불요'를 체크하세요" : !$('#rqReason').value.trim() ? '사유를 입력하세요' : '';
+    setTip($('#tipRqSave'), $('#rqSave'), !!tip || !canEdit(), tip || EDIT_TIP);
+  }
+  ['rqTarget', 'rqReason'].forEach(function (id) { $('#' + id).addEventListener('input', syncReq); });
+  $('#rqNone').addEventListener('change', syncReq); $('#rqQuals').addEventListener('change', syncReq);
+  $('#rqSave').addEventListener('click', function () {
+    if ($('#rqSave').disabled) return;
+    var mode = ($$('input[name=rqMode]').filter(function (x) { return x.checked; })[0] || {}).value || 'block';
+    var r = TQApi.saveRequirement({ target: $('#rqTarget').value.trim(), qualIds: $('#rqNone').checked ? [] : rqChecked(), mode: mode, reason: $('#rqReason').value.trim(), actorId: actor(), screen: SCREEN });
+    if (!r || !r.ok) { MesUI.alert((r && (r.message || r.why)) || '저장하지 못했습니다', 'Warning'); return; }
+    MesUI.closeDialog('dlgQualReq'); renderReq();
+    MesUI.toast('요구 매핑을 저장했습니다' + (r.demo ? ' (데모 — 저장 없음)' : '') + '.', 'ok');
+  });
+
+  /* ---------------------------------------------------------------- 분할 (rs-gutter, DESIGN §14-b — 좌표 ÷ --scale, 더블클릭 3:2 복원, LS {left}) */
+  var SPLIT_KEY = 'ebr.trainingQual.split.v1', PANE_MIN = 480;
+  function scaleOf() { var v = parseFloat(getComputedStyle($('#shellScale')).getPropertyValue('--scale')); return v > 0 ? v : 1; }
+  function applySplit(left) {
+    var pane = $('#paneMatrix');
+    if (left == null) { pane.style.flex = ''; pane.style.width = ''; return; }
+    var s = scaleOf(), w = $('#tqSplit').getBoundingClientRect().width / s, g = $('#tqGutter').getBoundingClientRect().width / s;
+    var lo = Math.max(PANE_MIN, Math.min(w - g - PANE_MIN, left | 0));
+    pane.style.flex = '0 0 ' + lo + 'px'; pane.style.width = lo + 'px';
+  }
+  (function bindGutter() {
+    var gut = $('#tqGutter');
+    gut.addEventListener('mousedown', function (ev) {
+      ev.preventDefault();
+      var x0 = ev.clientX, l0 = $('#paneMatrix').getBoundingClientRect().width / scaleOf();
+      gut.classList.add('is-drag'); document.body.classList.add('is-resizing');
+      function mv(e) { applySplit(l0 + (e.clientX - x0) / scaleOf()); }
+      function up() {
+        document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up);
+        gut.classList.remove('is-drag'); document.body.classList.remove('is-resizing');
+        try { localStorage.setItem(SPLIT_KEY, JSON.stringify({ left: Math.round($('#paneMatrix').getBoundingClientRect().width / scaleOf()) })); } catch (e) { /* ignore */ }
+      }
+      document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up);
+    });
+    gut.addEventListener('dblclick', function () { applySplit(null); try { localStorage.removeItem(SPLIT_KEY); } catch (e) { /* ignore */ } });
+    try { var sv = JSON.parse(localStorage.getItem(SPLIT_KEY) || 'null'); if (sv && sv.left) applySplit(sv.left); } catch (e) { /* ignore */ }
+  })();
+
+  /* ---------------------------------------------------------------- 시작 · 사용자 전환 */
+  fillSearch();
+  P0Ui.onUserChange(function () { $$('.dialog-backdrop.open').forEach(function (d) { MesUI.closeDialog(d.id); }); applyAuth(); });
+  P0Ui.ready(function () { renderMatrix(); });
+  renderMatrix();
+})();
+</script>
+<script>
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

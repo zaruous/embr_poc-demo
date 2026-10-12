@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <!--
   화면 id      : s-ebr-material-qc-ui  (EBR · 자재 LOT QC P0-1)
-  역할         : 자재 LOT QC 상태 CRUD(데모) — quarantine→testing→released / rejected
+  역할         : 자재 LOT QC 상태 — quarantine→testing(확인 창) · testing→released / rejected = 판정 전자서명(EbrExecSign.beginMatQcSign · SM-APPR-MATQC)
+                 판정 서명 열 = EbrSignStatus.matqcSignStatus (화면은 판정 필드를 직접 쓰지 않음) · 레거시 released → [판정 서명] 재확인
   공용 자산     : ./assets/mesui.css · ./assets/mesui.js · ./assets/ebr-p0-stores.js
   저장         : localStorage ebr.materialLot.v1 (MatQC)
   CLIENT_TYPE  : UI (shell-ui 1920×1080, shell-scale · fitShellToViewport)
@@ -17,35 +18,63 @@
 <style>
   body { margin: 0; }
   .callout {
-    display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
-    padding: 8px 14px; border: 1px solid #6952db; background: #f7f5fe; border-radius: 4px;
-    font-size: 12px; color: #4433a8;
+    display: flex; flex-wrap: wrap; gap: var(--title-gap) var(--fs-group); align-items: center;
+    padding: var(--title-gap) var(--fs-grid); border: 1px solid var(--c-sign-reviewed); background: var(--bc-quality); border-radius: var(--radius);
+    font-size: var(--fs-grid); color: var(--c-text);
   }
-  .callout .tag {
-    display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
-    border-radius: 11px; background: #6952db; color: #fff; font-weight: bold; white-space: nowrap;
-  }
-  .banner-gate {
-    display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px;
-    border: 1px solid #f0c75e; background: #fff8e6; font-size: 12px; color: #8a5a00;
-  }
-  .st-chip {
-    display: inline-flex; align-items: center; height: 20px; padding: 0 8px;
-    border-radius: 10px; font-size: 11px; font-weight: bold; border: 1px solid #cbd5e1;
-  }
-  .st-quarantine { background: #fef9c3; border-color: #fde047; color: #854d0e; }
-  .st-testing { background: #e0f2fe; border-color: #7dd3fc; color: #075985; }
-  .st-released { background: #dcfce7; border-color: #86efac; color: #166534; }
-  .st-rejected { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
-  .st-expired { background: #f1f5f9; border-color: #94a3b8; color: #475569; }
-  #grdMat tbody tr.is-selected td { background: #eef2ff; }
-  .act-row { display: inline-flex; flex-wrap: wrap; gap: 4px; }
-  /* UI-13 E7: 재시험일 · 유효일 셀 — 날짜 + 배지(EbrDispense.NEAR_LOT_DAYS 이내 warn · 지남 error), 한 줄 ellipsis + title */
+  .callout .tag { display: inline-flex; align-items: center; height: var(--ctrl-h-form); padding: 0 var(--title-gap); border-radius: var(--fs-grid); background: var(--c-sign-reviewed); color: var(--c-bg); font-weight: bold; white-space: nowrap; }
+  .callout .vbar { width: 1px; height: var(--fs-group); background: var(--c-border-04); }
+  .callout a { color: var(--c-primary); text-decoration: none; font-weight: bold; }
+  .callout a:hover { text-decoration: underline; }
+  .banner-gate { display: flex; align-items: center; gap: var(--title-gap); min-height: var(--ctrl-h); padding: 0 var(--fs-grid); border: 1px solid var(--c-warn); background: var(--bc-alam); font-size: var(--fs-grid); color: var(--c-text); }
+  .banner-gate code { font-family: var(--font-mono); }
+  .grid-block.fill { flex: 1 1 auto; min-height: 0; }
+  #grdMat tbody tr.is-selected td { background: var(--c-row-selected); }
+  .act-row { display: inline-flex; flex-wrap: wrap; gap: var(--badge-gap); }
   #grdMat td.date-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #grdMat td.date-cell .badge { margin-left: 4px; }
-  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  #grdMat td.date-cell .badge { margin-left: var(--badge-gap); }
+  #grdMat td.sig-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #grdMat td.sig-cell > .sig-in { display: inline-flex; align-items: center; gap: var(--badge-gap); max-width: 100%; min-width: 0; }
+  #grdMat td.sig-cell .sign-slot { flex: 0 1 auto; }
+  #grdMat td.upd { font-size: var(--fs-grid); }
+  #grdMat col.c-lot { width: var(--col-w-role); } #grdMat col.c-mat { width: var(--col-w-140); } #grdMat col.c-qty { width: var(--col-w-name); }
+  #grdMat col.c-st { width: var(--col-w-role); } #grdMat col.c-date { width: var(--col-w-qty); } #grdMat col.c-upd { width: var(--col-w-160); } #grdMat col.c-sig { width: var(--col-w-240); }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--c-bg); }
   body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
   #shellScale.shell-scale { flex: 0 0 auto; }
+  /* ==== 공통 서명 창 #dlgRecSign (1100 × 700 — 발행 서명 창 틀 재사용, 4개 화면 같은 블록) · 공용 클래스(.sign-meaning · .sign-dot · .auth-panel · .auth-row · .qual-msg · .qual-req · .sign-err · .sign-statement)는 Elephant CSS(mesui.css) — 여기는 창별 #id 덮기만 ==== */
+  #dlgRecSign .popup-title .text { display: inline-flex; align-items: center; gap: var(--title-gap); min-width: 0; }
+  #dlgRecSign .split.sign-split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--split-gutter); flex: 1 1 auto; min-height: 0; }
+  #dlgRecSign .split.sign-split > .grid-block { min-height: 0; min-width: 0; }
+  #dlgRecSign .grid-wrap { overflow: hidden; }
+  #grdRecSignVal td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #grdRecSignVal .col-item { width: var(--col-w-200); }
+  #dlgRecSign .form-grid .field .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #dlgRecSign .auth-row > .input { height: var(--ctrl-h-form); }
+  .user-card { border: 1px solid var(--c-border-04); border-radius: var(--radius); padding: var(--title-gap) var(--fs-grid); display: flex; align-items: baseline; gap: var(--title-gap); background: var(--c-board-normal); flex-wrap: wrap; }
+  .user-card .name { font-size: var(--fs-group); font-weight: bold; }
+  .user-card .badges { display: inline-flex; align-items: center; gap: var(--badge-gap); flex-wrap: wrap; align-self: center; }
+  .auth-panel .sign-rule, .auth-panel .qual-req, .auth-panel .one-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #dlgRecSign .auth-panel { overflow: hidden; }
+  #dlgRecSign .sign-err { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #dlgRecSign .sign-statement { flex: 0 0 var(--form-row-h); height: var(--form-row-h); display: flex; align-items: center; padding: 0 var(--fs-grid); border: 1px solid var(--c-border-05); background: var(--bc-gray-light); font-size: var(--fs-grid); min-width: 0; overflow: hidden; }
+  #dlgRecSign .sign-statement > .stmt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35; }
+  #dlgRecSign .dialog-footer .sign-note { margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* 서명 슬롯 표시 (§2 색 대응표): signed = 의미 점 + ID · 시각, pending = .badge.muted, invalid = .badge.error, na = .badge */
+  .sign-slot .sign-dot { margin-right: 0; }
+  .sign-slot { display: inline-flex; align-items: center; gap: var(--badge-gap); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* ==== 현재 사용자 선택기 · 역할 배지 (공통 블록 — 배치 발행 · 칭량 화면과 같음) ==== */
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: var(--split-gutter); min-width: 0; white-space: nowrap; }
+  .title-bar > .user-switch + .breadcrumb { margin-left: var(--fs-grid); }
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: var(--badge-gap); min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  #dlgRecSign [hidden] { display: none; }   /* QA 대행 배지 등 — .badge display 보다 우선 */
+  body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
+  .lnk { color: var(--c-primary); cursor: pointer; text-decoration: none; }
+  .lnk:hover { color: var(--c-primary-active); }
 </style>
 </head>
 <body>
@@ -53,8 +82,9 @@
   <div class="title-bar">
     <span class="title-left">
       <span class="main-title"><span class="mod-tag">EBR</span>자재 LOT QC</span>
-      <span class="sub-info"><i class="ic-info"></i>P0-1 · MatQC — 격리→시험→적합 / 부적합 (전자서명 P1)</span>
+      <span class="sub-info"><i class="ic-info"></i>MatQC — 격리→시험→적합 / 부적합 (판정 = 전자서명 · QA)</span>
     </span>
+    <span class="user-switch" id="userSwitch"></span>
     <span class="breadcrumb">
       <span>eBR</span><span class="sep">&rsaquo;</span><span>자재</span><span class="sep">&rsaquo;</span><span class="current">LOT QC</span>
       <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
@@ -73,10 +103,11 @@
       <span class="tag">MatQC</span>
       <span>시드: <b>API-2410</b> quarantine · <b>API-2409</b>/<b>LAC-2411</b>/<b>MGS-2403</b> released</span>
       <span class="vbar"></span>
-      <span>전이: quarantine → testing → released / rejected (confirm, no e-sign)</span>
+      <span>전이: quarantine → testing (확인 창) → released / rejected (판정 전자서명 SM-APPR-MATQC)</span>
       <span class="spacer"></span>
       <a href="./s-ebr-production-exec-ui.html">생산 실행 ↗</a>
       <a href="./s-ebr-release-gate-ui.html">출하 게이트 ↗</a>
+      <a href="./s-ebr-esign-history-ui.html?signRuleId=SM-APPR-MATQC" id="lnkS42">S-42 서명 내역 ›</a>
     </div>
 
     <div class="grid-block fill">
@@ -95,9 +126,9 @@
       <div class="grid-wrap">
         <table class="grid selectable" id="grdMat">
           <colgroup>
-            <col class="col-no"><col style="width:120px"><col style="width:140px">
-            <col style="width:90px"><col style="width:110px"><col style="width:110px">
-            <col style="width:110px"><col style="width:160px"><col>
+            <col class="col-no"><col class="c-lot"><col class="c-mat">
+            <col class="c-qty"><col class="c-st"><col class="c-date">
+            <col class="c-date"><col class="c-upd"><col class="c-sig"><col>
           </colgroup>
           <thead>
             <tr>
@@ -109,6 +140,7 @@
               <th>retestDate</th>
               <th>expiryDate</th>
               <th>updatedAt</th>
+              <th>판정 서명</th>
               <th>액션</th>
             </tr>
           </thead>
@@ -120,9 +152,64 @@
   </div>
 </div></div>
 
+<!-- ============================================================ 공통 서명 창 #dlgRecSign (1100 × 700 · 4개 화면 같은 블록)
+     닫힘(취소 · X · Esc) → dialogclose 에서 EbrExecSign.cancel(ticket). 문장은 target.statement 그대로 → input.statement 로 되돌림 -->
+<div class="dialog-backdrop" id="dlgRecSign">
+  <div class="dialog">
+    <div class="popup-title">
+      <span class="text"><span class="sign-meaning" id="rsDot"></span><span id="rsTitle">전자서명</span><span class="badge" id="rsProxy" hidden>PoC 전용 — QA 대행 · QP 인증 아님</span></span>
+      <button class="popup-close" type="button" data-dialog-close aria-label="Close"></button>
+    </div>
+    <div class="shell-body">
+      <div class="form-grid cols-2 readonly" id="rsFacts">
+        <span class="label" id="rsL1">배치</span><span class="field"><span class="text" id="rsF1"></span></span>
+        <span class="label" id="rsL2">대상</span><span class="field"><span class="text" id="rsF2"></span></span>
+        <span class="label" id="rsL3">규칙</span><span class="field"><span class="text" id="rsF3"></span></span>
+        <span class="label" id="rsL4">서명자 (현재 사용자)</span><span class="field"><span class="text" id="rsF4"></span></span>
+        <span class="label" id="rsL5">요구 인증</span><span class="field"><span class="text" id="rsF5"></span></span>
+        <span class="label" id="rsL6">레코드 타입</span><span class="field"><span class="text" id="rsF6"></span></span>
+      </div>
+      <div class="split sign-split">
+        <div class="grid-block">
+          <div class="grid-toolbar"><span class="group-title" id="rsValTitle">서명 값</span><span class="total-text" id="rsValTotal"></span><span class="spacer"></span><span class="sub-info" id="rsValNote">서명은 아래 값 + 서명자 + 시각에 묶입니다</span></div>
+          <div class="grid-wrap">
+            <table class="grid" id="grdRecSignVal">
+              <colgroup><col class="col-no"><col class="col-item"><col></colgroup>
+              <thead><tr><th class="col-no">#</th><th>항목</th><th>값</th></tr></thead>
+              <tbody id="grdRecSignValBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="auth-panel">
+          <div class="user-card" id="signUser"></div>
+          <span class="sub-info sign-rule" id="signRule"></span>
+          <div class="auth-row"><span class="label required">사용자 ID</span><input class="input" type="text" id="signId" placeholder="ID 직접 입력" autocomplete="off"></div>
+          <div class="auth-row"><span class="label required">비밀번호</span><input class="input" type="password" id="signPw" autocomplete="new-password"></div>
+          <div class="auth-row"><span class="label" id="signCmtLabel">코멘트</span><input class="input" type="text" id="signCmt" placeholder="선택 입력" autocomplete="off" maxlength="60"></div>
+          <div class="sign-err sub-info fc-fail" id="signErr" role="alert"></div>
+          <div class="qual-msg" id="signQualMsg" aria-live="polite"></div>
+          <span class="sub-info one-line" id="signPocNote">PoC 전용 — 실서비스는 LDAP(AM-IDPW)</span>
+          <span class="sub-info qual-req" id="signQualReq"></span>
+        </div>
+      </div>
+      <div class="sign-statement" id="signStatement"><span class="stmt" id="signStatementText"></span></div>
+    </div>
+    <div class="dialog-footer">
+      <span class="sub-info sign-note" id="signNote"></span>
+      <button class="btn search secondary" type="button" data-dialog-close>취소</button>
+      <span class="tip" id="btnRecSignWrap" title="ID · 비밀번호를 입력하세요"><button class="btn search primary" type="button" id="btnRecSign" disabled>서명</button></span>
+    </div>
+  </div>
+</div>
+
 <script src="./assets/mesui.js"></script>
 <script src="./assets/ebr-p0-stores.js"></script>
-<script src="./assets/ebr-dispense-store.js"></script>   <!-- DEVELOPER1 칭량 저장소 — lotDateState(유효일 · 재시험일 NEAR_LOT_DAYS 판정) 읽기만 (UI-13 E7) -->
+<script src="./assets/ebr-dispense-store.js"></script>   <!-- 칭량 저장소 — lotDateState(유효일 · 재시험일 NEAR_LOT_DAYS 판정) 읽기만 (UI-13 E7) -->
+<script src="./assets/ebr-user-session.js"></script>   <!-- 사용자 · 서명 헬퍼 (window.EbrUserSession) -->
+<script src="./assets/ebr-qual-store.js"></script>   <!-- 교육 · 자격 (window.EbrQual) — ⑦ 요구 자격 이름 (읽기만) -->
+<script src="./assets/ebr-exec-sign-store.js"></script>   <!-- 판정 서명 래퍼 (window.EbrExecSign) -->
+<script src="./assets/ebr-sign-status.js"></script>   <!-- 판정 서명 상태 (window.EbrSignStatus) -->
+<script src="./exec-sign-ui.js"></script>
 <script>
 (function () {
   'use strict';
@@ -132,9 +219,34 @@
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
+  /* 상태 배지 (색 대응표 §2): released ok · rejected error · testing · quarantine · expired 수식 없음 */
   function chip(st) {
     var s = String(st || '');
-    return '<span class="st-chip st-' + esc(s) + '">' + esc(s) + '</span>';
+    var c = s === 'released' ? ' ok' : s === 'rejected' ? ' error' : '';
+    return '<span class="badge' + c + '">' + esc(s) + '</span>';
+  }
+  /* 판정 서명 셀 — 원천 EbrSignStatus.matqcSignStatus (읽기 전용) */
+  var SIGMAP = {}, SIG_OK = false, SIG_WHY = '';
+  function loadSig(rows) {
+    var r = SignView.call('matqcSignStatus', null, rows.map(function (x) { return x.lotNo; }));
+    SIGMAP = {}; SIG_OK = !!(r && r.ok); SIG_WHY = SIG_OK ? '' : RecSign.whyMsg({ why: (r && r.why) || 'no_store', message: r && r.message });
+    ((r && r.items) || []).forEach(function (it) { SIGMAP[it.lotNo] = it; });
+  }
+  var SIGN_ATTR = '';   /* 판정 서명 버튼 — 역할 없으면 disabled + 안내 */
+  function s42(id) { return './s-ebr-esign-history-ui.html?signatureId=' + encodeURIComponent(id); }
+  function sigCell(r) {
+    if (!SIG_OK) return '<td class="sig-cell" title="' + esc(SIG_WHY) + '"><span class="badge muted">서명 상태 확인 불가</span></td>';
+    var it = SIGMAP[r.lotNo] || { sign: 'na' }, h;
+    if (it.sign === 'signed') {
+      var t = (it.judgedBy || '') + ' · ' + (it.signatureId || '');
+      h = '<span class="sign-slot" title="' + esc('판정 서명 ' + t + ' · ' + (it.judgedAt || '')) + '"><span class="sign-dot approved"></span>' + esc(t) + '</span>' +
+        '<a class="lnk" href="' + esc(s42(it.signatureId)) + '" data-s42="' + esc(it.signatureId) + '">S-42 ›</a>';
+    } else if (it.sign === 'legacy') {
+      h = '<span class="badge muted" title="판정 서명 없이 released — 재확인 서명 필요 (출하 게이트 9 차단 원인)">판정 서명 없음(레거시)</span>' +
+        '<button class="btn inner" type="button" data-lot="' + esc(r.lotNo) + '" data-sign="legacy_confirm" data-p0-edit' + SIGN_ATTR + '>판정 서명</button>';
+    } else if (it.sign === 'invalid') h = '<span class="badge error" title="' + esc(it.signatureId || '') + '">무효</span>';
+    else h = '<span class="sub-info">—</span>';
+    return '<td class="sig-cell"><span class="sig-in">' + h + '</span></td>';
   }
   /* UI-13 E7: 날짜 상태는 칭량 저장소 판정(lotDateState → dateDue: none · ok · near(NEAR_LOT_DAYS) · passed)만 표시 */
   var D = window.EbrDispense || null;
@@ -153,8 +265,7 @@
   function nextActions(st) {
     st = String(st || '');
     if (st === 'quarantine') return [
-      { to: 'testing', label: '시험 시작' },
-      { to: 'rejected', label: '부적합' }
+      { to: 'testing', label: '시험 시작' }   /* 판정 서명은 시험 중 LOT 만 (store 규칙) */
     ];
     if (st === 'testing') return [
       { to: 'released', label: '적합 해제' },
@@ -177,14 +288,19 @@
 
   function render() {
     var rows = loadRows();
+    loadSig(rows);
     var tb = $('grdMatBody');
     tb.innerHTML = '';
+    var cu = window.P0Ui && P0Ui.current && P0Ui.current();
+    var qaOk = !cu || P0Ui.hasRole(cu, 'QA');   /* 사용자 없음 = p0-gated 안내 · 판정 규칙 SM-APPR-MATQC 허용 역할 QA */
+    SIGN_ATTR = qaOk ? '' : ' disabled title="판정 서명은 QA 역할만 — 현재 사용자 역할로는 서명할 수 없습니다"';
     rows.forEach(function (r, i) {
       var tr = document.createElement('tr');
       tr.dataset.lot = r.lotNo;
       var acts = nextActions(r.status).map(function (a) {
+        var sg = a.to === 'released' || a.to === 'rejected';   /* 판정(적합 · 부적합) = 전자서명 */
         return '<button class="btn inner" type="button" data-lot="' + esc(r.lotNo) +
-          '" data-to="' + esc(a.to) + '">' + esc(a.label) + '</button>';
+          '" ' + (sg ? 'data-sign="' + esc(a.to) + '" data-p0-edit' + SIGN_ATTR : 'data-to="' + esc(a.to) + '"') + '>' + esc(a.label) + '</button>';
       }).join('');
       var mat = (r.materialName || r.materialId || '') +
         (r.materialId ? ' <span class="muted">(' + esc(r.materialId) + ')</span>' : '');
@@ -198,7 +314,8 @@
         '<td>' + chip(r.status) + '</td>' +
         dateCell(r.retestDate, ds && ds.retest, '재시험일') +
         dateCell(r.expiryDate, ds && ds.expiry, '유효일') +
-        '<td class="muted" style="font-size:11px">' + esc(r.updatedAt || '') + '</td>' +
+        '<td class="muted upd">' + esc(r.updatedAt || '') + '</td>' +
+        sigCell(r) +
         '<td><span class="act-row">' + acts + '</span></td>';
       tb.appendChild(tr);
     });
@@ -210,7 +327,7 @@
     if (!MatQC) { MesUI.alert('EbrP0.MatQC 미로드', 'Error'); return; }
     var lot = MatQC.get(lotNo);
     if (!lot) { MesUI.alert('LOT 없음: ' + lotNo, 'Warning'); return; }
-    var msg = lotNo + ' 상태를\n' + lot.status + ' → ' + to + '\n으로 변경할까요?\n(P0: confirm만 · 전자서명 없음)';
+    var msg = lotNo + ' 상태를\n' + lot.status + ' → ' + to + '\n으로 변경할까요?' + (to === 'testing' ? '\n(시험 시작 — 판정 아님, 전자서명 없음)' : '\n(데모 — 판정 아님)');
     MesUI.confirm(msg, function () {
       MatQC.upsert({ lotNo: lotNo, status: to });
       MesUI.toast(lotNo + ' → ' + to, 'ok');
@@ -218,7 +335,32 @@
     });
   }
 
+  /* 판정 전자서명 — 적합 해제 · 부적합 · 레거시 재확인 (부적합 사유 = 서명 창 '사유 *' → input.reason) */
+  var TO_TXT = { released: ['적합 해제', 'matqc_release'], rejected: ['부적합', 'matqc_reject'], legacy_confirm: ['기존 적합 재확인', 'matqc_legacy_confirm'] };
+  function openJudge(lotNo, to) {
+    var lot = MatQC && MatQC.get(lotNo);
+    var tt = TO_TXT[to] || [to, ''];
+    RecSign.open({
+      meaning: 'approved', title: '자재 QC 판정 — ' + tt[0],
+      f1: lotNo + (lot ? ' · ' + (lot.materialName || lot.materialId || '') : ''), l2: '판정', f2: (lot ? lot.status : '?') + ' → ' + (to === 'legacy_confirm' ? 'released (재확인)' : to),
+      f6: 'material_qc (자재 QC 판정)', valTitle: 'LOT 정보',
+      rows: lot ? [{ k: 'lotNo', v: lot.lotNo }, { k: '자재', v: (lot.materialName || '') + ' (' + (lot.materialId || '') + ')' }, { k: '수량', v: (lot.qty != null ? lot.qty : '') + ' ' + (lot.uom || '') },
+        { k: '현재 상태', v: lot.status }, { k: '재시험일', v: lot.retestDate || '—' }, { k: '유효일', v: lot.expiryDate || '—' }] : null,
+      reason: to === 'rejected',
+      stmt: to === 'rejected' ? function (t, rs) {
+        var U = window.EbrUserSession;
+        return U && U.signStatement ? U.signStatement('matqc_reject', { lotNo: t.lot.lotNo, matCode: t.lot.materialId || '', reason: String(rs || '').trim() }) : t.statement;
+      } : null,
+      note: '서명 뒤 LOT 상태 변경 · 게이트 9 반영',
+      begin: function (x) { return x.beginMatQcSign({ lotNo: lotNo, to: to, screen: 'S-EBR-MATQC' }); },
+      okText: lotNo + ' ' + tt[0] + ' 서명 완료',
+      onDone: function () { render(); }
+    });
+  }
+
   $('grdMatBody').addEventListener('click', function (e) {
+    var sb = e.target.closest('[data-sign]');
+    if (sb) { openJudge(sb.getAttribute('data-lot'), sb.getAttribute('data-sign')); return; }
     var b = e.target.closest('[data-to]');
     if (!b) return;
     setStatus(b.getAttribute('data-lot'), b.getAttribute('data-to'));
@@ -275,6 +417,7 @@
   fitShellToViewport();
   setTimeout(fitShellToViewport, 0);
   setTimeout(fitShellToViewport, 120);
+  if (window.P0Ui) P0Ui.onUserChange(function () { render(); });   /* 사용자 전환 → 서명 버튼 · 안내 다시 계산 */
 })();
 </script>
 </body>

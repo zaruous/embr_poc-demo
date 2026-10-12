@@ -40,7 +40,7 @@
   }
   /* ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 (공통 블록 — 기준정보 화면 + 배치 발행 동일) ====
      위치: .title-bar 안 .breadcrumb 바로 앞, margin-left:auto (DESIGN §11-3 grpTitle: title │ 1fr │ 브레드크럼)
-     역할 배지 매핑: ui-items UI-04 (PM 승인 P5) — 기존 .badge 변형 + --bc-* 토큰만, 라벨 항상 표시 */
+     역할 배지 매핑: ui-items UI-04 (승인 P5) — 기존 .badge 변형 + --bc-* 토큰만, 라벨 항상 표시 */
   .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
   .title-bar > .user-switch .tip { display: inline-flex; }
   .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }   /* UI-04: 24 (--title-h 29 안) — 키인 폼 컨트롤 높이 토큰 */
@@ -158,10 +158,10 @@
 
 <script src="../assets/mesui.js"></script>
 <script src="../assets/shared-store.js"></script>
-<script src="../assets/ebr-user-session.js"></script>   <!-- UI-09 DEVELOPER1 헬퍼 (window.EbrUserSession) -->
+<script src="../assets/ebr-user-session.js"></script>   <!-- UI-09 헬퍼 (window.EbrUserSession) -->
 <!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 + 배치 발행 동일) ==== -->
 <script>
-/* DEVELOPER1 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+/* 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
  *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
  *   hasSodConflict(roles) · onChange(fn) → unsub
  * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
@@ -198,7 +198,7 @@
     var host = document.getElementById('userSwitch');
     if (host) {
       if (!connected()) {
-        host.innerHTML = '<span class="tip" title="ebr-user-session.js (DEVELOPER1) 가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+        host.innerHTML = '<span class="tip" title="사용자 · 서명 헬퍼(ebr-user-session.js)가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
       } else {
         var cur = current(), list = users();
         var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {

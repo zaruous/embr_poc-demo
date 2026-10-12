@@ -4,7 +4,7 @@
   - 읽기 전용: 저장 · 수정 · 삭제 버튼 없음. 조회는 감사하지 않는다(P0). 저장소 키를 직접 읽지 않는다 — 모든 데이터는 window.EbrSignView 경유.
   - 스크립트: ./assets/mesui.js · ./assets/ebr-user-session.js (window.EbrUserSession) · ./assets/ebr-esign-view.js (window.EbrSignView)
   - 쿼리: ?batchId= ?orderNo= ?signerId= ?signatureId=(상세 바로 열기, rowId 'S:'+id) ?lineId= ?signRuleId=(칩) — 쿼리가 있으면 기간 '전체'
-  - 근거: poc-esign-history-ui-items.md UI-01~UI-07 · poc-esign-history-design.md §3.9 · PM 확정 J1~J11
+  - 근거: poc-esign-history-ui-items.md UI-01~UI-07 · poc-esign-history-design.md §3.9 · 확정 J1~J11
 -->
 <html lang="ko">
 <head>
@@ -135,6 +135,13 @@
     #printArea .p-sec { margin-top: 8px; font-weight: bold; }
     #printArea .sign-dot { display: none; }
   }
+  #grdSign td .rule-chip { cursor: pointer; }
+  /* ==== 서명 무효화 창 #dlgInvalidate ==== */
+  #dlgInvalidate .shell-body { display: flex; flex-direction: column; gap: var(--split-gutter); }
+  #dlgInvalidate .inv-row { display: grid; grid-template-columns: var(--form-label-w) 1fr; align-items: center; gap: var(--split-gutter); }
+  #dlgInvalidate .inv-row .input { height: var(--ctrl-h-form); }
+  #dlgInvalidate .dialog { height: auto; }
+  #dlgInvalidate .dialog .shell-body { flex: none; }
 </style>
 </head>
 <body>
@@ -248,6 +255,7 @@
       </div>
     </div>
     <div class="dialog-footer">
+      <span class="tip" id="btnSdInvTip"><button class="btn search" type="button" id="btnSdInv">서명 무효화</button></span>
       <button class="btn search" type="button" id="btnSdPrint">인쇄 (이 서명)</button>
       <span class="tip" id="btnSdBatchTip"><button class="btn search" type="button" id="btnSdBatch">배치 서명 요약</button></span>
       <button class="btn search secondary" type="button" data-dialog-close>닫기</button>
@@ -290,12 +298,40 @@
 <!-- ==== UI-07 인쇄 영역 (화면 숨김, @media print 에서만) ==== -->
 <div id="printArea" aria-hidden="true"></div>
 
+<!-- 서명 무효화 창 #dlgInvalidate (QA 조사 · 사유 1–200자 · 현재 사용자 비밀번호 재입력, 실패 카운트 · 잠금 표시) -->
+<div class="dialog-backdrop" id="dlgInvalidate">
+  <div class="dialog w700">
+    <div class="popup-title"><span class="text">서명 무효화 (QA 조사)</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+    <div class="shell-body">
+      <div class="form-grid cols-2 readonly">
+        <span class="label">서명 ID</span><span class="field"><span class="text mono" id="invId"></span></span>
+        <span class="label">대상</span><span class="field"><span class="text" id="invTgt"></span></span>
+        <span class="label">처리자</span><span class="field"><span class="text" id="invActor"></span></span>
+        <span class="label">결과</span><span class="field"><span class="text">서명 상태 무효 · 원래 서명 본문 보존 · 같은 슬롯 재서명 가능</span></span>
+      </div>
+      <div class="auth-row inv-row"><span class="label required">무효화 사유</span><input class="input" type="text" id="invReason" maxlength="200" placeholder="1–200자 필수 (조사 번호 · 근거)" autocomplete="off"></div>
+      <div class="auth-row inv-row"><span class="label required">비밀번호</span><input class="input" type="password" id="invPw" autocomplete="new-password" placeholder="현재 사용자 비밀번호 재입력"></div>
+      <div class="sign-err sub-info fc-fail" id="invErr" role="alert"></div>
+    </div>
+    <div class="dialog-footer">
+      <span class="sub-info sign-note">감사 ESIGN_INVALIDATED 기록 · 게이트 재평가 (무효 슬롯은 차단)</span>
+      <button class="btn search secondary" type="button" data-dialog-close>취소</button>
+      <button class="btn search primary" type="button" id="btnInvalidate" disabled>무효화</button>
+    </div>
+  </div>
+</div>
+
 <script src="./assets/mesui.js"></script>
-<script src="./assets/ebr-user-session.js"></script>   <!-- UI-09 DEVELOPER1 헬퍼 (window.EbrUserSession) -->
-<script src="./assets/ebr-esign-view.js"></script>     <!-- S-42 D1 통합 뷰 (window.EbrSignView, 읽기 전용) -->
+<script src="./assets/ebr-user-session.js"></script>   <!-- UI-09 헬퍼 (window.EbrUserSession) -->
+<script src="./assets/ebr-esign-view.js"></script>     <!-- S-42 통합 뷰 (window.EbrSignView, 읽기 전용) -->
+<script src="./assets/ebr-p0-stores.js"></script>
+<script src="./assets/ebr-qual-store.js"></script>
+<script src="./assets/ebr-sign-status.js"></script>      <!-- 서명 상태 (window.EbrSignStatus) -->
+<script src="./assets/ebr-exec-sign-store.js"></script>  <!-- 서명 무효화 (window.EbrExecSign.invalidateSignature — QA 만) -->
+<script src="./exec-sign-invalidate.js"></script>
 <!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 배치 발행과 동일 — S-42 UI-04.) ==== -->
 <script>
-/* DEVELOPER1 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+/* 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
  *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
  *   hasSodConflict(roles) · onChange(fn) → unsub
  * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
@@ -332,7 +368,7 @@
     var host = document.getElementById('userSwitch');
     if (host) {
       if (!connected()) {
-        host.innerHTML = '<span class="tip" title="ebr-user-session.js (DEVELOPER1) 가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+        host.innerHTML = '<span class="tip" title="사용자 · 서명 헬퍼(ebr-user-session.js)가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
       } else {
         var cur = current(), list = users();
         var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
@@ -403,6 +439,33 @@
 (function () {
   'use strict';
   var V = window.EbrSignView, US = window.EbrUserSession;
+  /* ---------- 고아 서명 · 무효 표시 — 조회 view(EbrSignView.signatureRefs · isOrphan · ORPHAN_LABEL) · 헬퍼(ESign.voidOf · validity) 그대로 ---------- */
+  function tb0() { return document.querySelector('#grdSignBody'); }
+  var REFS = null;   /* 조회 1회마다 signatureRefs() 한 번 읽기 */
+  function refsNow() { if (!REFS) { var x = V.signatureRefs ? V.signatureRefs() : null; REFS = x && x.ok ? x.refs : {}; } return REFS; }
+  function isOrphan(r) { return !!(V.isOrphan && V.isOrphan(r, refsNow())); }
+  var ORPHAN_TXT = V.ORPHAN_LABEL || '실행 기록 없음(데모 초기화)';
+  function orphanBadge(r, short) { return isOrphan(r) ? ' <span class="badge muted" title="' + esc(ORPHAN_TXT) + ' — 서명 레코드는 남아 있으나 가리키는 실행 · 출하 기록이 없습니다 (게이트 영향 없음)">' + esc(short ? '기록 없음' : ORPHAN_TXT) + '</span>' : ''; }
+  /* 규칙 · 줄 조건 칩 · 인쇄 조건: 원시 ID 대신 표시 이름 */
+  function ruleLabel(id) {
+    if (!id) return '';
+    var r = null; try { r = US && US.getSignRule ? US.getSignRule(id) : null; } catch (e) { r = null; }
+    if (!r) return id;
+    var m = r.meaning && V.MEANING[r.meaning] ? V.MEANING[r.meaning].ko : '';
+    return id + ' v' + r.ver + (m ? ' · ' + m : '') + (r.note ? ' — ' + r.note : '');
+  }
+  function lineLabel(id) { return id ? '칭량 줄 ' + id : ''; }
+  function sigValidity(id) { var E = US && US.ESign; try { return E && E.validity && id ? E.validity(id) : null; } catch (e) { return null; } }
+  function voidRec(id) { var E = US && US.ESign; try { return E && E.voidOf && id ? E.voidOf(id) : null; } catch (e) { return null; } }
+  function statusHtml(r) {
+    if (r.source !== 'esign' || !r.signatureId) return esc(r.status || '—');
+    var v = sigValidity(r.signatureId), st0 = v ? v.state : '';
+    if (st0 === 'tampered') return '<span class="badge error" title="' + esc('무효화 기록 대조 불일치 — ' + (v.mismatches || []).join(' · ')) + '">대조 불일치</span>';
+    if (st0 === 'void') { var iv = voidRec(r.signatureId) || {}; return '<span class="badge error" title="' + esc('무효화 ' + (iv.at || '') + ' · ' + (iv.byName || '') + ' (' + (iv.by || '') + ')' + (iv.reason ? ' · 사유 ' + iv.reason : '')) + '">무효</span>'; }
+    if (st0 === 'missing') return '<span class="badge error" title="서명 레코드 없음">없음</span>';
+    return esc(r.status || '—');
+  }
+  function ruleChip(r, rule) { return r.signRuleId ? '<span class="badge muted rule-chip" data-rule="' + esc(r.signRuleId) + '" title="' + esc(rule + ' — 클릭: 이 규칙으로 조회') + '">' + esc(rule) + '</span>' : '—'; }
   var $ = function (s, r) { return (r || document).querySelector(s); };
   var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
@@ -468,6 +531,7 @@
     var names = V.UNLINKED_SCREENS.map(function (s) { return s.label; }).join(' · ');
     $('#ulBadge').textContent = '(!) 미연결 화면 ' + V.UNLINKED_SCREENS.length;
     $('#ulBadge').title = V.UNLINKED_MESSAGE + ' — ' + names;
+    $('#ulBadge').style.display = V.UNLINKED_SCREENS.length ? '' : 'none';   /* 미연결 화면 없으면 숨김 */
   }
   function setDefaults(withQuery) {
     var now = new Date(), from = new Date(now.getTime() - 7 * 864e5);
@@ -547,6 +611,7 @@
       if (res.ok && res.total > 0 && !res.rows.length && st.page > 1) { st.page = Math.max(1, Math.ceil(res.total / PAGE)); q.offset = (st.page - 1) * PAGE; res = V.query(q); }
     }
     if (!res.ok) { applyScope(); return res; }
+    REFS = null;
     st.rows = res.rows; st.total = res.total; st.legacy = res.legacy || 0;
     if (!st.rows.some(function (r) { return r.rowId === st.sel; })) st.sel = null;
     renderToolbar(); renderGrid(); renderPaging(); renderSummary();
@@ -557,8 +622,8 @@
     $('#tTotal').textContent = st.total;
     $('#tLegacy').textContent = st.legacy;
     var chips = [];
-    if (st.lineId) chips.push('<span class="badge muted" data-chip="lineId" title="클릭: 줄 조건 해제">줄 ' + esc(st.lineId) + ' ✕</span>');
-    if (st.signRuleId) chips.push('<span class="badge muted" data-chip="signRuleId" title="클릭: 규칙 조건 해제">규칙 ' + esc(st.signRuleId) + ' ✕</span>');
+    if (st.lineId) chips.push('<span class="badge muted" data-chip="lineId" title="' + esc(st.lineId + ' — 클릭: 줄 조건 해제') + '">' + esc(lineLabel(st.lineId)) + ' ✕</span>');
+    if (st.signRuleId) chips.push('<span class="badge muted" data-chip="signRuleId" title="' + esc(ruleLabel(st.signRuleId) + ' — 클릭: 규칙 조건 해제') + '">규칙 ' + esc(ruleLabel(st.signRuleId)) + ' ✕</span>');
     $('#chipBar').innerHTML = chips.join('');
     $('#atArr').textContent = st.order === 'asc' ? '▲' : '▼';
     $('#thAt').title = st.order === 'asc' ? '오래된순 — 클릭: 최신순' : '최신순 — 클릭: 오래된순';
@@ -578,14 +643,14 @@
       '<td title="' + esc(r.at) + '">' + esc(fmt(r.at)) + '</td>' +
       '<td title="' + esc((r.meaningText || '') + (r.meaningTextEn ? ' · ' + r.meaningTextEn : '')) + '">' + mean + '</td>' +
       '<td title="' + esc(sgParts.join(' · ') + (isSys(r.signerId) ? ' · uid ' + r.signerId : '')) + '">' + sgHtml + '</td>' +
-      '<td title="' + esc(r.recordTypeLabel + (r.r4 ? ' (R4)' : '')) + '">' + esc(r.recordTypeLabel) + estMark(est(r, 'recordType')) + '</td>' +
+      '<td title="' + esc(r.recordTypeLabel + (r.r4 ? ' (R4)' : '') + (isOrphan(r) ? ' · ' + ORPHAN_TXT : '')) + '">' + esc(r.recordTypeLabel) + estMark(est(r, 'recordType')) + orphanBadge(r, true) + '</td>' +
       '<td title="' + esc(batch) + '">' + esc(batch) + '</td>' +
       '<td class="mono" title="' + esc(r.targetRef || '') + '">' + esc(r.targetRef || '—') + '</td>' +
-      '<td title="' + esc(rule) + '">' + (rule ? esc(rule) + estMark(est(r, 'signRuleId')) : '—') + '</td>' +
+      '<td title="' + esc(rule) + '">' + (rule ? ruleChip(r, rule) + estMark(est(r, 'signRuleId')) : '—') + '</td>' +
       '<td title="' + esc(r.whyLabel || '') + '">' + esc(r.whyLabel || '—') + '</td>' +
       '<td class="mono" title="' + esc(r.signatureId || '') + '">' + esc(r.signatureId || '—') + '</td>' +
       '<td>' + verBadge(v) + '</td>' +
-      '<td>' + esc(r.status || '—') + '</td>' +
+      '<td>' + statusHtml(r) + '</td>' +
       '<td title="' + esc(r.screen || '') + '">' + esc(r.result === 'signed' ? '—' : (r.screen || '—')) + '</td></tr>';
   }
   function renderGrid() {
@@ -704,6 +769,7 @@
   function openDetail(rowId) {
     var g = V.get(rowId);
     if (!g.ok) { MesUI.toast(g.why === 'not_found' ? '서명 기록을 찾지 못했습니다 — ' + rowId + ' (없거나 조회 범위 밖)' : (g.message || '조회 권한이 없습니다'), 'warn', 2600); return false; }
+    REFS = null;
     var r = g.row, rec = g.record || {}, tl = V.timeline(rowId), v = rowVerify(r), isSig = r.source === 'esign';
     st.detail = { rowId: rowId, row: r, record: rec, issue: g.issue || null, timeline: tl, verify: v, statement: g.statement == null ? null : g.statement, statementSource: g.statementSource || null };
     $('#sdTitle').innerHTML = isSig ? dot(r.meaningToken) + '서명 상세 — ' + esc(meaningKo(r) || r.meaningText || '—') : '시도 상세 — ' + esc(r.resultLabel) + ' ' + resBadge(r.result);
@@ -717,7 +783,7 @@
       $('#sdInfo').innerHTML = fg([
         ['서명 ID', '<span class="mono">' + esc(r.signatureId) + '</span>'], ['규칙 · 버전', esc(ruleText(r))],
         ['인증 강도', esc(rec.authStrength || '')], ['인증 수단', esc(rec.authMethod || '')],
-        ['상태', esc(r.status || '')], ['코멘트', esc(rec.comment || '')],
+        ['상태', statusHtml(r) + (function () { var iv = voidRec(r.signatureId); return iv && iv.reason ? ' <span class="sub-c">' + esc(iv.reason + ' · ' + (iv.byName || iv.by || '') + ' ' + (iv.at || '')) + '</span>' : ''; })()], ['코멘트', esc(rec.comment || '')],
         ['화면', esc(r.screen || '')], ['서명자 모드', esc(mode)]
       ]);
       var vd = verDetail(r, v, rec), st8 = stmtText(st.detail), stL = stmtLabel(st.detail.statementSource), stT = stmtTitle(st.detail);
@@ -728,7 +794,7 @@
         ['signatureHash', hash8(rec.signatureHash)], ['사이즈 · 라인', esc(sizeLine(g.issue))],
         [stL, esc(st8), true, stT], ['검증 결과', vd.html, true, vd.title]
       ] : [
-        ['대상 유형', esc(r.recordTypeLabel)], ['배치 / 오더', esc((r.batchLabel || '—') + ' / ' + r.orderLabel)],
+        ['대상 유형', esc(r.recordTypeLabel) + orphanBadge(r)], ['배치 / 오더', esc((r.batchLabel || '—') + ' / ' + r.orderLabel)],
         ['줄', '<span class="mono">' + esc(r.lineId || rec.lineId || '') + '</span>'], ['칭량 ID', '<span class="mono">' + esc(r.dispenseId || rec.dispenseId || '') + '</span>'],
         ['valueHash', hash8(rec.valueHash)], ['signatureHash', hash8(rec.signatureHash)],
         ['대상', '<span class="mono">' + esc(r.targetRef || '') + '</span>', true, r.targetRef],
@@ -747,6 +813,11 @@
     $('#grdTlBody').innerHTML = tl && tl.ok && tl.entries.length ? tlRows(tl.entries, false) : '<tr><td colspan="4" class="sub-c">' + esc((tl && tl.note) || '연결 감사 없음') + '</td></tr>';
     $('#tlNote').textContent = '* ' + ((tl && tl.note) || '시도 ID 없음 — 시각 · tgt 로 묶은 근사값');
     show('#btnSdPrint', isSig && !!(st.scope && st.scope.canPrint));
+    var vst = isSig ? sigValidity(r.signatureId) : null, sigLive = !!(vst && vst.state === 'valid');
+    var invOk = sigLive && window.Invalidate && Invalidate.canUse();
+    show('#btnSdInvTip', sigLive);
+    $('#btnSdInv').disabled = !invOk;
+    $('#btnSdInvTip').title = invOk ? 'QA 조사 — 사유 입력 후 무효 (전자서명 아님)' : '무효화는 QA 역할만 — 상단에서 사용자를 전환하세요';
     var hasB = !!r.batchId;
     $('#btnSdBatch').disabled = !hasB;
     $('#btnSdBatchTip').title = hasB ? '이 배치(' + r.batchId + ') 조건으로 다시 조회' : '배치 정보가 없는 기록입니다';
@@ -812,8 +883,8 @@
     p.push('의미 ' + (f.meaning ? f.meaning.map(function (k) { return V.MEANING[k] ? V.MEANING[k].ko : k; }).join(' · ') || '없음' : '전체'));
     if (f.recordType) p.push('대상 유형 ' + (V.RECORD_TYPE_LABEL[f.recordType] || f.recordType));
     p.push('결과 ' + (f.result === 'all' ? '전체' : (f.result || []).map(function (k) { return V.RESULT_LABEL[k]; }).join(' · ') || '없음'));
-    if (f.lineId) p.push('줄 ' + f.lineId);
-    if (f.signRuleId) p.push('규칙 ' + f.signRuleId);
+    if (f.lineId) p.push(lineLabel(f.lineId));
+    if (f.signRuleId) p.push('규칙 ' + ruleLabel(f.signRuleId));
     return p.join(' | ');
   }
   function printHead(title, f, count) {
@@ -829,12 +900,13 @@
     return '<tr><td class="p-res">' + esc(r.resultLabel) + '</td><td><div>' + l1 + '</div><div class="p-l2">' + esc(l2) + '</div></td></tr>';
   }
   function printFoot() {
-    return '<div class="p-foot">* 추정값 · 미연결 화면(조회 대상 아님): ' + esc(V.UNLINKED_SCREENS.map(function (s) { return s.label; }).join(' · ')) + '</div>';
+    return '<div class="p-foot">* 추정값 · 미연결 화면(조회 대상 아님): ' + esc(V.UNLINKED_SCREENS.map(function (s) { return s.label; }).join(' · ') || '없음') + '</div>';
   }
   function buildPrintList() {
     var f = filterNow(), q = JSON.parse(JSON.stringify(f)); q.offset = 0; q.limit = 0;   /* 전체 행 (페이지 무시) */
     var res = (Array.isArray(f.result) && !f.result.length) || (f.meaning && !f.meaning.length) ? { ok: true, rows: [], total: 0 } : V.query(q);
     if (!res.ok) return null;
+    REFS = null;
     $('#printArea').innerHTML = '<table>' + printHead('서명 내역 (사본 — 전자 원본 아님)', f, res.total) + '<tbody>' + res.rows.map(printRow).join('') + '</tbody></table>' + printFoot();
     return res.total;
   }
@@ -864,6 +936,13 @@
     $('#srch').addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target.matches('input:not([type=checkbox])') && e.target.id !== 'fSigner') runQuery(true); });
     $('#btnBatchPick').addEventListener('click', openBatchPick);
     $('#thAt').addEventListener('click', function () { st.order = st.order === 'desc' ? 'asc' : 'desc'; runQuery(true); });
+    tb0().addEventListener('click', function (e) { var c = e.target.closest('[data-rule]'); if (!c) return; e.stopPropagation(); st.signRuleId = c.getAttribute('data-rule'); runQuery(true); });
+    $('#btnSdInv').addEventListener('click', function () {
+      var d = st.detail; if (!d || !d.row || $('#btnSdInv').disabled) return;
+      var r = d.row;
+      Invalidate.open({ signatureId: r.signatureId, target: (r.recordTypeLabel || '') + ' · ' + (r.batchLabel || '—') + ' · ' + (r.signRuleId || '') + ' · ' + (r.signerId || ''), screen: 'S-EBR-ESIGN',
+        onDone: function () { MesUI.closeDialog('dlgSignDetail'); runQuery(false); openDetail(r.rowId); } });
+    });
     $('#chipBar').addEventListener('click', function (e) { var c = e.target.closest('[data-chip]'); if (!c) return; st[c.getAttribute('data-chip')] = ''; runQuery(true); });
     $('#paging').addEventListener('click', function (e) { var b = e.target.closest('[data-pg]'); if (!b || b.disabled) return; st.page = parseInt(b.getAttribute('data-pg'), 10) || 1; runQuery(false); });
     var tb = $('#grdSignBody');

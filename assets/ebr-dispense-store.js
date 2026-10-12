@@ -1,7 +1,7 @@
 /* =====================================================================
    ebr-dispense-store.js — 칭량 · 디스펜싱 저장소 · 게이트 · 계획 (전역 EbrDispense, EbrP0.Dispense 별칭)
-   - 칭량 P0 L1~L3 · L6(저울 시뮬레이터) · L7(큐 · 요약) · E6(계획) · E16(OP 완료 판정) · E17(자동 완료 기록) (DEVELOPER1).
-     기획: poc-weighing-design.md §2 · §3 · §4 · §6 · §7 · §11 (개정 3), 결정 W1~W13 + PM 결정(2026-10-09) Q1~Q8
+   - 칭량 P0 L1~L3 · L6(저울 시뮬레이터) · L7(큐 · 요약) · E6(계획) · E16(OP 완료 판정) · E17(자동 완료 기록).
+     기획: poc-weighing-design.md §2 · §3 · §4 · §6 · §7 · §11 (개정 3), 결정 W1~W13 + 결정(2026-10-09) Q1~Q8
    - P0 칭량 값 출처는 SIM 만(수기 입력 거부), 서명자 = 서명 창 입력 ID(헬퍼 signerMode 'entered'), 현재 사용자 없으면 기록 · 서명 차단(C3)
    - 화면과 묶지 않는다: DOM · 화면 전역을 읽지 않는다. batchId · lineId (· dispenseId) 로만 조회 · 기록하므로
      생산 실행 화면과 칭량 전용 화면이 같은 API 를 쓴다.
@@ -32,6 +32,8 @@
   var VOID_REASON_MAX = 60;   /* 폐기 · 취소 사유 최대 글자 수 (앞뒤 공백 제거 뒤 코드 포인트 기준) — 재칭량 승인 · 용기 취소 공통 */
   var RULES = { PERFORM: 'SM-PERF-WEIGH', VERIFY: 'SM-VERI-WEIGH', REWEIGH: 'SM-APPR-REWEIGH', VOID_REASON_MAX: VOID_REASON_MAX };
 
+  /* 칭량 기록 조회(S-45) 상태 체크 묶음 — 화면이 상태 이름을 갖지 않게 store 상수로 (UI 아이템 J7) */
+  var RECORD_STATE_GROUPS = { done: ['VERIFIED'], doing: ['TARED', 'WEIGHED', 'JUDGED', 'PERFORMED', 'REDO'], void: ['VOID'], wait: ['PLANNED', 'READY', 'BLOCKED', 'DEVIATION'] };
   /* 줄 상태 (기획 §4.4) · 전이표 — 표 밖 전이는 거부 */
   var STATES = ['PLANNED', 'BLOCKED', 'READY', 'TARED', 'WEIGHED', 'JUDGED', 'REDO', 'PERFORMED', 'VERIFIED', 'DEVIATION', 'VOID'];
   var STATE_LABEL = { PLANNED: '대기', BLOCKED: '차단', READY: '준비', TARED: '용기 전운', WEIGHED: '칭량', JUDGED: '판정', REDO: '재칭량',
@@ -73,10 +75,10 @@
   ];
 
   /* 설비 런타임 시드 (기획 §6 · 결정 W9 · W12 · W13). 구역 = RAS 시드.
-     교정일(PM 2026-10-09 후속): 고정 날짜 대신 시드하는 날(store today) + calDays — calDue = today + calDays (equipSeedFor 가 계산)
+     교정일(2026-10-09 후속): 고정 날짜 대신 시드하는 날(store today) + calDays — calDue = today + calDays (equipSeedFor 가 계산)
        BAL-101 · BAL-102 · BAL-301 +134일(경고 없음), BAL-205 +3일(G11 교정 임박 경고 데모 W13, 7일 이내), BAL-302 -9일(G10 교정 만료 차단 데모 W12, 상태 READY)
      오래 둔 시드의 날짜가 지나면 저장소를 비워 다시 시드할 것 (기존 행은 calDue 키가 없을 때만 채움)
-     배정 역할 assignRole (기획 C12 나눠 칭량, 디자이너 리뷰): BAL-101 · BAL-102 = 'standby'(예비 — 다른 칭량실에 쓸 수 있는 주 저울이 있으면 기본 배정하지 않음),
+     배정 역할 assignRole (설계 C12 나눠 칭량, 디자인 리뷰): BAL-101 · BAL-102 = 'standby'(예비 — 다른 칭량실에 쓸 수 있는 주 저울이 있으면 기본 배정하지 않음),
        나머지 = 'primary'. 키 없으면 primary. 기존 행은 seedEquipment 의 빈 칸 채움 규칙 그대로 보충 → API · LAC = R-201 BAL-301, MGS = R-202 BAL-205 */
   var EQUIP_SEED = [
     { equipmentId: 'BAL-101', kind: 'balance', eqClass: 'EC-BAL-01', status: 'READY', calDays: 134, assignRole: 'standby', capMin: 0.01, capMax: 6, roomId: 'R-201', note: '정밀 저울 #101' },
@@ -114,7 +116,7 @@
   var WEIGH_PHASE_REF = /^PH-WEIGH(-|$)/i;   /* ebr-exec-snapshot.js isWeighPhase 와 같은 규칙 */
 
   /* 데모 배치 (MBR-TAB-A 3.2 트리) — 발행 경로와 같은 applyPlanToBatch 로 계획을 만든다.
-     ID 는 발행 순번(BR-YYYY-NNNN)과 겹치지 않는 BR-DEMO-0001 (PM 결정 (가): 실제 첫 발행 번호와의 충돌 · 칭량 기록 이월 방지).
+     ID 는 발행 순번(BR-YYYY-NNNN)과 겹치지 않는 BR-DEMO-0001 (결정 (가): 실제 첫 발행 번호와의 충돌 · 칭량 기록 이월 방지).
      ebr.batch.issued.v1 에는 쓰지 않고 ebr.dispense.v1 의 demoBatch 에 1회 고정. 같은 ID 의 실제 발행 레코드가 있으면 그쪽이 우선 */
   var DEMO_BATCH_ID = 'BR-DEMO-0001';
   var DEMO_BATCH = {
@@ -158,7 +160,9 @@
     reason_too_long: '사유는 ' + VOID_REASON_MAX + '자 이내로 입력하세요.',
     oot_requires_reweigh: '허용 범위 밖 판정은 취소할 수 없습니다 — 재칭량 승인(또는 일탈)으로 처리하세요.',
     record_changed: '칭량 기록이 서명 창을 연 뒤 바뀌었습니다 — 서명 창을 닫고 다시 여세요.',
-    lot_short_verify: 'LOT 잔량이 순중량보다 적어 확인할 수 없습니다 — 자재 QC 잔량을 확인하세요.'
+    lot_short_verify: 'LOT 잔량이 순중량보다 적어 확인할 수 없습니다 — 자재 QC 잔량을 확인하세요.',
+    regate_required: '재칭량은 게이트(LOT · 저울 · 칭량실)를 다시 통과해야 전운을 기록할 수 있습니다 — 게이트 평가를 먼저 하세요.',
+    balance_check_sign_required: '일상 점검 합격은 저울 일상 점검 화면에서 서명으로만 기록합니다 — 서명 없는 합격 표시는 받지 않습니다.'
   };
 
   /* ------------------------------------------------------------------ 순수 유틸 */
@@ -205,7 +209,7 @@
   }
   function lotNoOf(x) { return x && typeof x === 'object' ? str(x.lotNo || x.lot) : str(x); }
 
-  /* ------------------------------------------------------------------ 칭량 계획 (E6 · PM 결정: BOM 줄 = 계획 줄, 노드는 materialId 로 연결) */
+  /* ------------------------------------------------------------------ 칭량 계획 (E6 · 결정: BOM 줄 = 계획 줄, 노드는 materialId 로 연결) */
   function isWeighNode(n) {
     if (!n) return false;
     var kind = str(n.kind || n.phaseKind).toLowerCase();
@@ -348,6 +352,19 @@
     }
     function restoreRaw(k, raw) { try { if (raw == null) storage().removeItem(k); else storage().setItem(k, raw); return true; } catch (e) { return false; } }
     function hashOf(o) { var S = session(); return S && S.computeValueHash ? S.computeValueHash(o) : ''; }
+    /* 저울 일상 점검 store (EbrBalanceCheck) — 있으면 G12 문구 · 시드 · setDailyCheck 규칙에 쓴다. 없으면 지금과 같음(하위 호환).
+       opts.balanceCheck: 인스턴스 또는 인스턴스를 돌려주는 함수(노드 시험 주입) */
+    function balanceCheck() {
+      var B = typeof opts.balanceCheck === 'function' ? opts.balanceCheck() : (opts.balanceCheck || global.EbrBalanceCheck);
+      return B && typeof B.statusOf === 'function' ? B : null;
+    }
+    /* 저울 점검 사용 중 = store 로드됨 또는 그 저장 키(ebr.balanceCheck.v1)가 있음 — store 를 안 싣는 화면(설비 상태 등)에서도 G12 · 시드 규칙을 같게 */
+    var BC_KEY = 'ebr.balanceCheck.v1';
+    function balanceCheckActive() { return !!balanceCheck() || readRaw(BC_KEY) != null; }
+    function bcGetCheck(id) {
+      var B = balanceCheck(); if (B && typeof B.getCheck === 'function') return B.getCheck(id);
+      var o = readJson(BC_KEY, null); return o && Array.isArray(o.checks) ? (o.checks.filter(function (c) { return c && c.checkId === id; })[0] || null) : null;
+    }
 
     /* ---- 저장 형태 */
     function dsLoad() {
@@ -398,16 +415,16 @@
       if (TD.loadLocal()) return { ok: true, changed: false, why: 'exists' };
       var t = TD.seedTree();
       t.status = 'effective';
-      /* 데모 시드 표지 (PM 승인: 승인 절차 생략). demoSeed · meta 는 contentHash 대상(canonicalContent) 밖이라 해시에 영향 없음 */
+      /* 데모 시드 표지 (데모 설정: 승인 절차 생략). demoSeed · meta 는 contentHash 대상(canonicalContent) 밖이라 해시에 영향 없음 */
       t.demoSeed = true;
       t.meta = t.meta || {}; t.meta.seededBy = 'ensureSeeds'; t.meta.seededAt = nowIso(); t.meta.demoSeed = true;
-      t.meta.note = '데모 시드 — 승인 절차(초안→검토→승인→효력 대기→효력) 생략, PM 승인';
+      t.meta.note = '데모 시드 — 승인 절차(초안→검토→승인→효력 대기→효력) 생략 (데모 설정)';
       TD.saveLocal(t);
       var audited = false, S = session();
       if (S && S.Audit && typeof S.Audit.append === 'function') {
         try {
           S.Audit.append({ uid: 'SYSTEM', userName: '시스템 (데모 시드)', act: 'TREE_DEMO_SEED', why: 'demo_seed', tgt: t.id + ' v' + t.ver,
-                           val: '효력 트리 데모 시드 · 승인 절차 생략 (PM 승인) · contentHash ' + String(t.contentHash || '').slice(0, 8),
+                           val: '효력 트리 데모 시드 · 승인 절차 생략 (데모 설정) · contentHash ' + String(t.contentHash || '').slice(0, 8),
                            before: null, after: { status: 'effective', demoSeed: true }, screen: 'ensureSeeds' });
           audited = true;
         } catch (eA) { /* 감사 저장 실패 — 트리 표지는 남음 */ }
@@ -422,7 +439,10 @@
         if (global.MatQC && typeof global.MatQC.seedIfEmpty === 'function' && !(matLoad().lots || []).length) { global.MatQC.seedIfEmpty({ today: today() }); out.mat = true; }
         else if (global.MatQC && typeof global.MatQC.backfillSeed === 'function') out.matBackfill = global.MatQC.backfillSeed({ today: today() });   /* 예전 시드 저장소: 없는 날짜 키만 보충 */
       } catch (e) { out.ok = false; out.matError = String(e && e.message || e); }
-      try { out.equipment = seedEquipment({ dailyCheck: o6.dailyCheck }); } catch (e2) { out.ok = false; out.equipmentError = String(e2 && e2.message || e2); }
+      var BC = balanceCheck();
+      /* 저울 점검 store 가 있으면 기존 'SEED' 자동 합격을 끄고(dailyCheck:false) 점검 시드(seedDemo)가 dailyCheck 를 미러 — 시드 진입점은 여기 하나 */
+      try { out.equipment = seedEquipment({ dailyCheck: o6.dailyCheck !== undefined ? o6.dailyCheck : (BC ? false : undefined) }); } catch (e2) { out.ok = false; out.equipmentError = String(e2 && e2.message || e2); }
+      if (BC && typeof BC.seedDemo === 'function') { try { out.balanceCheck = BC.seedDemo({ today: today() }); if (!out.balanceCheck.ok) out.ok = false; } catch (e6) { out.ok = false; out.balanceCheckError = String(e6 && e6.message || e6); } }
       try { out.terminals = seedTerminals(); } catch (e5) { out.ok = false; out.terminalsError = String(e5 && e5.message || e5); }
       try { out.tree = seedEffectiveTree(); } catch (e4) { out.ok = false; out.treeError = String(e4 && e4.message || e4); }
       try { out.demoBatch = seedDemoBatch(); if (!out.demoBatch.ok) out.ok = false; } catch (e3) { out.ok = false; out.demoBatchError = String(e3 && e3.message || e3); }
@@ -503,8 +523,29 @@
       rows.push(gateRow('G10', cd != null && cd >= 0, cd == null ? '저울 ' + id + ' 교정일 정보 없음' : '저울 ' + id + ' 교정 만료 ' + rec.calDue + ' — 다른 저울을 고르세요.'));
       rows.push(gateRow('G11', !(cd != null && cd >= 0 && cd <= NEAR_CAL_DAYS), cd != null ? '저울 ' + id + ' 교정일 ' + rec.calDue + ' (' + cd + '일 남음)' : ''));
       var dc = rec && rec.dailyCheck;
-      rows.push(gateRow('G12', !!(dc && str(dc.date).slice(0, 10) === t && str(dc.result).toLowerCase() === 'pass'),
-        '저울 ' + id + ' 오늘(' + t + ') 일상 점검 합격 기록 없음' + (dc && dc.date ? ' (마지막 ' + dc.date + ' ' + (dc.result || '') + ')' : '')));
+      /* G12 판정 조건은 그대로(dailyCheck 오늘 · pass). 저울 점검 store 가 있으면 실패 문구만 '불합격 · 사용 금지' / '미점검'으로 나눔 (B1-3) */
+      var g12ok = !!(dc && str(dc.date).slice(0, 10) === t && str(dc.result).toLowerCase() === 'pass');
+      var g12why = '저울 ' + id + ' 오늘(' + t + ') 일상 점검 합격 기록 없음' + (dc && dc.date ? ' (마지막 ' + dc.date + ' ' + (dc.result || '') + ')' : ''), bst = null, BC = balanceCheck();
+      /* 저울 점검 store 가 있으면 합격 표시만으로는 부족: 서명(signatureId) 또는 store 의 같은 저울 · 같은 날 합격 점검 기록(checkId — 시드 점검 포함)이 있어야 통과.
+         store 가 없을 때만 예전 규칙(dailyCheck 오늘 · pass)으로 판정 — 하위 호환 */
+      if (balanceCheckActive() && g12ok) {
+        var ck = dc.checkId ? bcGetCheck(dc.checkId) : null;
+        var backed = !!(ck && ck.balanceId === id && ck.date === t && ck.result === 'pass' && (!dc.signatureId || ck.signatureId === dc.signatureId));
+        if (!backed) { g12ok = false; var unsignedPass = true; g12why = '저울 ' + id + ' 오늘(' + t + ') 합격 표시가 서명된 점검 기록과 맞지 않습니다(서명 없는 합격) — 저울 일상 점검(S-44)에서 점검하세요'; }
+      }
+      if (BC && !g12ok) {
+        try { bst = BC.statusOf(id, t); } catch (eB) { bst = null; }
+        if (unsignedPass) { /* 위 '서명 없는 합격' 문구 유지 */ } else if (bst && (bst.blocked || bst.state === 'fail')) {
+          var la = bst.last || {};
+          g12why = '저울 ' + id + ' 오늘(' + t + ') 일상 점검 불합격 · 사용 금지' + (bst.deviationId ? ' ' + bst.deviationId : '') +
+                   (la.at ? ' (' + str(la.at).slice(11, 16) + (la.by ? ' ' + la.by : '') + ')' : '') + ' — 다른 저울 선택 또는 감독자 재점검';
+        } else if (bst && bst.state === 'none') {
+          g12why = '저울 ' + id + ' 오늘(' + t + ') 일상 점검 미점검' + (bst.lastPass ? ' (마지막 합격 ' + bst.lastPass.date + ')' : ' (합격 기록 없음)');
+        }
+      }
+      var g12 = gateRow('G12', g12ok, g12why);
+      if (bst) g12.detail = { state: bst.state, blocked: !!bst.blocked, deviationId: bst.deviationId || null, checkId: bst.checkId || null };
+      rows.push(g12);
       var q = num(o.theoQty), mn = rec ? num(rec.capMin) : NaN, mx = rec ? num(rec.capMax) : NaN;
       rows.push(gateRow('G13', !isNaN(q) && !isNaN(mn) && !isNaN(mx) && q >= mn && q <= mx,
         isNaN(mn) || isNaN(mx) ? '저울 ' + id + ' 용량(capMin/capMax) 정보 없음' : '지시량 ' + (isNaN(q) ? '—' : q) + ' kg 이 저울 ' + id + ' 범위 ' + mn + ' – ' + mx + ' kg 밖'));
@@ -586,12 +627,132 @@
                allVerified: ver === r.lines.length, openDeviations: devs.length, byStatus: r.lines.map(function (l) { return { lineId: l.lineId, status: l.status }; }) };
     }
 
+    /* ---- 칭량 기록 조회 (S-45 · 설계 §2.6, 읽기 전용 — setItem 없음) */
+    function recOperators(r) {
+      var ids = [];
+      [r.tareBy, r.weighedBy, r.performed && r.performed.userId, r.verified && r.verified.userId, r.reweigh && r.reweigh.userId]
+        .concat((r.grossHistory || []).map(function (h) { return h && h.by; }))
+        .forEach(function (u) { u = str(u); if (u && ids.indexOf(u) < 0) ids.push(u); });
+      return ids;
+    }
+    function recIntegrity(r) {
+      if (!r || !r.recordHash) return 'n/a';
+      var b = clone(r); delete b.recordHash;
+      return hashOf(b) === r.recordHash ? 'match' : 'mismatch';
+    }
+    function recAt(r) { return str(r.updatedAt || r.createdAt); }
+    function expandStates(st) {
+      if (st == null || st === '') return null;
+      var out = [];
+      (Array.isArray(st) ? st : [st]).forEach(function (x) { x = str(x); (RECORD_STATE_GROUPS[x] || [x]).forEach(function (y) { if (out.indexOf(y) < 0) out.push(y); }); });
+      return out.length ? out : null;
+    }
+    /* 시도 하나가 필터(상태 제외)에 맞는가 */
+    function recMatch(r, f) {
+      if (f.batchId && r.batchId !== str(f.batchId)) return false;
+      if (f.lineId && r.lineId !== str(f.lineId)) return false;
+      if (f.materialId && str(r.materialId).toUpperCase() !== str(f.materialId).toUpperCase()) return false;
+      if (f.lotNo && str(r.lotNo).toUpperCase().indexOf(str(f.lotNo).toUpperCase()) < 0) return false;
+      if (f.balanceId && str(r.balanceId).toUpperCase() !== str(f.balanceId).toUpperCase()) return false;
+      if (f.dispenseId && str(r.dispenseId).toUpperCase() !== str(f.dispenseId).toUpperCase()) return false;
+      if (f.operatorId) { var op = str(f.operatorId).toUpperCase(); if (!recOperators(r).some(function (u) { return u.toUpperCase() === op; })) return false; }
+      var d = str(r.createdAt).slice(0, 10);
+      if (f.from && d < str(f.from).slice(0, 10)) return false;
+      if (f.to && d > str(f.to).slice(0, 10)) return false;
+      if (f.fromTs) { var a = Date.parse(recAt(r)), b = Date.parse(str(f.fromTs)); if (!isNaN(b) && (isNaN(a) || a < b)) return false; }
+      return true;
+    }
+    function recordRow(r) {
+      var ops = recOperators(r);
+      return { recId: r.recId, dispenseId: r.dispenseId || null, batchId: r.batchId, lineId: r.lineId, attempt: r.attempt, materialId: r.materialId, materialName: r.materialName || '',
+               lotNo: r.lotNo || '', balanceId: r.balanceId || '', roomId: r.roomId || '', net: r.net, uom: r.uom || 'kg', judge: r.judge || null, state: r.state, stateLabel: STATE_LABEL[r.state] || r.state,
+               voidKind: r.voidKind || null, createdAt: r.createdAt || '', updatedAt: r.updatedAt || '', at: recAt(r), operatorId: str(r.weighedBy || r.tareBy) || ops[0] || null, operatorIds: ops,
+               integrity: recIntegrity(r) };
+    }
+    /* listRecords(filter) → { ok, total, rows }
+       filter: batchId · lineId · materialId · lotNo(부분) · balanceId · dispenseId · operatorId(tareBy · weighedBy · grossHistory · performed · verified · reweigh, 대소문자 무시)
+               · from · to (시도 createdAt 의 로컬 날짜 YYYY-MM-DD, 양 끝 포함) · fromTs (ISO — updatedAt(없으면 createdAt) ≥ fromTs, 영향 범위용)
+               · state (상태 | 묶음 이름 RECORD_STATE_GROUPS | 배열) · includeVoid (record 단위: 기본 false = VOID 시도 제외, state 에 VOID 가 있으면 포함)
+               · groupBy 'line'(기본 — 줄의 시도 중 하나라도 조건에 맞으면 그 줄, 값은 최신 시도) | 'record' · order 'desc'(기본) | 'asc' · offset · limit */
+    function listRecords(filter) {
+      var f = filter || {}, states = expandStates(f.state), byLine = f.groupBy !== 'record', asc = f.order === 'asc';
+      var items = dsLoad().items, rows;
+      if (byLine) {
+        var groups = {}, keys = [];
+        items.forEach(function (r) { var k = r.batchId + '\u0000' + r.lineId; if (!groups[k]) { groups[k] = []; keys.push(k); } groups[k].push(r); });
+        rows = [];
+        keys.forEach(function (k) {
+          var chain = groups[k], last = chain[chain.length - 1];
+          if (!chain.some(function (r) { return recMatch(r, f); })) return;
+          if (states && states.indexOf(last.state) < 0) return;
+          var ops = [], integ = 'n/a', upd = '';
+          chain.forEach(function (r) {
+            recOperators(r).forEach(function (u) { if (ops.indexOf(u) < 0) ops.push(u); });
+            var g = recIntegrity(r); if (g === 'mismatch') integ = 'mismatch'; else if (g === 'match' && integ === 'n/a') integ = 'match';
+            if (recAt(r) > upd) upd = recAt(r);
+          });
+          var withVal = chain.filter(function (r) { return r.lotNo || r.balanceId; }).slice(-1)[0] || last;
+          rows.push({ batchId: last.batchId, lineId: last.lineId, materialId: last.materialId, materialName: last.materialName || '', lotNo: withVal.lotNo || '', balanceId: withVal.balanceId || '',
+                      roomId: withVal.roomId || '', state: last.state, stateLabel: STATE_LABEL[last.state] || last.state, attempts: chain.length,
+                      reweighed: chain.some(function (r) { return r.voidKind === 'reweigh'; }), voided: last.state === 'VOID', latestRecId: last.recId, dispenseId: last.dispenseId || null,
+                      net: last.net, uom: last.uom || 'kg', judge: last.judge || null, operatorIds: ops, updatedAt: upd, integrity: integ });
+        });
+      } else {
+        var wantVoid = f.includeVoid === true || (states && states.indexOf('VOID') >= 0);
+        rows = items.filter(function (r) { return recMatch(r, f) && (wantVoid || r.state !== 'VOID') && (!states || states.indexOf(r.state) >= 0); }).map(recordRow);
+      }
+      var tk = function (r) { return byLine ? r.updatedAt : r.at; }, ik = function (r) { return byLine ? r.batchId + ' ' + r.lineId : r.recId; };
+      rows.sort(function (a, b) { var x = tk(a), y = tk(b); if (x !== y) return (x < y ? -1 : 1) * (asc ? 1 : -1); return (ik(a) < ik(b) ? -1 : ik(a) > ik(b) ? 1 : 0) * (asc ? 1 : -1); });
+      var total = rows.length, off = Math.max(0, parseInt(f.offset, 10) || 0), lim = parseInt(f.limit, 10);
+      return { ok: true, total: total, rows: lim > 0 ? rows.slice(off, off + lim) : rows.slice(off) };
+    }
+    /* recordDetail(batchId, lineId) → { ok, line, attempts, chain, signatures, audits, rollbacks, balanceCheck, integrity } (읽기 전용)
+       audits = 감사 중 tgt 가 '{dispenseId} · {batchId}' 또는 '{lineId} · {batchId}' 인 것(시각 순), rollbacks = 그중 *_ROLLBACK
+       balanceCheck = 최신 시도 저울의 칭량 날짜 점검 상태(EbrBalanceCheck.statusOf, 없으면 null)
+       integrity = 최신 시도 recordHash 재계산 · 수행 서명 레코드 valueHash ↔ 현재 값 해시 */
+    function recordDetail(batchId, lineId) {
+      var bid = str(batchId), lid = str(lineId);
+      var chain = dsLoad().items.filter(function (r) { return r.batchId === bid && r.lineId === lid; });
+      var p = planOf(bid), pl = p.ok ? planLine(p, lid) : null;
+      if (!chain.length && !pl) return p.ok ? fail('no_line', MSG.no_line) : p;
+      var last = chain[chain.length - 1] || null, S = session();
+      var line = pl ? lineView(p, pl, dsLoad()) : { batchId: bid, lineId: lid, materialId: last.materialId, materialName: last.materialName || '', theoQty: last.theoQty, tolPct: last.tolPct, lo: last.lo, hi: last.hi,
+                                                   uom: last.uom, balanceClass: last.balanceClass, status: last.state, statusLabel: STATE_LABEL[last.state] };
+      var sigs = [];
+      chain.forEach(function (r) {
+        ['performed', 'verified', 'reweigh'].forEach(function (k) {
+          var w = r[k]; if (!w || !w.signatureId) return;
+          var e = { kind: k, recId: r.recId, attempt: r.attempt, signatureId: w.signatureId, userId: w.userId, name: w.name || '', at: w.at || '' };
+          if (k === 'reweigh') e.reason = w.reason || r.voidReason || '';
+          sigs.push(e);
+        });
+      });
+      var tg = {}; tg[lid + ' · ' + bid] = true; chain.forEach(function (r) { if (r.dispenseId) tg[r.dispenseId + ' · ' + bid] = true; });
+      var audits = S && S.Audit && S.Audit.list ? S.Audit.list().filter(function (a) { return a && tg[str(a.tgt)]; }) : [];
+      var rollbacks = audits.filter(function (a) { return /_ROLLBACK$/.test(str(a.act)); });
+      var bc = null, BC = balanceCheck(), bRec = chain.filter(function (r) { return r.balanceId; }).slice(-1)[0];
+      if (BC && bRec) {
+        var wd = str((bRec.grossHistory && bRec.grossHistory.length ? bRec.grossHistory[bRec.grossHistory.length - 1].at : '') || bRec.tareAt || bRec.createdAt).slice(0, 10);
+        try { var st = BC.statusOf(bRec.balanceId, wd); bc = { balanceId: bRec.balanceId, date: wd, checkId: st.checkId || null, result: st.state, blocked: !!st.blocked, deviationId: st.deviationId || null }; } catch (eS) { bc = null; }
+      }
+      var integ = { recordHash: last ? recIntegrity(last) : 'n/a', valueHash: 'n/a', fields: [] };
+      if (last && last.performed && last.performed.signatureId && S && S.ESign && S.ESign.get) {
+        var sg = S.ESign.get(last.performed.signatureId);
+        if (sg && sg.valueHash) integ.valueHash = sg.valueHash === valueHashOf(last) ? 'match' : 'mismatch';
+      }
+      if (integ.recordHash === 'mismatch') integ.fields.push('recordHash');
+      if (integ.valueHash === 'mismatch') integ.fields.push('valueHash');
+      return { ok: true, line: line, attempts: clone(chain),
+               chain: chain.map(function (r) { var h = (r.history || []).filter(function (x) { return x && x.ref; }).slice(-1)[0]; return { recId: r.recId, attempt: r.attempt, state: r.state, voidKind: r.voidKind || null, ref: h ? h.ref : null }; }),
+               signatures: sigs, audits: audits, rollbacks: rollbacks, balanceCheck: bc, integrity: integ };
+    }
+
     /* ---- 공통 가드 · 트랜잭션 */
     function fail(why, message, extra) { var r = { ok: false, why: why, message: message }; if (extra) Object.keys(extra).forEach(function (k) { r[k] = extra[k]; }); return r; }
     function ctxFor(batchId, lineId) {
       var S = session();
       if (!S) return { err: fail('no_session', MSG.no_session) };
-      /* C3 (PM): 현재 사용자가 없으면 칭량 기록 · 서명 모두 차단. 서명자는 서명 창 입력 ID (Q4), 서명 아닌 기록은 현재 사용자로 남긴다 */
+      /* C3: 현재 사용자가 없으면 칭량 기록 · 서명 모두 차단. 서명자는 서명 창 입력 ID (Q4), 서명 아닌 기록은 현재 사용자로 남긴다 */
       var cur = S.getCurrentUser && S.getCurrentUser();
       if (!cur) return { err: fail('no_current_user', MSG.no_current_user) };
       var p = planOf(batchId);
@@ -670,7 +831,8 @@
       input = input || {};
       var c = ctxFor(batchId, lineId); if (c.err) return c.err;
       var rec = c.rec;
-      if (rec && rec.state !== 'PLANNED' && rec.state !== 'BLOCKED') return badState(rec, '게이트 평가는 대기 · 차단 상태에서만');
+      /* 재칭량(REDO) 새 시도도 게이트 G1–G16 을 다시 통과해야 전운 기록 가능 — 상태는 REDO 유지(전이표 불변), 결과는 regate 에 */
+      if (rec && rec.state !== 'PLANNED' && rec.state !== 'BLOCKED' && rec.state !== 'REDO') return badState(rec, '게이트 평가는 대기 · 차단 · 재칭량 상태에서만');
       var lotNo = str(input.lotNo), balanceId = str(input.balanceId), roomId = str(input.roomId);
       var gates = gateCheck(c.line, lotNo, balanceId, roomId, { batchId: c.p.batchId, today: input.today });
       var sm = summarizeGates(gates);
@@ -682,11 +844,14 @@
       return txn(c, [KEYS.DISPENSE], function () {
         var o = dsLoad(), recs = lineRecords(o, c.p.batchId, c.line.lineId), r = activeRec(recs), audits = [];
         if (!r) { c.recs = recs; r = newRec(c, at, attemptNo(recs), null); o.items.push(r); }
+        var redo = r.state === 'REDO';
         if (r.state === 'BLOCKED') move(r, 'PLANNED', uid, 'gate_reeval', at);
         r.lotNo = lotNo; r.balanceId = balanceId; r.roomId = roomId; r.gateResults = clone(gates);
         var tgt = r.lineId + ' · ' + c.p.batchId, base = c.line.materialId + ' · LOT ' + (lotNo || '—') + ' · 저울 ' + (balanceId || '—') + ' · 칭량실 ' + (roomId || '—');
+        if (redo) r.regate = { ok: !sm.blocked.length, at: at, by: uid, balanceId: balanceId };
+        if (redo) r.updatedAt = at;
         if (sm.blocked.length) {
-          move(r, 'BLOCKED', uid, 'gate_block', at);
+          if (!redo) move(r, 'BLOCKED', uid, 'gate_block', at);
           audits.push({ act: 'DISPENSE_GATE_BLOCK', why: sm.blocked[0].code, tgt: tgt, val: base + ' · ' + sm.blocked.map(function (g) { return g.gate + ' ' + g.code; }).join(', '),
                         orderNo: c.p.orderNo, detail: { gates: sm.blocked.map(function (g) { return { gate: g.gate, code: g.code, reason: g.reason }; }) } });
         } else {
@@ -695,19 +860,20 @@
             audits.push({ act: 'DISPENSE_GATE_WARN_ACK', why: sm.warnings.map(function (g) { return g.code; }).join(','), tgt: tgt, val: reason, orderNo: c.p.orderNo,
                           detail: { gates: sm.warnings.map(function (g) { return { gate: g.gate, code: g.code, reason: g.reason }; }) } });
           } else r.gateAck = null;
-          move(r, 'READY', uid, 'gate_pass', at);
-          audits.push({ act: 'DISPENSE_START', tgt: tgt, val: base, orderNo: c.p.orderNo });
+          if (!redo) move(r, 'READY', uid, 'gate_pass', at);
+          audits.push({ act: 'DISPENSE_START', tgt: tgt, val: (redo ? '재칭량 시도 ' + r.attempt + ' · ' : '') + base, orderNo: c.p.orderNo });
         }
         seal(r);
         writeJson(KEYS.DISPENSE, o, 'dispense');
         return { audits: audits, result: { state: r.state, gates: gates, blocked: sm.blocked, warnings: sm.warnings, passed: sm.passed, total: sm.total, line: lineView(c.p, c.line, o) } };
       });
     }
-    /* ---- 전운 기록 → TARED · 용기 ID 부여 (PM 결정) */
+    /* ---- 전운 기록 → TARED · 용기 ID 부여 (결정) */
     function recordTare(batchId, lineId, input) {
       input = input || {};
       var c = ctxFor(batchId, lineId); if (c.err) return c.err;
       if (!c.rec || (c.rec.state !== 'READY' && c.rec.state !== 'REDO')) return badState(c.rec, '전운은 준비 · 재칭량 상태에서');
+      if (c.rec.state === 'REDO' && !(c.rec.regate && c.rec.regate.ok)) return fail('regate_required', MSG.regate_required, { state: 'REDO' });
       var tare = num(input.tare), source = str(input.source || 'SIM').toUpperCase();
       var sv = checkSource(source, input); if (sv) return sv;
       if (isNaN(tare) || tare < 0) return fail('bad_value', '전운은 0 이상의 숫자여야 합니다.', { field: 'tare' });
@@ -791,7 +957,7 @@
                                            canReweigh: !pass && r.attempt < MAX_ATTEMPTS, line: lineView(c.p, c.line, o) } };
       });
     }
-    /* ---- 라벨 (PM 결정: 전운 뒤부터 출력 가능. 확인 서명 조건 = 판정 PASS 뒤 출력 · 재출력 1회 이상) */
+    /* ---- 라벨 (결정: 전운 뒤부터 출력 가능. 확인 서명 조건 = 판정 PASS 뒤 출력 · 재출력 1회 이상) */
     function labelData(batchId, lineId) {
       var g = getLine(batchId, lineId); if (!g.ok) return g;
       var r = g.line.current, p = planOf(batchId);
@@ -882,7 +1048,7 @@
       if (kind === 'reweigh') {
         if (!(rec && rec.state === 'JUDGED' && rec.judge === 'OOT')) return badState(rec, '재칭량 승인은 허용 범위 밖 판정 뒤');
         if (rec.attempt >= MAX_ATTEMPTS) return fail('max_attempts', '재칭량은 1회까지입니다 — 일탈로 처리됩니다.', { state: rec.state });
-        /* ⑥ (PM 결정 · 코드 리뷰): 승인자(입력 ID)는 폐기할 시도의 PERFORMED 서명자(있으면)와도, 그 시도에 값을 기록한 모든 스테이션 사용자
+        /* ⑥ (결정 · 코드 리뷰): 승인자(입력 ID)는 폐기할 시도의 PERFORMED 서명자(있으면)와도, 그 시도에 값을 기록한 모든 스테이션 사용자
            (tareBy · 총중량 기록 이력 grossHistory[].by 전부 · 마지막 weighedBy)와도 달라야 한다 — 재기록 전 총중량 기록자도 포함 (승인 우회 방지).
            역할 ⑤(SV · QA)가 먼저, 그다음 ⑥ — 헬퍼 판정 순서 그대로 */
         var addDistinct = function (u, label) { if (u && !distinct.some(function (x) { return str(x.userId).toUpperCase() === str(u).toUpperCase(); })) distinct.push({ userId: u, label: label }); };
@@ -910,6 +1076,7 @@
         target: { values: signValues(rec), valueHash: vh, dispenseId: rec.dispenseId, lineId: rec.lineId, kind: kind, attempt: rec.attempt, maxAttempts: MAX_ATTEMPTS },
         keys: kind === 'verify' ? [KEYS.DISPENSE, KEYS.MAT] : [KEYS.DISPENSE],
         openAct: 'DISPENSE_SIGN_OPEN', cancelAct: 'DISPENSE_SIGN_CANCEL', rollbackAct: 'DISPENSE_ROLLBACK',
+        qualTargets: kind === 'perform' ? ['BALCLASS:' + str(line.balanceClass || rec.balanceClass)] : [],   /* ⑦ 저울 클래스 자격은 수행만 (교육 · 자격 규칙 ④) */
         signerMode: 'entered',                          /* Q4: 서명자 = 서명 창 입력 ID, ⑥ · 실패 카운트도 입력 ID */
         /* 폐기 사유: 필수 · 공백 제거 뒤 VOID_REASON_MAX 자 이내 — 헬퍼가 비밀번호 판정 전에 부르므로 실패 카운트 · 인증 감사 없음 */
         requireInput: kind === 'reweigh' ? function (inp) {
@@ -961,15 +1128,17 @@
     function signAndCommit(ticket, input) { var S = session(); return S ? S.signAndCommitRecord(ticket, input) : fail('no_session', MSG.no_session); }
     function cancelSign(ticket, o3) { var S = session(); return S ? S.cancelRecordSign(ticket, o3) : fail('no_session', MSG.no_session); }
 
-    /* ---- 설비 시드 · 일상 점검 (L3, PM 결정: 멱등 시드 함수) */
+    /* ---- 설비 시드 · 일상 점검 (L3, 결정: 멱등 시드 함수) */
     function seedEquipment(o4) {
       o4 = o4 || {};
       var o = eqLoad(), added = [], filled = [], t = today();
+      /* 저울 점검 store 가 있으면 dailyCheck 를 채우지 않는다(서명 없는 'SEED' 합격 = G12 우회). 일상 점검은 seedDemo 미러 · S-44 서명으로만 */
+      var fillDc = o4.dailyCheck !== false && !balanceCheckActive();
       equipSeedFor(t).forEach(function (s) {
         var cur = eqFind(o.items, s.equipmentId);
         if (!cur) {
           var n = clone(s);
-          if (n.kind === 'balance' && o4.dailyCheck !== false) n.dailyCheck = { date: t, result: 'pass', by: 'SEED' };
+          if (n.kind === 'balance' && fillDc) n.dailyCheck = { date: t, result: 'pass', by: 'SEED' };
           n.cleanHoldUntil = null;
           o.items.push(n); added.push(s.equipmentId);
           return;
@@ -981,7 +1150,7 @@
           var miss = k === 'calDue' ? !Object.prototype.hasOwnProperty.call(cur, k) : (cur[k] === undefined || cur[k] === null || cur[k] === '');
           if (miss) { cur[k] = s[k]; f.push(k); }
         });
-        if (s.kind === 'balance' && o4.dailyCheck !== false && !cur.dailyCheck) { cur.dailyCheck = { date: t, result: 'pass', by: 'SEED' }; f.push('dailyCheck'); }
+        if (s.kind === 'balance' && fillDc && !cur.dailyCheck) { cur.dailyCheck = { date: t, result: 'pass', by: 'SEED' }; f.push('dailyCheck'); }
         if (f.length) filled.push({ equipmentId: s.equipmentId, fields: f });
       });
       if (added.length || filled.length) writeJson(KEYS.EQ, o, 'eq');
@@ -1030,13 +1199,18 @@
       var cur = S.getCurrentUser && S.getCurrentUser(); if (!cur) return fail('no_current_user', MSG.no_current_user);
       var result = str(input.result || 'pass').toLowerCase();
       if (result !== 'pass' && result !== 'fail') return fail('bad_value', '결과는 pass 또는 fail 입니다.');
+      /* B1-7 (P0): 저울 점검 store 가 있으면 서명 없는 합격(pass)은 거부 — G12 우회 차단. 불합격(사용 금지 방향)은 데모용으로 허용 */
+      var BC = balanceCheck();
+      if (BC && result === 'pass') return fail('balance_check_sign_required', MSG.balance_check_sign_required);
       var orig = readRaw(KEYS.EQ), o = eqLoad(), rec = eqFind(o.items, balanceId);
       if (!rec || str(rec.kind) !== 'balance') return fail('not_balance', '저울 ' + balanceId + ' 런타임 레코드가 없습니다 — 설비 시드 또는 등록 후 다시 시도하세요.');
       var before = rec.dailyCheck ? clone(rec.dailyCheck) : null, at = nowIso();
       rec.dailyCheck = { date: str(input.date) || today(), result: result, by: cur.userId, at: at };
       try {
         writeJson(KEYS.EQ, o, 'eq');
-        S.Audit.appendMany([{ uid: cur.userId, act: 'BALANCE_DAILY_CHECK', tgt: rec.equipmentId, val: rec.dailyCheck.date + ' · ' + result, before: before, after: clone(rec.dailyCheck) }]);
+        var ae = { uid: cur.userId, act: 'BALANCE_DAILY_CHECK', tgt: rec.equipmentId, val: rec.dailyCheck.date + ' · ' + result, before: before, after: clone(rec.dailyCheck) };
+        if (BC) ae.detail = { demo: true };
+        S.Audit.appendMany([ae]);
       } catch (e) { restoreRaw(KEYS.EQ, orig); return fail('save_error', MSG.save_error); }
       return { ok: true, dailyCheck: clone(rec.dailyCheck) };
     }
@@ -1247,6 +1421,8 @@
       CLASS_CAPACITY: clone(CLASS_CAPACITY), SOURCES: SOURCES.slice(),
       /* 조회 */
       getBatch: getBatch, planOf: planOf, listLines: listLines, getLine: getLine, get: get, getRecord: getRecord, listByBatch: listByBatch, summary: summary, labelData: labelData,
+      /* 칭량 기록 조회 (S-45, 읽기 전용) */
+      listRecords: listRecords, recordDetail: recordDetail, RECORD_STATE_GROUPS: clone(RECORD_STATE_GROUPS),
       /* 게이트 (L2 · L3) */
       gateCheck: gateCheck, judgeLot: judgeLot, judgeBalance: judgeBalance, judgeRoom: judgeRoom, qualifiedBalances: qualifiedBalances,
       /* 기록 (L1) */

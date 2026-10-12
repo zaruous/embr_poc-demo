@@ -76,6 +76,8 @@
   --c-sign-approved: #0b043e;      /* 승인 approved */
   --c-sign-read-understood: #0091eb; /* 읽고 이해함 read_understood */
   --c-sign-reviewed: #6952db;      /* 검토 reviewed */
+  --sign-dot: 12px;                /* 서명 의미 점 지름 (.sign-meaning · .sign-dot) */
+  --sign-err-min-h: calc(var(--fs-label) * 1.5);   /* 서명 창 오류 줄 최소 높이 (결과 없어도 자리 유지) */
 
   /* 색상 — 상태 배경 팔레트(.bc-*) */
   --bc-good: #E2F8CC;
@@ -148,8 +150,13 @@
   --grid-head-h: 28px;
   --grid-row-h: 30px;
   --grid-cell-pad: 0 12px;
+  --grid-cell-pad-tight: 0 4px;    /* 좁은 상태 배지 열 (교육 · 자격 매트릭스 자격 열, J11 (b)) */
   --grid-head-bg: var(--c-bg-light);
   --grid-head-line: var(--c-border-03);
+  /* 그리드 열 폭 (저울 점검 · 칭량 기록 조회 UI-15) — 줄 · 시도 · 점 / 수량 + 단위 / 배치 번호 */
+  --col-w-short: 70px;
+  --col-w-qty: 110px;
+  --col-w-batch: 140px;
   --grid-cell-line: var(--c-border-05);
   --grid-top-line: var(--c-border-01);
   --grid-bottom-line: var(--c-border-03);
@@ -162,6 +169,21 @@
   --icon-codeview: 24px;
   --icon-codeview-img: 16px;
   --check-size: 16px;              /* (추정) 체크박스 크기 */
+
+  /* 크기 — grid 열 폭 (교육 · 자격 J7 · UI-10, 화면 CSS px 리터럴 제거용) */
+  --col-w-id: 110px;
+  --col-w-name: 100px;
+  --col-w-role: 120px;
+  --col-w-qual: 96px;              /* 자격 열 × 8 = 768 (Q16) */
+  --col-w-date: 100px;
+  --col-w-ts: 150px;
+  --col-w-key: 220px;
+  --badge-gap: 4px;                /* 셀 안 배지 사이 */
+  /* 범용 열 · 필드 폭 (화면 여러 곳 반복 값, 의미 이름이 없는 경우) — 의미가 있으면 위 의미 토큰(--col-w-batch 등) 우선 */
+  --col-w-140: 140px;
+  --col-w-160: 160px;
+  --col-w-200: 200px;
+  --col-w-240: 240px;
 }
 
 /* ---------------------------------------------------------------------
@@ -978,6 +1000,7 @@ table.grid.auto { table-layout: auto; }
   letter-spacing: -0.05em;
 }
 .dialog.md { --dialog-w: 900px; }
+.dialog.w700 { --dialog-w: 700px; }
 .dialog.sm { --dialog-w: 600px; --dialog-h: 480px; }
 .dialog.msg { --dialog-w: 420px; --dialog-h: auto; gap: 16px; }   /* (추정) 메시지 다이얼로그 */
 .dialog > .shell-body { flex: 1 1 auto; min-height: 0; }
@@ -993,6 +1016,24 @@ table.grid.auto { table-layout: auto; }
   display: flex; align-items: center; justify-content: flex-end; gap: 8px;
 }
 .dialog-footer .spacer { flex: 1 1 auto; }
+
+/* 전자서명 창 공용 클래스 (발행 · 칭량 · 저울 점검 · 실행 · 출하 서명 창이 같이 쓴다). 창별 차이(분할 비율 · 입력 높이 등)는 화면 CSS 가 #id 로 덮는다 */
+.sign-meaning, .sign-dot { display: inline-block; width: var(--sign-dot); height: var(--sign-dot); border-radius: 50%; vertical-align: middle; flex: 0 0 auto; background: var(--c-sign-performed); }
+.sign-meaning { margin-right: var(--title-gap); }
+.sign-meaning.performed, .sign-dot.performed { background: var(--c-sign-performed); }
+.sign-meaning.verified, .sign-dot.verified { background: var(--c-sign-verified); }
+.sign-meaning.approved, .sign-dot.approved { background: var(--c-sign-approved); }
+.sign-meaning.reviewed, .sign-dot.reviewed { background: var(--c-sign-reviewed); }
+.sign-meaning.read_understood, .sign-dot.read_understood { background: var(--c-sign-read-understood); }
+.auth-panel { display: flex; flex-direction: column; gap: var(--title-gap); min-height: 0; min-width: 0; }
+.auth-row { display: flex; align-items: center; gap: var(--title-gap); min-height: var(--form-row-h); }
+.auth-row > .label { flex: 0 0 var(--label-w); }
+.auth-row > .input { flex: 1 1 auto; min-width: 0; }   /* 입력 높이(키인 폼 --ctrl-h-form)는 창별 #id 로 — 기존 창 높이 유지 */
+.auth-row > textarea.input { height: calc(var(--ctrl-h-form) * 2.5); resize: none; padding: var(--radius) var(--title-gap); }
+.qual-msg { flex: 0 0 auto; min-height: var(--form-row-h); display: flex; align-items: center; gap: var(--badge-gap); min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.qual-req { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sign-err { min-height: var(--sign-err-min-h); font-weight: bold; }
+.sign-statement { flex: 0 0 auto; display: flex; align-items: center; min-height: var(--form-row-h); padding: 0 var(--title-gap); border: 1px solid var(--c-border-05); background: var(--bc-gray-light); font-size: var(--fs-base); min-width: 0; }
 
 /* 토스트: 우상단 카드 (추정 — 플랫폼 notifier 기본 테마 비어 있음) */
 .toast-area {

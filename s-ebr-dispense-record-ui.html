@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<!--
+  S-45 칭량 기록 조회 (s-ebr-dispense-record-ui.html) — eMBR/eBR PoC · Elephant UI 셸 1920×1080 (OI 아님) · 조회 전용
+  - 읽기 전용: 저장 · 수정 버튼 없음, 화면 어디서도 setItem 없음. 저장소 키(ebr.dispense.v1)를 직접 읽지 않는다 — EbrDispense.listRecords · recordDetail 경유(어댑터 RA).
+    API 가 없으면(미배포) fail-closed: [Search] 비활성 · 목록 · 상세 '미배포' 안내.
+  - 스크립트: ./assets/mesui.js · ebr-p0-stores.js · ebr-user-session.js · ebr-dispense-store.js · ebr-esign-view.js (배치 선택 팝업 batches, 읽기)
+  - 쿼리: ?batchId= ?lineId= ?balanceId= ?from= ?dispenseId=(시도 상세 바로 열기) — 쿼리가 있으면 기간 '전체'로 열고 바로 조회
+  - 근거: poc-balance-check-and-weigh-record-ui-items.md UI-08~UI-11 · 설계 개정 2 §2.6 · §4.4 (W6~W8) · J5~J8 권고안 확정
+  - 높이: title 29 · 8 · 검색 134 · 20 · 분할 849 = 1040 / 목록 728 · 상세 845 ≤ 849 (여유 4 — 블록 · 행 · 여백 추가 금지) / #dlgRecordDetail 본문 110 + 20 + 415 = 545
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<link rel="icon" href="data:,">
+<title>칭량 기록 조회 — eMBR/eBR PoC</title>
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  /* 이 화면 전용 보조 스타일 — Elephant CSS 토큰만 (hex · rgba 없음). 열 폭은 UI-15 토큰(--col-w-*) 우선, 아직 없는 토큰은 var() 대체값 */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--c-bg); }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale { flex: 0 0 auto; }
+  .is-hidden { display: none !important; }
+  .mono { font-family: var(--font-mono); }
+  .num-t { font-variant-numeric: tabular-nums; }
+  a.btn { text-decoration: none; }
+  .ell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* 현재 사용자 선택기 (공통 블록) */
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: calc(var(--title-gap) * .75); min-width: 0; white-space: nowrap; }
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: var(--badge-gap, calc(var(--title-gap) / 2)); min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
+  .title-bar > .ro-tag { align-self: center; }
+
+  /* 의미 = 원 + 글자 (S-42 J4 — 배지와 모양 구별) */
+  .sign-dot { display: inline-block; width: calc(var(--check-size) - var(--radius) * 3); height: calc(var(--check-size) - var(--radius) * 3); border-radius: 50%; margin-right: calc(var(--title-gap) * .75); vertical-align: middle; }
+  .sign-dot.performed { background: var(--c-sign-performed); } .sign-dot.verified { background: var(--c-sign-verified); } .sign-dot.approved { background: var(--c-sign-approved); }
+
+  /* ② 검색 3열 × 3행 = 134 (S-42 와 같음) */
+  #srch .search-control.span-2 { grid-column: 1 / 3; }
+  #srch .field.range > .input { flex: 1 1 0; }
+  #srch .codeview { flex: 1 1 auto; }
+  #srch .codeview .code { width: auto; flex: 1 1 auto; }
+  #srch .checkbox-group { flex-wrap: nowrap; overflow: hidden; }
+  #srch .search-actions .btn { min-width: var(--btn-search-w); }
+  #srch.disabled .label { color: var(--c-text-disabled); }
+
+  /* ③ 분할 2fr │ 6 │ 3fr = 849 */
+  .rec-split { flex: 1 1 auto; min-height: 0; display: flex; }
+  .rec-split > .rs-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--body-gap); overflow: hidden; }
+  #paneList { flex: 2 1 0; } #paneDetail { flex: 3 1 0; }
+  .rs-pane > * { flex: 0 0 auto; }
+  .rs-gutter { flex: 0 0 var(--split-gutter); width: var(--split-gutter); background: var(--bc-gray-light); }
+  .grid td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .grid td .badge + .badge { margin-left: var(--badge-gap, calc(var(--title-gap) / 2)); }
+  .grid tbody tr:last-child td { border-bottom: none; }
+  .grid tr.nodata-row td { text-align: center; color: var(--c-text-disabled); white-space: normal; }
+  .grid tr.sel td { background: var(--c-row-selected); }
+  .grid-wrap.fixed { overflow-y: auto; overflow-x: hidden; min-height: 0; }
+  .grid-toolbar .sub-info { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* 좌: 줄 목록 = 제목 21 + 툴바 28 · 8 · 헤더 28 + 20행 · 16 · 페이지 24 = 728 */
+  #listWrap { height: calc(var(--grid-head-h) + var(--grid-row-h) * 20 + 2px); overflow: hidden; }
+  #grdList col.c-bat { width: var(--col-w-batch, calc(var(--form-label-w) + var(--title-gap) * 1.25)); }
+  #grdList col.c-ln { width: var(--col-w-short, var(--btn-inner-w)); }
+  #grdList col.c-mat, #grdList col.c-lot { width: var(--col-w-id, var(--label-w)); }
+  #grdList col.c-bal { width: var(--col-w-name, var(--btn-normal-w)); }
+  #listNo { flex: 0 0 auto; height: calc(var(--grid-head-h) + var(--grid-row-h) * 20 + 2px); display: flex; align-items: center; justify-content: center; text-align: center; border-top: 1px solid var(--grid-top-line); border-bottom: 1px solid var(--grid-bottom-line); color: var(--c-text); }
+
+  /* 우: 줄 상세 = 103 · 216 · 186 · 74 · 186 + 20 × 4 = 845 */
+  .det-sec { display: flex; flex-direction: column; gap: var(--title-gap); min-width: 0; }
+  .det-sec > .group-title { flex: 0 0 auto; }
+  #wAtt { height: calc(var(--grid-head-h) + var(--grid-row-h) * 5 + 2px); }
+  #wSig, #wAud { height: calc(var(--grid-head-h) + var(--grid-row-h) * 4 + 2px); }
+  #grdAtt col.c-a { width: var(--col-w-short, var(--btn-inner-w)); }
+  #grdAtt col.c-id { width: var(--col-w-key, calc(var(--label-w) * 2)); }
+  #grdAtt col.c-net { width: var(--col-w-qty, var(--label-w)); }
+  #grdAtt col.c-j, #grdAtt col.c-s { width: var(--col-w-role, calc(var(--label-w) + var(--title-gap) * 1.25)); }
+  #grdAtt tbody tr[data-rec] { cursor: pointer; }
+  #grdSig col.c-m { width: var(--col-w-name, var(--btn-normal-w)); }
+  #grdSig col.c-t, #grdSig col.c-sid, #grdSig col.c-r { width: var(--col-w-ts, calc(var(--form-label-w) + var(--body-gap))); }
+  #grdSig col.c-l { width: var(--col-w-short, var(--btn-inner-w)); }
+  #grdAud col.c-t { width: var(--col-w-ts, calc(var(--form-label-w) + var(--body-gap))); }
+  #grdAud col.c-act { width: var(--col-w-key, calc(var(--label-w) * 2)); }
+  #grdAud col.c-u { width: var(--col-w-id, var(--label-w)); }
+  #frmChk .field > .text { flex: 1 1 auto; }
+
+  /* #dlgRecordDetail — ① 3행 110 · 20 · ② 분할 3fr │ 6 │ 2fr 415 */
+  #dlgRecordDetail .shell-body { display: flex; flex-direction: column; gap: var(--body-gap); overflow: hidden; }
+  #dlgRecordDetail .split.rd-split { grid-template-columns: 3fr 2fr; gap: var(--split-gutter); flex: 1 1 auto; min-height: 0; }
+  #dlgRecordDetail .grid-wrap { flex: 0 0 auto; overflow: hidden; }
+  #rdValWrap { height: calc(var(--grid-head-h) + var(--grid-row-h) * 10 + 2px); }
+  #rdHistWrap { height: calc(var(--grid-head-h) + var(--grid-row-h) * 11 + 2px); }
+  #grdRdVal col.c-k { width: var(--col-w-ts, calc(var(--form-label-w) + var(--body-gap))); }
+  #grdRdHist col.c-t { width: var(--col-w-id, var(--label-w)); }
+  #grdRdHist col.c-tr { width: var(--col-w-ts, calc(var(--form-label-w) + var(--body-gap))); }
+  #grdRdHist tr.gap td { color: var(--c-text-sub); text-align: center; }
+
+  /* 배치 선택 #dlgBatchPick (.dialog.md 900×700 — S-42 와 같은 선택 팝업) */
+  #dlgBatchPick .shell-body { display: flex; flex-direction: column; gap: var(--body-gap); overflow: hidden; }
+  #bpWrap { flex: 0 0 auto; height: calc(var(--grid-head-h) + var(--grid-row-h) * 10 + 2px); overflow: hidden; }
+  #grdBatch col.b-id { width: var(--col-w-ts, calc(var(--form-label-w) + var(--body-gap))); }
+  #grdBatch col.b-ord { width: var(--col-w-role, calc(var(--label-w) + var(--title-gap) * 1.25)); }
+  #grdBatch col.b-at { width: var(--col-w-ts, calc(var(--form-label-w) + var(--body-gap))); }
+
+  /* ==== 인쇄 (UI-11, A4 세로) — 화면에서는 숨김. 머리글은 thead 반복 ==== */
+  #printArea { display: none; }
+  @media print {
+    @page { size: A4 portrait; margin: 14mm 10mm 12mm; @top-right { content: counter(page) " / " counter(pages); font: 9pt var(--font); } }
+    html, body { height: auto !important; overflow: visible !important; background: var(--c-bg); }
+    body.fit-host { display: block; }
+    #shellScale, .dialog-backdrop, .toast-area { display: none !important; }
+    #printArea { display: block; font: 9pt var(--font); color: var(--c-text); }
+    #printArea table { width: 100%; border-collapse: collapse; }
+    #printArea thead td { padding-bottom: 6pt; border-bottom: 1px solid var(--c-text); }
+    #printArea .p-title { font-size: 13pt; font-weight: bold; }
+    #printArea tbody td { padding: 3pt 0; border-bottom: 1px solid var(--c-border-05); vertical-align: top; page-break-inside: avoid; }
+    #printArea .p-l2 { color: var(--c-text-sub); }
+    #printArea .p-sec { font-weight: bold; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <!-- ① title-bar 29 -->
+  <div class="title-bar">
+    <span class="main-title">칭량 기록 조회</span><span class="badge muted ro-tag">조회전용</span>
+    <span class="user-switch" id="userSwitch"></span>
+    <span class="breadcrumb"><span>eBR 실행</span><span class="sep">&rsaquo;</span><span class="current">칭량 기록 조회</span></span>
+  </div>
+
+  <div class="shell-body">
+    <!-- ② search-box 3열 × 3행 = 134 -->
+    <div class="search-box" id="srch">
+      <div class="search-control"><span class="label">배치</span>
+        <span class="field"><span class="codeview"><input class="input code mono" type="text" id="fBatch" placeholder="배치 ID" aria-label="배치 ID"><button class="cv-btn" type="button" id="btnBatchPick" title="배치 선택 (발행 기록)"></button></span></span></div>
+      <div class="search-control"><span class="label">자재</span>
+        <span class="field"><select class="input" id="fMat" aria-label="자재"><option value="">전체</option></select></span></div>
+      <div class="search-control"><span class="label">LOT</span>
+        <span class="field"><input class="input mono" type="text" id="fLot" placeholder="LOT (부분 일치)" aria-label="LOT"></span></div>
+
+      <div class="search-control"><span class="label">저울</span>
+        <span class="field"><select class="input" id="fBal" aria-label="저울"><option value="">전체</option></select></span></div>
+      <div class="search-control"><span class="label">작업자</span>
+        <span class="field"><input class="input" type="text" id="fOp" list="opList" placeholder="전체 (목록 또는 ID 직접 입력)" autocomplete="off" aria-label="작업자"><datalist id="opList"></datalist></span></div>
+      <div class="search-control"><span class="label">기간</span>
+        <span class="field range"><input class="input" type="date" id="fFrom" aria-label="시작일"><span class="tilde">~</span><input class="input" type="date" id="fTo" aria-label="종료일"></span></div>
+
+      <div class="search-control span-2"><span class="label">상태</span>
+        <span class="field checkbox-group" id="fState">
+          <label class="checkbox"><input type="checkbox" value="done" checked>완료</label>
+          <label class="checkbox"><input type="checkbox" value="doing" checked>진행</label>
+          <label class="checkbox"><input type="checkbox" value="void" checked>재칭량 / 취소</label>
+          <label class="checkbox"><input type="checkbox" value="wait" checked>차단 / 대기</label>
+        </span></div>
+      <div class="search-actions">
+        <button class="btn search secondary" type="button" id="btnReset">Reset</button>
+        <span class="tip" id="btnSearchWrap"><button class="btn search" type="button" id="btnSearch">Search</button></span>
+      </div>
+    </div>
+
+    <!-- ③ 분할 2fr │ 6 │ 3fr = 849 -->
+    <div class="rec-split" id="recSplit">
+      <div class="rs-pane" id="paneList">
+        <div class="grid-block" id="listBlock">
+          <div class="grid-title-area">
+            <span class="group-title">줄 목록</span>
+            <div class="grid-toolbar">
+              <span class="total-text">Total <b id="tTotal">0</b></span>
+              <span class="spacer"></span>
+              <a class="btn search" id="btnToS42" href="./s-ebr-esign-history-ui.html">S-42 서명 내역 (배치) &gt;</a>
+              <button class="btn search" type="button" id="btnPrint">인쇄</button>
+            </div>
+          </div>
+          <div class="grid-wrap fixed" id="listWrap">
+            <table class="grid selectable" id="grdList">
+              <colgroup><col class="c-bat"><col class="c-ln"><col class="c-mat"><col class="c-lot"><col class="c-bal"><col></colgroup>
+              <thead><tr><th>배치</th><th>줄</th><th>자재</th><th>LOT</th><th>저울</th><th>상태</th></tr></thead>
+              <tbody id="grdListBody"></tbody>
+            </table>
+          </div>
+          <div class="paging" id="paging"></div>
+        </div>
+      </div>
+      <div class="rs-gutter" aria-hidden="true"></div>
+      <div class="rs-pane" id="paneDetail">
+        <div class="det-sec" id="secSum">
+          <span class="group-title ell" id="dSumTitle">① 줄 — 목록에서 줄을 선택하세요</span>
+          <div class="form-grid cols-2 readonly">
+            <span class="label">지시량 · 허용</span><span class="field"><span class="text num-t" id="dQty">—</span></span>
+            <span class="label">저울 · 클래스</span><span class="field"><span class="text" id="dBal">—</span></span>
+            <span class="label">LOT</span><span class="field"><span class="text mono" id="dLot">—</span></span>
+            <span class="label">시도</span><span class="field"><span class="text" id="dAtt">—</span></span>
+          </div>
+        </div>
+        <div class="grid-block" id="secAtt">
+          <div class="grid-toolbar"><span class="group-title">② 시도 이력</span><span class="sub-info">행 더블클릭 → 시도 상세</span></div>
+          <div class="grid-wrap fixed" id="wAtt">
+            <table class="grid selectable" id="grdAtt">
+              <colgroup><col class="c-a"><col class="c-id"><col class="c-net"><col class="c-j"><col class="c-s"><col></colgroup>
+              <thead><tr><th class="center">시도</th><th>기록 ID</th><th class="num">순중량</th><th>판정</th><th>상태</th><th>작업자 · 비고</th></tr></thead>
+              <tbody id="grdAttBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="grid-block" id="secSig">
+          <div class="grid-toolbar"><span class="group-title">③ 서명</span><span class="sub-info">의미 = 색 점 + 글자</span></div>
+          <div class="grid-wrap fixed" id="wSig">
+            <table class="grid" id="grdSig">
+              <colgroup><col class="c-m"><col><col class="c-t"><col class="c-sid"><col class="c-r"><col class="c-l"></colgroup>
+              <thead><tr><th>의미</th><th>서명자</th><th>일시 (KST)</th><th>서명 ID</th><th>규칙</th><th>링크</th></tr></thead>
+              <tbody id="grdSigBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="form-grid cols-2 readonly" id="frmChk">
+          <span class="label">저울 점검</span><span class="field" id="dChk"><span class="text">—</span></span>
+          <span class="label">recordHash</span><span class="field" id="dRh"><span class="text">—</span></span>
+          <span class="label">valueHash</span><span class="field" id="dVh"><span class="text">—</span></span>
+          <span class="label">용기</span><span class="field"><span class="text mono" id="dCont">—</span></span>
+        </div>
+        <div class="grid-block" id="secAud">
+          <div class="grid-toolbar"><span class="group-title">⑤ 감사 · 롤백</span><span class="sub-info" id="dAudNote"></span></div>
+          <div class="grid-wrap fixed" id="wAud">
+            <table class="grid" id="grdAud">
+              <colgroup><col class="c-t"><col class="c-act"><col class="c-u"><col></colgroup>
+              <thead><tr><th>시각</th><th>act</th><th>사용자</th><th>내용</th></tr></thead>
+              <tbody id="grdAudBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<!-- ==== UI-10 시도 상세 #dlgRecordDetail (.dialog 1100×700) — 본문 110 + 20 + 415 = 545 ==== -->
+<div class="dialog-backdrop" id="dlgRecordDetail">
+  <div class="dialog">
+    <div class="popup-title"><span class="text ell" id="rdTitle">칭량 기록 상세</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+    <div class="shell-body">
+      <div class="form-grid cols-3 readonly" id="rdHead">
+        <span class="label">기록 ID</span><span class="field"><span class="text mono" id="rdRec">—</span></span>
+        <span class="label">용기 ID</span><span class="field"><span class="text mono" id="rdCont">—</span></span>
+        <span class="label">시도</span><span class="field"><span class="text" id="rdAtt">—</span></span>
+        <span class="label">배치</span><span class="field"><span class="text mono" id="rdBat">—</span></span>
+        <span class="label">줄</span><span class="field"><span class="text" id="rdLine">—</span></span>
+        <span class="label">자재</span><span class="field"><span class="text" id="rdMat">—</span></span>
+        <span class="label">LOT</span><span class="field"><span class="text mono" id="rdLot">—</span></span>
+        <span class="label">저울</span><span class="field"><span class="text" id="rdBal">—</span></span>
+        <span class="label">recordHash</span><span class="field" id="rdRh"><span class="text">—</span></span>
+      </div>
+      <div class="split rd-split">
+        <div class="grid-block">
+          <div class="grid-toolbar"><span class="group-title">값 · 판정</span><span class="spacer"></span><span class="sub-info mono" id="rdVh"></span></div>
+          <div class="grid-wrap" id="rdValWrap">
+            <table class="grid" id="grdRdVal"><colgroup><col class="c-k"><col></colgroup>
+              <thead><tr><th>항목</th><th>값</th></tr></thead><tbody id="grdRdValBody"></tbody></table>
+          </div>
+        </div>
+        <div class="grid-block">
+          <div class="grid-toolbar"><span class="group-title">상태 전이 (history)</span><span class="spacer"></span><span class="sub-info" id="rdHistNote"></span></div>
+          <div class="grid-wrap" id="rdHistWrap">
+            <table class="grid" id="grdRdHist"><colgroup><col class="c-t"><col class="c-tr"><col></colgroup>
+              <thead><tr><th>시각</th><th>전이</th><th>사용자 · act</th></tr></thead><tbody id="grdRdHistBody"></tbody></table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <span class="sub-info">읽기 전용 — 저장 없음</span><span class="spacer"></span>
+      <a class="btn search" id="rdToS42" href="./s-ebr-esign-history-ui.html">S-42 서명 &gt;</a>
+      <button class="btn search primary" type="button" data-dialog-close>닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==== 배치 선택 #dlgBatchPick (.dialog.md 900×700) — 출처: EbrSignView.batches (발행 기록, 읽기 전용) ==== -->
+<div class="dialog-backdrop" id="dlgBatchPick">
+  <div class="dialog md">
+    <div class="popup-title"><span class="text">배치 선택</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+    <div class="shell-body">
+      <div class="search-box cols-2">
+        <div class="search-control"><span class="label">배치 ID</span><input class="input mono" type="text" id="bpBatch" aria-label="배치 ID"></div>
+        <div class="search-actions"><button class="btn search" type="button" id="bpSearch">Search</button></div>
+      </div>
+      <div class="grid-wrap fixed" id="bpWrap">
+        <table class="grid selectable" id="grdBatch">
+          <colgroup><col class="b-id"><col class="b-ord"><col><col class="b-at"></colgroup>
+          <thead><tr><th>배치 ID</th><th>오더</th><th>eMBR</th><th>발행 일시</th></tr></thead>
+          <tbody id="grdBatchBody"></tbody>
+        </table>
+      </div>
+      <span class="sub-info">출처: 발행 기록(읽기 전용). 데모 시드 배치처럼 발행 기록에 없는 배치는 검색 칸에 직접 입력하세요.</span>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn search secondary" type="button" data-dialog-close>닫기</button>
+      <button class="btn search primary" type="button" id="bpOk" disabled>선택</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==== UI-11 인쇄 영역 (화면 숨김, @media print 에서만) ==== -->
+<div id="printArea" aria-hidden="true"></div>
+
+<script src="./assets/mesui.js"></script>
+<script src="./assets/ebr-p0-stores.js"></script>
+<script src="./assets/ebr-user-session.js"></script>   <!-- 사용자 · 서명 헬퍼 (window.EbrUserSession) -->
+<script src="./assets/ebr-dispense-store.js"></script>   <!-- 칭량 저장소 (window.EbrDispense) — listRecords · recordDetail · RECORD_STATE_GROUPS -->
+<script src="./assets/ebr-esign-view.js"></script>     <!-- S-42 통합 뷰 (window.EbrSignView.batches — 배치 선택 팝업, 읽기 전용) -->
+<script>
+/* 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+ *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
+ *   hasSodConflict(roles) · onChange(fn) → unsub
+ * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
+ * 헬퍼가 없으면(파일 미배포) 선택기는 「사용자 API 미연결」로 비활성 표시만 하고 화면 기존 동작은 그대로 둔다(게이트 미적용, 오류 없음). */
+(function (global) {
+  'use strict';
+  var WATCH_KEYS = ['ebmr.currentUser.v1', 'ebmr.userRole.v1'];   /* onChange 가 없을 때만: 다른 탭 변경 감지용 키 이름 (값은 헬퍼로만 읽음) */
+  var ROLE = { QP: ['QP', 'role-qp'], QA: ['QA', 'role-qa'], SV: ['감독자', 'ok'], OP: ['작업자', 'info'], ADMIN: ['관리자', ''] };
+  var ROLE_ORDER = ['QP', 'QA', 'SV', 'OP', 'ADMIN'];   /* 배지 우선순위 QP>QA>SV>OP>ADMIN (기획 마스터 §3.1) */
+  var GATE_SEL = '[data-p0-edit]';   /* S-45: 조회 전용 — 편집 버튼 없음 */
+  var GATE_TIP = '사용자를 선택하세요';
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var listeners = [], readyQ = [], isReady = false;
+
+  function api() { return global.EbrUserSession || null; }
+  function call(fn) {
+    var a = api(); if (!a || typeof a[fn] !== 'function') return undefined;
+    try { return a[fn].apply(a, Array.prototype.slice.call(arguments, 1)); } catch (e) { if (global.console) console.error('[EbrUserSession] ' + fn, e); return undefined; }
+  }
+  function sortRoles(roles) { return (roles || []).slice().sort(function (a, b) { return ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b); }); }
+  function roleBadge(code) { var r = ROLE[code] || [code, 'muted']; return '<span class="badge' + (r[1] ? ' ' + r[1] : '') + '" title="' + esc(code) + '">' + esc(r[0]) + '</span>'; }
+  function roleBadges(roles) { return sortRoles(roles).map(roleBadge).join(''); }
+  function statusBadge(st) { return st === 'locked' ? '<span class="badge error">잠김</span>' : st === 'inactive' ? '<span class="badge muted">비활성</span>' : ''; }
+  function rolesOfUser(u) { return !u ? [] : (Array.isArray(u.roles) ? u.roles : (call('rolesOf', u.userId) || [])); }
+  function users(filter) { var l = call('listUsers', filter || {}); return Array.isArray(l) ? l : []; }
+  function current() { return call('getCurrentUser') || null; }
+  function connected() { var a = api(); return !!(a && typeof a.getCurrentUser === 'function' && typeof a.listUsers === 'function'); }
+  function hasRole(u, code) { return rolesOfUser(u).indexOf(code) >= 0; }
+  function sod(roles) { var v = call('hasSodConflict', roles || []); return typeof v === 'boolean' ? v : false; }
+  function gateOn() { return connected() && !current(); }
+  function userLabel(u) { return u ? u.name + ' (' + u.userId + ')' : '—'; }
+
+  function render() {
+    var host = document.getElementById('userSwitch');
+    if (host) {
+      if (!connected()) {
+        host.innerHTML = '<span class="tip" title="사용자 · 서명 헬퍼(ebr-user-session.js)가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+      } else {
+        var cur = current(), list = users();
+        var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
+          var bad = u.status === 'locked' ? ' — 잠김' : u.status === 'inactive' ? ' — 비활성' : '';
+          return '<option value="' + esc(u.userId) + '"' + (bad ? ' disabled' : '') + (cur && cur.userId === u.userId ? ' selected' : '') + '>' + esc(userLabel(u) + bad) + '</option>';
+        }).join('');
+        host.innerHTML = '<select class="input w-200" id="userSwitchSel" aria-label="현재 사용자" title="현재 사용자 (인증 아님 — 서명 시 ID · 비밀번호 재입력)">' + opts + '</select>' +
+          '<span class="us-roles">' + (cur ? roleBadges(rolesOfUser(cur)) + statusBadge(cur.status) : '<span class="badge warn">' + GATE_TIP + '</span>') + '</span>';
+        var sel = document.getElementById('userSwitchSel');
+        sel.addEventListener('change', function () {
+          var r = call('setCurrentUser', sel.value || null);
+          if (r && r.ok === false && global.MesUI) {
+            MesUI.toast(r.message || (r.code === 'LOCKED' ? '잠긴 계정은 선택할 수 없습니다 — 관리자(ADMIN)에게 해제를 요청하세요.'
+              : r.code === 'INACTIVE' ? '비활성 계정은 선택할 수 없습니다.' : r.code === 'SAVE_ERROR' ? '감사 기록을 저장하지 못해 사용자를 전환하지 못했습니다.' : '사용자를 찾을 수 없습니다.'),
+              r.code === 'SAVE_ERROR' ? 'error' : 'warn', 2600);   /* SAVE_ERROR: 헬퍼가 변경을 되돌림 → 선택값도 아래 refresh 로 되돌림 */
+          }
+          if (!hasOnChange || (r && r.ok === false)) refresh();   /* onChange 는 성공 시 헬퍼가 발생 — 거부(LOCKED 등)면 선택 되돌림 */
+        });
+      }
+    }
+    applyGate();
+  }
+  function applyGate() {
+    var on = gateOn();
+    document.body.classList.toggle('p0-no-user', on);
+    Array.prototype.forEach.call(document.querySelectorAll(GATE_SEL), function (b) { b.classList.toggle('p0-gated', on); });
+  }
+  function refresh() { render(); listeners.forEach(function (fn) { try { fn(current()); } catch (e) { if (global.console) console.error(e); } }); }
+
+  /* 선택 없음 게이트: 편집 버튼 클릭 차단 + 툴팁 (동적으로 그려지는 T-02 버튼 포함) */
+  document.addEventListener('click', function (e) {
+    if (!gateOn()) return;
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    if (global.MesUI) MesUI.toast(GATE_TIP + ' — 상단 사용자 선택기에서 현재 사용자를 고른 뒤 다시 시도하세요.', 'warn', 2200);
+  }, true);
+  document.addEventListener('mouseover', function (e) {
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    if (gateOn()) { if (!b.hasAttribute('data-p0-tip')) b.setAttribute('data-p0-tip', b.getAttribute('title') || ''); b.setAttribute('title', GATE_TIP); b.classList.add('p0-gated'); }
+    else if (b.hasAttribute('data-p0-tip')) { b.setAttribute('title', b.getAttribute('data-p0-tip')); b.removeAttribute('data-p0-tip'); b.classList.remove('p0-gated'); }
+  }, true);
+
+  var hasOnChange = false;
+  function start() {
+    isReady = true;
+    var a = api();
+    if (a && typeof a.onChange === 'function') { hasOnChange = true; call('onChange', function () { refresh(); }); }
+    else global.addEventListener('storage', function (e) { if (WATCH_KEYS.indexOf(e.key) >= 0) refresh(); });
+    render();
+    readyQ.splice(0).forEach(function (fn) { try { fn(); } catch (e) { if (global.console) console.error(e); } });
+  }
+
+  global.P0Ui = {
+    api: api, call: call, connected: connected, users: users, current: current, hasRole: hasRole, rolesOf: rolesOfUser, sod: sod, userLabel: userLabel,
+    roleBadge: roleBadge, roleBadges: roleBadges, statusBadge: statusBadge, sortRoles: sortRoles, ROLE: ROLE, ROLE_ORDER: ROLE_ORDER,
+    gateOn: gateOn, refresh: refresh, applyGate: applyGate, esc: esc, GATE_TIP: GATE_TIP,
+    onUserChange: function (fn) { listeners.push(fn); },
+    ready: function (fn) { if (isReady) fn(); else readyQ.push(fn); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})(window);
+</script>
+<script>
+/* ==== S-45 화면 로직 — 어댑터(RA · SA · BV)만 store 를 부른다. 읽기 전용(setItem 없음) ==== */
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var PAGE = 20, HIST_ROWS = 11, API_TIP = '칭량 기록 조회 API(EbrDispense.listRecords · recordDetail) 미배포';
+  function guard(o, fn, args) { if (!o || typeof o[fn] !== 'function') return undefined; try { return o[fn].apply(o, args || []); } catch (e) { if (window.console) console.error('[' + fn + ']', e); return undefined; } }
+
+  /* ---------- 어댑터 (격리) ---------- */
+  var RA = {   /* EbrDispense 조회 (설계 §2.6) */
+    NEED: ['listRecords', 'recordDetail'],
+    ready: function () { var d = window.EbrDispense; return !!d && RA.NEED.every(function (f) { return typeof d[f] === 'function'; }); },
+    missing: function () { var d = window.EbrDispense || {}; return RA.NEED.filter(function (f) { return typeof d[f] !== 'function'; }); },
+    list: function (f) { return RA.ready() ? guard(window.EbrDispense, 'listRecords', [f]) : undefined; },
+    detail: function (b, l) { return RA.ready() ? guard(window.EbrDispense, 'recordDetail', [b, l]) : undefined; },
+    groups: function () { var g = window.EbrDispense && window.EbrDispense.RECORD_STATE_GROUPS; return g && typeof g === 'object' ? g : null; },
+    lines: function (b) { var r = guard(window.EbrDispense, 'listLines', [b]); return r && r.ok ? r.lines || [] : []; },
+    rooms: function () { var r = guard(window.EbrDispense, 'weighRooms'); return Array.isArray(r) ? r : []; },
+    gross: function (h) { return h == null ? null : (h.gross != null ? h.gross : h.value != null ? h.value : h); }
+  };
+  var SA = {
+    user: function () { return window.P0Ui ? P0Ui.current() : null; },
+    roles: function (u) { return window.P0Ui ? P0Ui.rolesOf(u) : []; },
+    users: function () { return window.P0Ui ? P0Ui.users() : []; },
+    kst: function (iso) { var v = guard(window.EbrUserSession, 'fmtKst', [iso]); return v || String(iso || '').replace('T', ' ').slice(0, 19); },
+    sig: function (id) { var E = window.EbrUserSession && window.EbrUserSession.ESign; return id ? (guard(E, 'get', [id]) || null) : null; },
+    name: function (uid, nm) { if (!uid) return '—'; if (String(uid).toUpperCase() === 'SYSTEM') return '시스템'; if (nm) return nm + ' (' + uid + ')'; var u = SA.users().filter(function (x) { return x.userId === uid; })[0]; return u ? u.name + ' (' + uid + ')' : uid; }
+  };
+  var BV = { batches: function (f) { var r = guard(window.EbrSignView, 'batches', [f || {}, { limit: 10 }]); return r && r.ok ? r.rows || [] : []; } };
+
+  /* ---------- 상태 ---------- */
+  var st = { rows: [], total: 0, page: 1, sel: null, det: null, filter: null, bpSel: null };
+  function todayKst() { return new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); }
+  function addDays(ymd, n) { var d = new Date(ymd + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); }
+  function badge(cls, t, title) { return '<span class="badge' + (cls ? ' ' + cls : '') + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + esc(t) + '</span>'; }
+  function fmt3(v) { return v == null || v === '' || isNaN(+v) ? '—' : (+v).toFixed(3); }
+  function fmtPct(v) { return v == null || isNaN(+v) ? '—' : ((+v) >= 0 ? '+' : '') + (+v).toFixed(1) + ' %'; }
+  function canRead() { var u = SA.user(); return !!u && u.status !== 'locked' && SA.roles(u).length > 0; }
+
+  /* 상태 → 배지 (색 대응표 §2 — 진행은 수식 없는 .badge, .info · .alarm 쓰지 않음) */
+  function stateBadge(s, voidKind) {
+    switch (s) {
+      case 'VERIFIED': return badge('ok', '완료');
+      case 'PLANNED': case 'READY': return badge('muted', '대기');
+      case 'PERFORMED': return badge('', '확인 대기');
+      case 'TARED': case 'WEIGHED': case 'JUDGED': return badge('', '진행');
+      case 'REDO': return badge('', '진행') + ' (재)';
+      case 'BLOCKED': return badge('error', '차단');
+      case 'DEVIATION': return badge('error', '일탈');
+      case 'VOID': return badge('muted', voidKind === 'reweigh' ? '취소 (재칭량)' : '취소');
+      default: return badge('', s || '—');
+    }
+  }
+  function judgeBadge(j, dev) { if (!j) return '<span class="sub-info">—</span>'; return j === 'PASS' ? badge('ok', '합격') : badge('error', '이탈 ' + fmtPct(dev)); }
+
+  /* ---------- 검색 ---------- */
+  function readFilter() {
+    var states = [];
+    Array.prototype.forEach.call(document.querySelectorAll('#fState input:checked'), function (c) { states.push(c.value); });
+    var op = $('fOp').value.trim(), m = /\(([^)]+)\)\s*$/.exec(op);
+    return { batchId: $('fBatch').value.trim(), materialId: $('fMat').value, lotNo: $('fLot').value.trim(), balanceId: $('fBal').value, operatorId: m ? m[1] : op,
+             from: $('fFrom').value, to: $('fTo').value, state: states, groupBy: 'line' };
+  }
+  function fillCombos() {
+    var bal = [];
+    RA.rooms().forEach(function (r) { (r.balances || []).forEach(function (b) { if (bal.indexOf(b) < 0) bal.push(b); }); });
+    $('fBal').innerHTML = '<option value="">전체</option>' + bal.sort().map(function (b) { return '<option>' + esc(b) + '</option>'; }).join('');
+    $('opList').innerHTML = SA.users().map(function (u) { return '<option value="' + esc(u.name + ' (' + u.userId + ')') + '"></option>'; }).join('');
+    fillMat();
+  }
+  function fillMat() {
+    var b = $('fBatch').value.trim(), cur = $('fMat').value, seen = {};
+    var opts = RA.lines(b).filter(function (l) { if (seen[l.materialId]) return false; seen[l.materialId] = 1; return true; });
+    $('fMat').innerHTML = '<option value="">전체</option>' + opts.map(function (l) { return '<option value="' + esc(l.materialId) + '">' + esc(l.materialId + ' ' + (l.materialName || '')) + '</option>'; }).join('');
+    if (seen[cur]) $('fMat').value = cur;
+  }
+  function resetFilter(all) {
+    ['fBatch', 'fLot', 'fOp'].forEach(function (id) { $(id).value = ''; }); $('fMat').value = ''; $('fBal').value = '';
+    $('fFrom').value = all ? '' : addDays(todayKst(), -7); $('fTo').value = all ? '' : todayKst();
+    Array.prototype.forEach.call(document.querySelectorAll('#fState input'), function (c) { c.checked = true; });
+  }
+  function search(keepSel) {
+    if (!RA.ready() || !canRead()) return;
+    var f = readFilter(); st.filter = f;
+    if (!f.state.length) { st.rows = []; st.total = 0; st.page = 1; renderList(); clearDetail(); return; }
+    var all = RA.list(Object.assign({}, f, { includeVoid: f.state.indexOf('void') >= 0 })) || { rows: [], total: 0 };
+    st.rows = all.rows || []; st.total = all.total != null ? all.total : st.rows.length;
+    st.page = 1;
+    if (!(keepSel && st.sel && st.rows.some(function (r) { return r.batchId === st.sel.batchId && r.lineId === st.sel.lineId; }))) st.sel = st.rows[0] ? { batchId: st.rows[0].batchId, lineId: st.rows[0].lineId } : null;
+    renderList(); renderDetail();
+  }
+
+  /* ---------- 목록 ---------- */
+  function listStateCell(r) {
+    var parts = [stateBadge(r.state, r.voided ? (r.reweighed ? 'reweigh' : '') : null)], t = [r.stateLabel || r.state];
+    if (r.reweighed && r.state !== 'REDO') { parts.push(' (재)'); t.push('(재) 재칭량 ' + Math.max(0, (r.attempts || 1) - 1) + '회'); }
+    if (r.integrity === 'mismatch') { parts.push(badge('error', '불일치')); t.push('불일치 (recordHash)'); }
+    return { html: parts.join(''), title: t.join(' · ') };
+  }
+  function renderList() {
+    var body = $('grdListBody'), gate = !RA.ready() ? API_TIP : !canRead() ? '(!) 조회 권한이 없습니다 — 상단에서 사용자를 선택하세요.' : null;
+    $('tTotal').textContent = gate ? 0 : st.total;
+    if (gate) { body.innerHTML = '<tr class="nodata-row"><td colspan="6">' + esc(gate) + '</td></tr>'; $('paging').innerHTML = ''; return; }
+    if (!st.rows.length) { body.innerHTML = '<tr class="nodata-row"><td colspan="6">칭량 기록 없음 — 조건을 바꾸어 다시 조회하세요.</td></tr>'; $('paging').innerHTML = ''; return; }
+    var pages = Math.max(1, Math.ceil(st.rows.length / PAGE)); if (st.page > pages) st.page = pages;
+    body.innerHTML = st.rows.slice((st.page - 1) * PAGE, st.page * PAGE).map(function (r) {
+      var c = listStateCell(r), sel = st.sel && st.sel.batchId === r.batchId && st.sel.lineId === r.lineId;
+      return '<tr data-b="' + esc(r.batchId) + '" data-l="' + esc(r.lineId) + '" class="' + (sel ? 'sel' : '') + '"><td class="mono">' + esc(r.batchId) + '</td><td>' + esc(r.lineId) + '</td><td title="' + esc(r.materialName) + '">' + esc(r.materialId) + '</td><td class="mono">' + esc(r.lotNo || '—') + '</td><td>' + esc(r.balanceId || '—') + '</td><td title="' + esc(c.title) + '">' + c.html + '</td></tr>';
+    }).join('');
+    $('paging').innerHTML = '<button class="pg-btn pg-prev" type="button" data-pg="-1"' + (st.page <= 1 ? ' disabled' : '') + ' aria-label="이전"></button><span class="pg-no current">' + st.page + '</span><button class="pg-btn pg-next" type="button" data-pg="1"' + (st.page >= pages ? ' disabled' : '') + ' aria-label="다음"></button><span class="pg-info">' + st.rows.length + '건 · ' + PAGE + '행/쪽</span>';
+    var b = st.sel ? st.sel.batchId : $('fBatch').value.trim();
+    $('btnToS42').href = './s-ebr-esign-history-ui.html' + (b ? '?batchId=' + encodeURIComponent(b) : '');
+  }
+
+  /* ---------- 줄 상세 (UI-09) — recordDetail 그대로 ---------- */
+  function emptyRows(n, cols, msg) { return '<tr class="nodata-row"><td colspan="' + cols + '">' + esc(msg || '') + '</td></tr>'; }
+  function clearDetail(msg) {
+    st.det = null;
+    $('dSumTitle').textContent = '① 줄 — ' + (msg || '목록에서 줄을 선택하세요');
+    ['dQty', 'dBal', 'dLot', 'dAtt', 'dCont'].forEach(function (id) { $(id).textContent = '—'; });
+    $('dChk').innerHTML = '<span class="text">—</span>'; $('dRh').innerHTML = '<span class="text">—</span>'; $('dVh').innerHTML = '<span class="text">—</span>';
+    $('grdAttBody').innerHTML = emptyRows(5, 6, msg ? '' : '시도 없음'); $('grdSigBody').innerHTML = emptyRows(4, 6, ''); $('grdAudBody').innerHTML = emptyRows(4, 4, ''); $('dAudNote').textContent = '';
+  }
+  function sigMeaning(k) { return k === 'performed' ? ['performed', '수행', 'Performed by'] : k === 'verified' ? ['verified', '확인', 'Verified by'] : ['approved', '승인', 'Approved by']; }
+  function renderDetail() {
+    if (!RA.ready()) { clearDetail(API_TIP); return; }
+    if (!canRead() || !st.sel) { clearDetail(); return; }
+    var d = RA.detail(st.sel.batchId, st.sel.lineId);
+    if (!d || !d.ok) { clearDetail((d && d.message) || '상세를 불러오지 못했습니다'); return; }
+    st.det = d;
+    var ln = d.line || {}, at = d.attempts || [], last = at[at.length - 1] || {};
+    var withBal = at.filter(function (r) { return r.balanceId; }).slice(-1)[0] || last;
+    $('dSumTitle').textContent = '① 줄 ' + ln.lineId + ' · ' + (ln.materialId || '') + ' ' + (ln.materialName || '');
+    $('dQty').textContent = fmt3(ln.theoQty) + ' ' + (ln.uom || 'kg') + ' (±' + (ln.tolPct != null ? (+ln.tolPct).toFixed(1) : '—') + ' % · ' + fmt3(ln.lo) + ' – ' + fmt3(ln.hi) + ')';
+    $('dBal').textContent = (withBal.balanceId || '—') + (ln.balanceClass ? ' · ' + ln.balanceClass : '');
+    $('dLot').textContent = withBal.lotNo || '—';
+    var rw = at.filter(function (r) { return r.voidKind === 'reweigh'; }).length;
+    $('dAtt').textContent = at.length + '회' + (rw ? ' (재칭량 ' + rw + ')' : '');
+    /* ② 시도 + 재칭량 승인 행 */
+    var rows = [];
+    at.forEach(function (r) {
+      rows.push('<tr data-rec="' + esc(r.recId) + '"><td class="center">' + esc(r.attempt) + '</td><td class="mono">' + esc(r.recId) + '</td><td class="num">' + (r.net != null ? fmt3(r.net) + ' ' + esc(r.uom || 'kg') : '—') + '</td><td>' + judgeBadge(r.judge, r.devPct) + '</td><td>' + stateBadge(r.state, r.voidKind) + '</td><td>' + esc(SA.name(r.weighedBy || r.tareBy)) + '</td></tr>');
+      if (r.reweigh && r.reweigh.signatureId) rows.push('<tr><td class="center">—</td><td>재칭량 승인</td><td></td><td></td><td></td><td title="' + esc(r.voidReason || r.reweigh.reason || '') + '"><span class="sign-dot approved"></span>' + esc(SA.name(r.reweigh.userId, r.reweigh.name) + ' ' + SA.kst(r.reweigh.at).slice(5, 16) + ' · 사유 "' + (r.voidReason || r.reweigh.reason || '') + '"') + '</td></tr>');
+    });
+    $('grdAttBody').innerHTML = rows.join('') || emptyRows(5, 6, '시도 없음');
+    /* ③ 서명 */
+    $('grdSigBody').innerHTML = (d.signatures || []).map(function (s) {
+      var m = sigMeaning(s.kind), sg = SA.sig(s.signatureId) || {};
+      return '<tr><td title="' + m[2] + '"><span class="sign-dot ' + m[0] + '"></span>' + m[1] + '</td><td>' + esc(SA.name(s.userId, s.name)) + '</td><td class="num-t">' + esc(SA.kst(s.at).slice(5, 19)) + '</td><td class="mono">' + esc(s.signatureId) + '</td><td class="mono">' + esc(sg.signRuleId || '—') + '</td>' +
+        '<td><a href="./s-ebr-esign-history-ui.html?signatureId=' + encodeURIComponent(s.signatureId) + '">S-42 &gt;</a></td></tr>';
+    }).join('') || emptyRows(4, 6, '서명 없음');
+    /* ④ 저울 점검 · 무결성 */
+    var bc = d.balanceCheck;
+    $('dChk').innerHTML = !bc ? '<span class="text sub-info" title="EbrBalanceCheck.statusOf 미배포 또는 저울 없음">점검 정보 없음</span>' :
+      (bc.result === 'pass' ? badge('ok', '합격') : bc.result === 'fail' ? badge('error', '불합격') : badge('muted', '미점검')) + '<span class="text">' + esc(bc.date + (bc.checkId ? ' · ' + bc.checkId : '') + (bc.deviationId ? ' · ' + bc.deviationId : '')) + '</span>' +
+      '<a class="btn inner" href="./s-ebr-balance-check-ui.html?balanceId=' + encodeURIComponent(bc.balanceId || withBal.balanceId || '') + (withBal.roomId ? '&roomId=' + encodeURIComponent(withBal.roomId) : '') + '">S-44 &gt;</a>';
+    var ig = d.integrity || {};
+    $('dRh').innerHTML = ig.recordHash === 'match' ? badge('ok', '일치') + '<span class="text mono">' + esc(String(last.recordHash || '').slice(0, 8)) + '…</span>' : ig.recordHash === 'mismatch' ? badge('error', '불일치') + '<span class="text fc-fail">' + esc((ig.fields || []).join(' · ')) + '</span>' : '<span class="text sub-info">해시 없음</span>';
+    var sg0 = last.performed && SA.sig(last.performed.signatureId);
+    $('dVh').innerHTML = ig.valueHash === 'match' ? badge('ok', '일치') + '<span class="text mono">' + esc(String((sg0 && sg0.valueHash) || '').slice(0, 8)) + '…</span>' : ig.valueHash === 'mismatch' ? badge('error', '불일치') + '<span class="text fc-fail">valueHash</span>' : '<span class="text sub-info">서명 전</span>';
+    $('dCont').textContent = last.dispenseId || '—';
+    /* ⑤ 감사 · 롤백 */
+    var au = d.audits || [];
+    $('dAudNote').textContent = au.length + '건' + ((d.rollbacks || []).length ? ' · 롤백 ' + d.rollbacks.length : '');
+    $('grdAudBody').innerHTML = au.slice().reverse().map(function (a) {
+      var rb = /_ROLLBACK$/.test(a.act || '');
+      return '<tr><td class="num-t">' + esc(SA.kst(a.at || a.ts).slice(5, 19)) + '</td><td class="mono' + (rb ? ' fc-fail' : '') + '">' + esc(a.act) + '</td><td>' + esc(String(a.uid || '').toUpperCase() === 'SYSTEM' ? '시스템' : a.uid || '—') + '</td><td class="' + (rb ? 'fc-fail' : '') + '" title="' + esc(a.val || '') + '">' + esc(rb ? '롤백 (' + ((a.detail && a.detail.why) || 'save_error') + ')' + (a.val ? ' — ' + a.val : '') : a.val || '') + '</td></tr>';
+    }).join('') || emptyRows(4, 4, '감사 기록 없음');
+  }
+
+  /* ---------- 시도 상세 (UI-10) ---------- */
+  function openRecord(recId) {
+    var r = st.det && (st.det.attempts || []).filter(function (x) { return x.recId === recId; })[0];
+    if (!r) return;
+    $('rdTitle').textContent = '칭량 기록 상세 — ' + r.recId;
+    $('rdRec').textContent = r.recId; $('rdCont').textContent = r.dispenseId || '—';
+    var redo = (r.history || []).filter(function (h) { return h.ref; })[0];
+    $('rdAtt').textContent = r.attempt + (redo ? ' (REDO ← ' + redo.ref + ')' : '');
+    $('rdBat').textContent = r.batchId; $('rdLine').textContent = r.lineId; $('rdMat').textContent = r.materialId + ' ' + (r.materialName || '');
+    $('rdLot').textContent = r.lotNo || '—'; $('rdBal').textContent = (r.balanceId || '—') + (r.roomId ? ' · ' + r.roomId : '');
+    var last = (st.det.attempts || []).slice(-1)[0], ig = st.det.integrity || {};
+    $('rdRh').innerHTML = r === last || r.recId === (last && last.recId) ? (ig.recordHash === 'match' ? badge('ok', '일치') : ig.recordHash === 'mismatch' ? badge('error', '불일치') : '<span class="text sub-info">—</span>') : '<span class="text sub-info">' + esc(r.recordHash ? String(r.recordHash).slice(0, 8) + '…' : '—') + '</span>';
+    var sg = r.performed && SA.sig(r.performed.signatureId);
+    $('rdVh').textContent = sg && sg.valueHash ? 'valueHash ' + String(sg.valueHash).slice(0, 8) + '…' : '';
+    var gh = r.grossHistory || [], gates = r.gateResults || [], gOk = gates.filter(function (g) { return g.ok; }).length;
+    var vals = [
+      ['지시량', fmt3(r.theoQty) + ' ' + (r.uom || 'kg')], ['허용', fmt3(r.lo) + ' – ' + fmt3(r.hi) + ' ' + (r.uom || 'kg') + ' (±' + (r.tolPct != null ? (+r.tolPct).toFixed(1) : '—') + ' %)'],
+      ['전운 (용기)', fmt3(r.tare)], ['총중량', fmt3(r.gross)], ['순중량', fmt3(r.net)], ['편차', fmtPct(r.devPct)],
+      ['판정', judgeBadge(r.judge, r.devPct), true], ['출처', r.source || '—'],
+      ['총중량 이력', gh.length + '회' + (gh.length ? ' (' + gh.map(function (h) { return fmt3(RA.gross(h)); }).join(' · ') + ')' : ''), false, gh.map(function (h) { return fmt3(RA.gross(h)); }).join(' · ')],
+      ['게이트 결과', gates.length ? gOk + '/' + gates.length + (gOk === gates.length ? ' 통과' : '') : '—', false, gates.map(function (g) { return (g.gate || g.code) + (g.ok ? '' : ' ✕'); }).join(' · ')]
+    ];
+    $('grdRdValBody').innerHTML = vals.map(function (v) { return '<tr><td>' + esc(v[0]) + '</td><td class="num-t"' + (v[3] ? ' title="' + esc(v[3]) + '"' : '') + '>' + (v[2] ? v[1] : esc(v[1])) + '</td></tr>'; }).join('');
+    var h = r.history || [], show = h, gap = 0;
+    if (h.length > HIST_ROWS) { gap = h.length - (HIST_ROWS - 1); show = h.slice(-(HIST_ROWS - 1)); }
+    $('rdHistNote').textContent = h.length + '건' + (gap ? ' · 앞 ' + gap + '건 생략' : '');
+    $('grdRdHistBody').innerHTML = (gap ? '<tr class="gap"><td colspan="3">… ' + gap + '건 생략</td></tr>' : '') + show.map(function (x) {
+      return '<tr><td class="num-t">' + esc(SA.kst(x.at).slice(11, 19)) + '</td><td title="' + esc((x.from || '—') + ' → ' + x.to) + '">' + esc((x.from || '—') + ' → ' + x.to) + '</td><td title="' + esc(SA.name(x.by) + ' · ' + (x.act || '') + (x.ref ? ' (' + x.ref + ')' : '')) + '">' + esc(SA.name(x.by) + ' · ' + (x.act || '') + (x.ref ? ' (' + x.ref + ')' : '')) + '</td></tr>';   /* 말줄임 셀은 title 로 전체 */
+    }).join('') || emptyRows(1, 3, '전이 없음');
+    var sid = r.performed && r.performed.signatureId;
+    $('rdToS42').href = './s-ebr-esign-history-ui.html' + (sid ? '?signatureId=' + encodeURIComponent(sid) : '?batchId=' + encodeURIComponent(r.batchId));
+    $('rdToS42').classList.toggle('is-hidden', !sid);
+    MesUI.openDialog('dlgRecordDetail');
+  }
+
+  /* ---------- 인쇄 (UI-11) — 사본 표지 · n / N (@page) · 조건 · 출력자 · KST ---------- */
+  function printNow() {
+    var u = SA.user(), f = st.filter || readFilter(), now = SA.kst(new Date().toISOString());
+    var cond = ['배치 ' + (f.batchId || '전체'), '자재 ' + (f.materialId || '전체'), 'LOT ' + (f.lotNo || '전체'), '저울 ' + (f.balanceId || '전체'), '작업자 ' + (f.operatorId || '전체'), '기간 ' + ((f.from || '…') + ' ~ ' + (f.to || '…'))].join(' · ');
+    var body = st.rows.map(function (r) {
+      var d = RA.detail(r.batchId, r.lineId) || {}, at = d.attempts || [], bc = d.balanceCheck;
+      var att = at.map(function (x) { return '시도 ' + x.attempt + ' ' + x.recId + ' · ' + (x.net != null ? fmt3(x.net) + ' ' + (x.uom || 'kg') : '—') + ' · ' + (x.state === 'VOID' ? '취소' + (x.voidKind === 'reweigh' ? ' (재칭량)' : '') : x.state) + ' · 해시 ' + String(x.recordHash || '—').slice(0, 4) + (x.reweigh && x.reweigh.signatureId ? ' · 재칭량 승인 ' + SA.name(x.reweigh.userId, x.reweigh.name) + ' 사유 "' + (x.voidReason || '') + '"' : ''); }).join('<br>');
+      var sg = (d.signatures || []).map(function (s) { var m = sigMeaning(s.kind); return m[1] + ' ' + m[2] + ' ' + SA.name(s.userId, s.name) + ' ' + SA.kst(s.at) + ' (' + s.signatureId + ')'; }).join('<br>');
+      return '<tr><td><div class="p-sec">' + esc(r.batchId + ' · ' + r.lineId + ' · ' + r.materialId + ' · LOT ' + (r.lotNo || '—') + ' · 저울 ' + (r.balanceId || '—') + ' · ' + (r.stateLabel || r.state) + (r.integrity === 'mismatch' ? ' · 불일치' : '')) + '</div>' +
+        '<div>' + att + '</div><div class="p-l2">' + (sg || '서명 없음') + '</div><div class="p-l2">저울 점검 ' + esc(bc ? bc.date + ' ' + (bc.result === 'pass' ? '합격' : bc.result === 'fail' ? '불합격' : '미점검') + (bc.checkId ? ' (' + bc.checkId + ')' : '') : '정보 없음') + '</div></td></tr>';
+    }).join('') || '<tr><td>' + esc(RA.ready() ? '칭량 기록 없음' : API_TIP) + '</td></tr>';
+    $('printArea').innerHTML = '<table><thead><tr><td><div class="p-title">칭량 기록 (사본 — 전자 원본 아님)</div><div>' + esc(cond) + '</div><div>출력자 ' + esc(u ? u.name + ' (' + u.userId + ')' : '—') + ' · 출력 ' + esc(now) + ' KST · 쪽 번호 = 머리 오른쪽 n / N</div></td></tr></thead><tbody>' + body + '</tbody></table>';
+    window.print();
+  }
+
+  /* ---------- 배치 선택 ---------- */
+  function openBatchPick() { $('bpBatch').value = $('fBatch').value.trim(); st.bpSel = null; renderBatchPick(); MesUI.openDialog('dlgBatchPick'); }
+  function renderBatchPick() {
+    var rows = BV.batches({ batchId: $('bpBatch').value.trim() });
+    $('grdBatchBody').innerHTML = rows.slice(0, 10).map(function (b) { return '<tr data-b="' + esc(b.batchId) + '" class="' + (st.bpSel === b.batchId ? 'sel' : '') + '"><td class="mono">' + esc(b.batchId) + '</td><td class="mono">' + esc(b.orderNo || '—') + '</td><td>' + esc((b.processTreeId || '') + (b.ver != null ? ' v' + b.ver : '')) + '</td><td class="num-t">' + esc(SA.kst(b.issuedAt || b.at).slice(0, 16)) + '</td></tr>'; }).join('') || emptyRows(1, 4, '발행 기록 없음 — 배치 ID 를 직접 입력하세요');
+    $('bpOk').disabled = !st.bpSel;
+  }
+
+  /* ---------- 권한 · 검색 상태 ---------- */
+  function renderGate() {
+    var on = RA.ready() && canRead();
+    $('srch').classList.toggle('disabled', !on);
+    Array.prototype.forEach.call(document.querySelectorAll('#srch input, #srch select, #srch button'), function (x) { x.disabled = !on; });
+    $('btnSearchWrap').title = !RA.ready() ? API_TIP + ' (필요: EbrDispense.' + RA.missing().join(' · ') + ')' : !canRead() ? '(!) 조회 권한이 없습니다 — 상단에서 사용자를 선택하세요.' : '';
+    $('btnPrint').disabled = !on;
+  }
+  function refresh() { renderGate(); if (RA.ready() && canRead() && st.filter) search(true); else { st.rows = []; st.total = 0; renderList(); renderDetail(); } }
+
+  function bind() {
+    $('btnSearch').addEventListener('click', function () { search(false); });
+    $('btnReset').addEventListener('click', function () { resetFilter(false); fillMat(); });
+    $('fBatch').addEventListener('change', fillMat);
+    ['fBatch', 'fLot', 'fOp'].forEach(function (id) { $(id).addEventListener('keydown', function (e) { if (e.key === 'Enter') search(false); }); });
+    $('grdListBody').addEventListener('click', function (e) { var tr = e.target.closest('tr[data-b]'); if (!tr) return; st.sel = { batchId: tr.getAttribute('data-b'), lineId: tr.getAttribute('data-l') }; renderList(); renderDetail(); });
+    $('paging').addEventListener('click', function (e) { var b = e.target.closest('[data-pg]'); if (!b || b.disabled) return; st.page += +b.getAttribute('data-pg'); renderList(); });
+    $('grdAttBody').addEventListener('dblclick', function (e) { var tr = e.target.closest('tr[data-rec]'); if (tr) openRecord(tr.getAttribute('data-rec')); });
+    $('btnPrint').addEventListener('click', printNow);
+    $('btnBatchPick').addEventListener('click', openBatchPick);
+    $('bpSearch').addEventListener('click', function () { st.bpSel = null; renderBatchPick(); });
+    $('grdBatchBody').addEventListener('click', function (e) { var tr = e.target.closest('tr[data-b]'); if (!tr) return; st.bpSel = tr.getAttribute('data-b'); renderBatchPick(); });
+    $('grdBatchBody').addEventListener('dblclick', function (e) { var tr = e.target.closest('tr[data-b]'); if (!tr) return; st.bpSel = tr.getAttribute('data-b'); $('bpOk').click(); });
+    $('bpOk').addEventListener('click', function () { if (!st.bpSel) return; $('fBatch').value = st.bpSel; fillMat(); MesUI.closeDialog('dlgBatchPick'); });
+    if (window.P0Ui) P0Ui.onUserChange(function () { refresh(); });
+  }
+  function boot() {
+    var q = new URLSearchParams(location.search), hasQ = ['batchId', 'lineId', 'balanceId', 'from', 'dispenseId'].some(function (k) { return q.get(k); });
+    fillCombos(); resetFilter(hasQ);
+    if (q.get('batchId')) { $('fBatch').value = q.get('batchId'); fillMat(); }
+    if (q.get('balanceId')) $('fBal').value = q.get('balanceId');
+    if (q.get('from')) $('fFrom').value = q.get('from').slice(0, 10);
+    bind(); renderGate();
+    if (hasQ && RA.ready() && canRead()) {
+      search(false);
+      if (q.get('lineId')) { st.sel = { batchId: q.get('batchId'), lineId: q.get('lineId') }; renderList(); renderDetail(); }
+      var did = q.get('dispenseId');
+      if (did) { var hit = RA.list({ dispenseId: did, groupBy: 'record', includeVoid: true }); var r0 = hit && hit.rows && hit.rows[0]; if (r0) { st.sel = { batchId: r0.batchId, lineId: r0.lineId }; renderList(); renderDetail(); openRecord(r0.recId); } }
+    } else { renderList(); renderDetail(); }
+  }
+  boot();
+  window.EbrDispenseRecordUi = { search: search, state: function () { return JSON.parse(JSON.stringify({ apiReady: RA.ready(), missing: RA.missing(), total: st.total, sel: st.sel })); }, openRecord: openRecord, preview: function () { MesUI.openDialog('dlgRecordDetail'); } };
+})();
+</script>
+<script>
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

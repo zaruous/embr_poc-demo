@@ -10,7 +10,7 @@
     - Phase/Step 보드(ISA-88 UP › OP › Phase) + 단계 순서 인터록(선행 미완료 시 건너뛰기 불가)
     - 칭량: 칭량 화면(s-ebr-dispense-ui) 줄 결과(ebr.dispense.v1)만 소비 — 칭량 진행 요약(읽기 전용) · 칭량 OP 자동 완료(OP 서명 없음, 줄 2인 서명)
     - localStorage 상태 유지(새로고침 생존) · Reset으로 초기화
-    - 장비 클래스 적격성 · 인터록 4단계 · 서명 플레이스홀더
+    - 장비 클래스 적격성 · 인터록 4단계 · OP 수행 · 확인 전자서명(공통 서명 창 #dlgRecSign → EbrExecSign · 상태 = EbrSignStatus)
   칭량 판정   : EbrDispense.weighingGate / opSummary / markOpAutoComplete (진입 · focus · storage · 단계 완료 때 평가)
 -->
 <html lang="ko">
@@ -21,7 +21,7 @@
 <title>생산 실행 — eMBR/eBR PoC</title>
 <link rel="stylesheet" href="./assets/mesui.css">
 <style>
-  body { margin: 0; background: #fff; }
+  body { margin: 0; background: var(--c-bg); }
   .lnk { color: var(--c-primary); cursor: pointer; text-decoration: none; }
   .lnk:hover { color: var(--c-primary-active); }
   .lnk.disabled { color: var(--c-text-disabled); cursor: default; pointer-events: none; }
@@ -39,9 +39,9 @@
     font-size: 11px; font-weight: bold; background: var(--bc-gray); color: var(--c-text-sub);
   }
   .flow-strip .fl.done { color: var(--c-text); }
-  .flow-strip .fl.done .n { background: var(--c-ok); color: #fff; }
-  .flow-strip .fl.active { color: var(--c-primary); font-weight: bold; background: #fff; box-shadow: inset 0 -2px 0 var(--c-primary); }
-  .flow-strip .fl.active .n { background: var(--c-primary); color: #fff; }
+  .flow-strip .fl.done .n { background: var(--c-ok); color: var(--c-bg); }
+  .flow-strip .fl.active { color: var(--c-primary); font-weight: bold; background: var(--c-bg); box-shadow: inset 0 -2px 0 var(--c-primary); }
+  .flow-strip .fl.active .n { background: var(--c-primary); color: var(--c-bg); }
   .flow-strip .fl.wait .n { background: var(--bc-gray); color: var(--c-text-disabled); }
   .flow-strip .arrow { color: var(--c-border-03); padding: 0 4px; font-size: 14px; }
   .flow-strip .hint { margin-left: auto; font-size: 11px; color: var(--c-text-disabled); padding-right: 8px; }
@@ -56,12 +56,12 @@
   .il-banner .il-actions { display: inline-flex; gap: 6px; flex: 0 0 auto; }
   .il-banner.absolute { background: var(--bc-faulty); border-color: var(--c-error); }
   .il-banner.absolute .il-grade { color: var(--c-error); }
-  .il-banner.hardqa { background: var(--bc-quality); border-color: #6952db; }
-  .il-banner.hardqa .il-grade { color: #6952db; }
-  .il-banner.controlled { background: var(--bc-alam); border-color: #f56813; }
-  .il-banner.controlled .il-grade { color: #f56813; }
-  .il-banner.warning { background: #FFF6D6; border-color: #b37c00; }
-  .il-banner.warning .il-grade { color: #b37c00; }
+  .il-banner.hardqa { background: var(--bc-quality); border-color: var(--c-sign-reviewed); }
+  .il-banner.hardqa .il-grade { color: var(--c-sign-reviewed); }
+  .il-banner.controlled { background: var(--bc-alam); border-color: var(--c-warn); }
+  .il-banner.controlled .il-grade { color: var(--c-warn); }
+  .il-banner.warning { background: var(--bc-gray-light); border-color: var(--c-warn); }
+  .il-banner.warning .il-grade { color: var(--c-text); }
 
   .phase-board { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
   .phase-board .up-block { border-bottom: 1px solid var(--c-border-03); }
@@ -114,11 +114,12 @@
     padding: 8px 10px; background: var(--c-board-normal); display: flex; flex-direction: column; gap: 4px;
   }
   .sign-card .sc-title { font-size: 12px; font-weight: bold; }
-  .sign-card .sc-meta { font-size: 11px; color: var(--c-text-sub); }
-  .sign-card.pending { border-color: var(--c-warn); background: var(--bc-alam); }
+  .sign-card .sc-meta { font-size: 11px; color: var(--c-text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: var(--badge-gap); }
+  .sign-card.pending, .sign-card.na { border-color: var(--c-border-04); background: var(--bc-gray-light); }   /* 대기 = 회색 (색 대응표 §2) */
   .sign-card.done { border-color: var(--c-ok); background: var(--bc-good); }
   .sign-card.blocked { border-color: var(--c-error); background: var(--bc-faulty); }
   .sign-card .sc-link { font-size: 11px; }
+  .sign-card .sc-meta .btn.inner { flex: none; }
 
   .judge-ok { color: var(--c-ok); font-weight: bold; }
   .judge-warn { color: var(--c-warn); font-weight: bold; }
@@ -129,25 +130,25 @@
 
   .demo-fab {
     position: fixed; right: 2px; bottom: 0; width: 26px; height: 18px;
-    border: 1px solid #555; border-radius: 3px 3px 0 0; background: #333; color: #fff;
+    border: 1px solid var(--c-text-sub); border-radius: 3px 3px 0 0; background: var(--c-text); color: var(--c-bg);
     font: bold 9px/16px 'Malgun Gothic', sans-serif; text-align: center; cursor: pointer; z-index: 900; opacity: .85;
   }
   .demo-fab:hover { opacity: 1; }
   .demo-panel {
     position: fixed; right: 12px; bottom: 24px; z-index: 900; display: none; flex-direction: column; gap: 8px;
-    padding: 10px 14px; background: rgba(40, 40, 40, 0.94); color: #fff; border-radius: 4px;
+    padding: 10px 14px; background: rgba(40, 40, 40, 0.94); color: var(--c-bg); border-radius: 4px;
     box-shadow: 0 6px 12px rgba(0,0,0,.3); font: 12px 'Malgun Gothic', sans-serif; letter-spacing: -0.03em;
     max-width: 320px;
   }
   .demo-panel.open { display: flex; }
-  .demo-panel .dp-title { font-weight: bold; color: #ffb100; }
+  .demo-panel .dp-title { font-weight: bold; color: var(--c-warn); }
   .demo-panel label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
-  .demo-panel input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: #ffb100; }
+  .demo-panel input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: var(--c-warn); }
   .demo-panel button {
-    font: 12px 'Malgun Gothic', sans-serif; padding: 2px 10px; border: 1px solid #888;
-    background: #555; color: #fff; border-radius: 2px; cursor: pointer;
+    font: 12px 'Malgun Gothic', sans-serif; padding: 2px 10px; border: 1px solid var(--c-text-disabled);
+    background: var(--c-text-sub); color: var(--c-bg); border-radius: 2px; cursor: pointer;
   }
-  .demo-panel button:hover { background: #666; }
+  .demo-panel button:hover { background: var(--c-text-sub); }
   .demo-panel .dp-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 
   .shell-body > .split.main-split {
@@ -164,10 +165,10 @@
   /* ---- resizable split gutters (rs-*) — do not collide with mesui .split ---- */
   .rs-gutter {
     flex: 0 0 6px; width: 6px; min-width: 6px; cursor: col-resize;
-    background: #e8edf5; border: none; padding: 0; margin: 0;
+    background: var(--c-bg-light); border: none; padding: 0; margin: 0;
     align-self: stretch; position: relative;
   }
-  .rs-gutter:hover, .rs-gutter.is-drag { background: #2C59D9; }
+  .rs-gutter:hover, .rs-gutter.is-drag { background: var(--c-primary); }
   .rs-gutter::after {
     content: ''; position: absolute; top: 0; bottom: 0; left: -3px; right: -3px;
   }
@@ -178,7 +179,7 @@
   .kpi-board { min-height: 64px; }
 
   /* 뷰포트/iframe 맞춤: mesui .shell-scale — 1920×1080 비율 유지하며 축소 */
-  html, body { height: 100%; margin: 0; overflow: hidden; background: #fff; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--c-bg); }
   body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
   #shellScale.shell-scale {
     flex: 0 0 auto;
@@ -198,6 +199,37 @@
   .exec-blocked .log-block {
     opacity: 0.45; pointer-events: none;
   }
+  /* ==== 공통 서명 창 #dlgRecSign (1100 × 700 — 발행 서명 창 틀 재사용, 4개 화면 같은 블록) · 공용 클래스(.sign-meaning · .sign-dot · .auth-panel · .auth-row · .qual-msg · .qual-req · .sign-err · .sign-statement)는 Elephant CSS(mesui.css) — 여기는 창별 #id 덮기만 ==== */
+  #dlgRecSign .popup-title .text { display: inline-flex; align-items: center; gap: var(--title-gap); min-width: 0; }
+  #dlgRecSign .split.sign-split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--split-gutter); flex: 1 1 auto; min-height: 0; }
+  #dlgRecSign .split.sign-split > .grid-block { min-height: 0; min-width: 0; }
+  #dlgRecSign .grid-wrap { overflow: hidden; }
+  #grdRecSignVal td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #grdRecSignVal .col-item { width: var(--col-w-200); }
+  #dlgRecSign .form-grid .field .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #dlgRecSign .auth-row > .input { height: var(--ctrl-h-form); }
+  .user-card { border: 1px solid var(--c-border-04); border-radius: var(--radius); padding: var(--title-gap) var(--fs-grid); display: flex; align-items: baseline; gap: var(--title-gap); background: var(--c-board-normal); flex-wrap: wrap; }
+  .user-card .name { font-size: var(--fs-group); font-weight: bold; }
+  .user-card .badges { display: inline-flex; align-items: center; gap: var(--badge-gap); flex-wrap: wrap; align-self: center; }
+  .auth-panel .sign-rule, .auth-panel .qual-req, .auth-panel .one-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #dlgRecSign .auth-panel { overflow: hidden; }
+  #dlgRecSign .sign-err { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #dlgRecSign .sign-statement { flex: 0 0 var(--form-row-h); height: var(--form-row-h); display: flex; align-items: center; padding: 0 var(--fs-grid); border: 1px solid var(--c-border-05); background: var(--bc-gray-light); font-size: var(--fs-grid); min-width: 0; overflow: hidden; }
+  #dlgRecSign .sign-statement > .stmt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35; }
+  #dlgRecSign .dialog-footer .sign-note { margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* 서명 슬롯 표시 (§2 색 대응표): signed = 의미 점 + ID · 시각, pending = .badge.muted, invalid = .badge.error, na = .badge */
+  .sign-slot .sign-dot { margin-right: 0; }
+  .sign-slot { display: inline-flex; align-items: center; gap: var(--badge-gap); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* ==== 현재 사용자 선택기 · 역할 배지 (공통 블록 — 배치 발행 · 칭량 화면과 같음) ==== */
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: var(--split-gutter); min-width: 0; white-space: nowrap; }
+  .title-bar > .user-switch + .breadcrumb { margin-left: var(--fs-grid); }
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: var(--badge-gap); min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  #dlgRecSign [hidden] { display: none; }   /* QA 대행 배지 등 — .badge display 보다 우선 */
+  body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -205,6 +237,7 @@
 <div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui" id="shell">
   <div class="title-bar">
     <span class="main-title">생산 실행</span>
+    <span class="user-switch" id="userSwitch"></span>
     <span class="breadcrumb">
       <span>eMBR</span><span class="sep">&rsaquo;</span><span>현장 실행</span><span class="sep">&rsaquo;</span><span class="current">생산 실행 보드</span>
       <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
@@ -358,11 +391,11 @@
 
         <div class="grid-block" style="flex:0 0 auto;">
           <div class="grid-toolbar">
-            <span class="group-title">서명 플레이스홀더</span>
-            <span class="muted" style="font-size:12px">현재 OP · T-11 진입(PoC)</span>
+            <span class="group-title">서명</span>
+            <span class="sub-info" id="signSrcNote">현재 OP · 수행 → 확인 (서명 상태 = 서명 원장)</span>
             <span class="spacer"></span>
-            <button class="btn search secondary" type="button" id="btnPerformSign">수행 서명</button>
-            <span class="tip" id="tipConfirm"><button class="btn search primary" type="button" id="btnConfirmSign">확인 서명</button></span>
+            <button class="btn search secondary" type="button" id="btnPerformSign" data-p0-edit>수행 서명</button>
+            <span class="tip" id="tipConfirm"><button class="btn search primary" type="button" id="btnConfirmSign" data-p0-edit>확인 서명</button></span>
           </div>
           <div class="sign-cards" id="signCards"></div>
         </div>
@@ -416,30 +449,6 @@
 
 </div> <!-- #shellScale -->
 
-<!-- 서명 의미 안내 팝업 -->
-<div class="dialog-backdrop" id="dlgSignHint">
-  <div class="dialog" style="--dialog-w:640px; --dialog-h:360px;">
-    <div class="popup-title">
-      <span class="text" id="dlgSignTitle">전자서명 — 플레이스홀더</span>
-      <button class="popup-close" type="button" data-dialog-close aria-label="Close"></button>
-    </div>
-    <div class="shell-body" style="padding:16px 20px; gap:12px;">
-      <p style="margin:0; font-size:13px; line-height:1.6;" id="dlgSignBody"></p>
-      <div class="form-grid cols-2 readonly">
-        <span class="label">배치</span><span class="field"><span class="text">BR-DEMO-0001 · 정제 A 10 mg</span></span>
-        <span class="label">단계</span><span class="field"><span class="text" id="dlgSignStep">OP1-1 원료 칭량</span></span>
-        <span class="label">서명 의미</span><span class="field"><span class="text" id="dlgSignMeaning">수행</span></span>
-        <span class="label">요구 인증</span><span class="field"><span class="text" id="dlgSignAuth">PIN (연속 세션)</span></span>
-      </div>
-      <p class="muted" style="margin:0; font-size:12px;">본 PoC는 UI 보드입니다. 실제 T-11 전 요소 서명·랜덤 키패드는 OI 단계 실행 화면에서 구현합니다.</p>
-    </div>
-    <div class="dialog-footer">
-      <button class="btn search secondary" type="button" data-dialog-close>닫기</button>
-      <button class="btn search primary" type="button" id="btnSignAck">확인(데모)</button>
-    </div>
-  </div>
-</div>
-
 <div class="demo-fab" id="demoFab" title="데모 바">DEMO</div>
 <div class="demo-panel" id="demoPanel">
   
@@ -456,11 +465,65 @@
   </div>
 </div>
 
+<!-- ============================================================ 공통 서명 창 #dlgRecSign (1100 × 700 · 4개 화면 같은 블록)
+     닫힘(취소 · X · Esc) → dialogclose 에서 EbrExecSign.cancel(ticket). 문장은 target.statement 그대로 → input.statement 로 되돌림 -->
+<div class="dialog-backdrop" id="dlgRecSign">
+  <div class="dialog">
+    <div class="popup-title">
+      <span class="text"><span class="sign-meaning" id="rsDot"></span><span id="rsTitle">전자서명</span><span class="badge" id="rsProxy" hidden>PoC 전용 — QA 대행 · QP 인증 아님</span></span>
+      <button class="popup-close" type="button" data-dialog-close aria-label="Close"></button>
+    </div>
+    <div class="shell-body">
+      <div class="form-grid cols-2 readonly" id="rsFacts">
+        <span class="label" id="rsL1">배치</span><span class="field"><span class="text" id="rsF1"></span></span>
+        <span class="label" id="rsL2">대상</span><span class="field"><span class="text" id="rsF2"></span></span>
+        <span class="label" id="rsL3">규칙</span><span class="field"><span class="text" id="rsF3"></span></span>
+        <span class="label" id="rsL4">서명자 (현재 사용자)</span><span class="field"><span class="text" id="rsF4"></span></span>
+        <span class="label" id="rsL5">요구 인증</span><span class="field"><span class="text" id="rsF5"></span></span>
+        <span class="label" id="rsL6">레코드 타입</span><span class="field"><span class="text" id="rsF6"></span></span>
+      </div>
+      <div class="split sign-split">
+        <div class="grid-block">
+          <div class="grid-toolbar"><span class="group-title" id="rsValTitle">서명 값</span><span class="total-text" id="rsValTotal"></span><span class="spacer"></span><span class="sub-info" id="rsValNote">서명은 아래 값 + 서명자 + 시각에 묶입니다</span></div>
+          <div class="grid-wrap">
+            <table class="grid" id="grdRecSignVal">
+              <colgroup><col class="col-no"><col class="col-item"><col></colgroup>
+              <thead><tr><th class="col-no">#</th><th>항목</th><th>값</th></tr></thead>
+              <tbody id="grdRecSignValBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="auth-panel">
+          <div class="user-card" id="signUser"></div>
+          <span class="sub-info sign-rule" id="signRule"></span>
+          <div class="auth-row"><span class="label required">사용자 ID</span><input class="input" type="text" id="signId" placeholder="ID 직접 입력" autocomplete="off"></div>
+          <div class="auth-row"><span class="label required">비밀번호</span><input class="input" type="password" id="signPw" autocomplete="new-password"></div>
+          <div class="auth-row"><span class="label" id="signCmtLabel">코멘트</span><input class="input" type="text" id="signCmt" placeholder="선택 입력" autocomplete="off" maxlength="60"></div>
+          <div class="sign-err sub-info fc-fail" id="signErr" role="alert"></div>
+          <div class="qual-msg" id="signQualMsg" aria-live="polite"></div>
+          <span class="sub-info one-line" id="signPocNote">PoC 전용 — 실서비스는 LDAP(AM-IDPW)</span>
+          <span class="sub-info qual-req" id="signQualReq"></span>
+        </div>
+      </div>
+      <div class="sign-statement" id="signStatement"><span class="stmt" id="signStatementText"></span></div>
+    </div>
+    <div class="dialog-footer">
+      <span class="sub-info sign-note" id="signNote"></span>
+      <button class="btn search secondary" type="button" data-dialog-close>취소</button>
+      <span class="tip" id="btnRecSignWrap" title="ID · 비밀번호를 입력하세요"><button class="btn search primary" type="button" id="btnRecSign" disabled>서명</button></span>
+    </div>
+  </div>
+</div>
+
 <script src="./assets/mesui.js"></script>
 <script src="./assets/ebr-p0-stores.js"></script>
 <script src="./assets/ebr-exec-snapshot.js"></script>
-<script src="./assets/ebr-user-session.js"></script>   <!-- 칭량 E16 DEVELOPER1 감사 · 세션 (window.EbrUserSession) -->
-<script src="./assets/ebr-dispense-store.js"></script>   <!-- 칭량 E16 DEVELOPER1 완료 판정 (window.EbrDispense) -->
+<script src="./assets/ebr-user-session.js"></script>   <!-- 칭량 E16 감사 · 세션 (window.EbrUserSession) -->
+<script src="./assets/ebr-dispense-store.js"></script>   <!-- 칭량 E16 완료 판정 (window.EbrDispense) -->
+<script src="./assets/ebr-qual-store.js"></script>   <!-- 교육 · 자격 (window.EbrQual) — 서명 창 ⑦ 요구 자격 이름 (읽기만) -->
+<script src="./assets/ebr-exec-sign-store.js"></script>   <!-- 실행 · 출하 서명 래퍼 (window.EbrExecSign) -->
+<script src="./assets/ebr-sign-status.js"></script>   <!-- 서명 상태 읽기 (window.EbrSignStatus) -->
+<script src="./exec-sign-ui.js"></script>
 <script>
 (function () {
   'use strict';
@@ -747,7 +810,7 @@
       ras: 'ok', cal: 'ok', cfms: 'ok', note: 'CFMS GR-01 적격' },
     { ec: 'EC-MILL-01', ver: 1, name: '정립기 클래스', equip: 'ML-03', equipName: '정립기 03',
       ras: 'ok', cal: 'ok', cfms: 'ok', note: '대기(다음 OP)' },
-    /* 칭량 PM 결정: 스냅샷 노드 설비 클래스 게이트 데이터 (기준정보 장비 클래스 적격 목록 · CMMS 교정 시드 기준) */
+    /* 스냅샷 노드 설비 클래스 게이트 데이터 (기준정보 장비 클래스 적격 목록 · CMMS 교정 시드 기준) */
     { ec: 'EC-BAL-02', ver: 2, name: '플로어 저울 클래스', equip: 'BAL-301', equipName: '플로어 저울 #301',
       ras: 'ok', cal: 'ok', cfms: 'ok', note: '교정 2027-02-20 · ≤ 300 kg (BAL-302 는 교정 만료 2026-09-30)' },
     { ec: 'EC-TAB-01', ver: 3, name: '타정기 클래스', equip: 'TP-02', equipName: '로터리 타정기 02',
@@ -815,14 +878,11 @@
   function defaultState() {
     var opDone = {};
     OP_ORDER.forEach(function (id) { opDone[id] = false; });
-    var signs = {};
-    OP_ORDER.forEach(function (id) { signs[id] = { perform: false, confirm: false }; });
     var first = OP_ORDER[0] || 'OP1-1';
     return {
       selectedStep: first,
       activeOp: first,
       opDone: opDone,
-      signs: signs,
       logs: [],
       il: null,
       eqFail: false,
@@ -894,7 +954,6 @@
         selectedStep: state.selectedStep,
         activeOp: state.activeOp,
         opDone: state.opDone,
-        signs: state.signs,
         logs: state.logs,
         il: state.il,
         eqFail: state.eqFail,
@@ -938,7 +997,6 @@
       state.selectedStep = o.selectedStep || 'OP1-1';
       state.activeOp = o.activeOp || 'OP1-1';
       state.opDone = o.opDone;
-      state.signs = o.signs || state.signs;
       state.logs = Array.isArray(o.logs) ? o.logs : [];
       state.il = (o.il && IL[o.il]) ? o.il : null;
       state.eqFail = !!o.eqFail;
@@ -1016,8 +1074,8 @@
       var weigh = isWeighStep(s.id);
       if (st === 'done') {
         if (weigh) return '완료 · 칭량 자동 완료 (줄 2인 서명)';
-        var sg = state.signs[s.id];
-        return '완료 · 수행/확인' + (sg && sg.confirm ? ' ✓' : '');
+        var sg = sigOf(s.id);
+        return '완료 · 수행/확인' + (sg.confirm ? ' ✓' : '');
       }
       if (st === 'active') {
         if (weigh) {
@@ -1072,8 +1130,8 @@
       MesUI.toast('칭량 ' + wg.verified + '/' + wg.total + ' VERIFIED — ' + op + ' 자동 완료 (OP 서명 없음) → ' + (nextW || '끝'), 'ok');
       return;
     }
-    var sg = state.signs[op];
-    if (!sg || !sg.perform || !sg.confirm) {
+    var sg = sigOf(op);
+    if (!sg.perform || !sg.confirm) {
       MesUI.alert('수행·확인 서명이 필요합니다. (현재 OP: ' + op + ')', 'Warning');
       return;
     }
@@ -1240,7 +1298,7 @@
     $('weighSumScope').textContent = op + ' · ebr.dispense.v1 · 읽기 전용 · 줄마다 2인 서명';
     body.innerHTML = lines.length ? lines.map(function (l) {
       var ver = l.status === 'VERIFIED';
-      var badge = ver ? 'ok' : (l.status === 'PLANNED' ? 'muted' : (l.status === 'DEVIATION' || l.status === 'OOT') ? 'error' : 'info');
+      var badge = ver ? 'ok' : (l.status === 'PLANNED' ? 'muted' : (l.status === 'DEVIATION' || l.status === 'OOT') ? 'error' : 'muted');
       return '<div class="wl-row' + (ver ? ' done' : '') + '">' +
         '<span class="wl-id">' + esc(l.lineId) + '</span>' +
         '<span class="wl-mat" title="' + esc(l.materialId) + '">' + esc(l.materialName || l.materialId) + ' <span class="muted">' + esc(l.materialId) + '</span></span>' +
@@ -1250,7 +1308,7 @@
         '<span>' + esc(uidLabel(l.verifiedBy) || '—') + '</span></div>';
     }).join('') : '<div class="nodata">' + esc(wg.message || '칭량 계획 없음') + '</div>';
     var opDone = !!state.opDone[op];
-    var sumBadge = wg.total ? ('<span class="badge ' + (wg.ok ? 'ok' : (wg.why === 'open_deviation' ? 'error' : 'info')) + '">검증 ' + wg.verified + '/' + wg.total + '</span>') : '<span class="badge error">계획 없음</span>';
+    var sumBadge = wg.total ? ('<span class="badge ' + (wg.ok ? 'ok' : (wg.why === 'open_deviation' ? 'error' : 'muted')) + '">검증 ' + wg.verified + '/' + wg.total + '</span>') : '<span class="badge error">계획 없음</span>';
     foot.innerHTML = sumBadge + ' <span>' + esc(opDone ? op + ' 자동 완료 — OP 서명 없음' : (wg.ok ? '줄 모두 VERIFIED — 자동 완료 대상' : (wg.message || ''))) + '</span>';
     $('kpiLot').textContent = wg.total ? (wg.verified + '/' + wg.total) : '—';
     $('kpiLotNote').textContent = opDone ? '칭량 OP 완료' : (wg.ok ? '자동 완료 대상' : (wg.why === 'open_deviation' ? '열린 칭량 일탈' : (wg.total ? '미검증 ' + (wg.total - wg.verified) : '계획 없음')));
@@ -1314,51 +1372,112 @@
     return op;
   }
 
+  /* ==== 서명 상태 어댑터 — 원천 EbrSignStatus.getSignStatus({batchId, scope:'prod'}) (화면 로컬 서명 상태 없음 · 새로 고침 뒤에도 서명 원장에서 다시 읽음) ==== */
+  var PRODSIG = { ok: false, why: 'not_loaded', items: [] };
+  var PRODSTEPS = [];
+  function loadProdSig() {
+    var bid = execCtx.batchId || BATCH.id || '';
+    var r = SignView.call('getSignStatus', { batchId: bid, scope: 'prod' });
+    PRODSIG = r && r.ok ? { ok: true, items: r.items || [], counts: r.counts || {} } : { ok: false, why: (r && r.why) || 'no_store', message: r && r.message, items: [] };
+    var x = window.EbrExecSign, st = [];
+    try { st = x && typeof x.stepsFor === 'function' ? (x.stepsFor('prod', bid) || []) : []; } catch (e) { st = []; if (window.console) console.error('[EbrExecSign] stepsFor', e); }
+    PRODSTEPS = Array.isArray(st) ? st : [];
+    return PRODSIG;
+  }
+  function slotItem(op, slot) {
+    var hit = null;
+    PRODSIG.items.forEach(function (it) { if (it.stepKey === op && it.slot === slot) hit = it; });
+    return hit;
+  }
+  function sigOf(op) {
+    var p = slotItem(op, 'perform'), v = slotItem(op, 'verify');
+    return { perform: !!(p && p.status === 'signed'), confirm: !!(v && v.status === 'signed'), p: p, v: v, ok: PRODSIG.ok };
+  }
+  function slotRoles(op, slot) {
+    var r = null;
+    PRODSTEPS.forEach(function (s) { if (s.stepKey === op) (s.slots || []).forEach(function (x) { if (x.slot === slot) r = x.roles || null; }); });
+    return r;
+  }
+  function roleTip(op, slot) {   /* 규칙 밖 역할 → 비활성 + tip (판정 자체는 store ⑤) */
+    var roles = slotRoles(op, slot), u = window.P0Ui ? P0Ui.current() : null;
+    if (!roles || !u) return '';
+    var mine = P0Ui.rolesOf(u);
+    return roles.some(function (r) { return mine.indexOf(r) >= 0; }) ? '' : '허용 역할 ' + roles.join(' · ') + ' — 현재 사용자 역할로는 서명할 수 없습니다';
+  }
+
+  /* 변경 브리핑 CC-031 (OP2-1 혼합 시간 변경) — 읽고 이해함 서명 SM-READ-BRIEF, 사람마다 1건 (EbrExecSign.briefingStatus / beginBriefingSign) */
+  var BRIEF = { opId: 'OP2-1', ccId: 'CC-031' };
+  function briefCard() {
+    var bid = execCtx.batchId || BATCH.id || '', x = window.EbrExecSign, u = window.P0Ui && P0Ui.current && P0Ui.current();
+    var bs = null; try { bs = x && x.briefingStatus ? x.briefingStatus({ batchId: bid, opId: BRIEF.opId, ccId: BRIEF.ccId }) : null; } catch (e) { bs = null; }
+    if (!bs || !bs.ok) return { id: 'sc-brief', title: '변경 브리핑 ' + BRIEF.ccId, meta: esc('브리핑 서명 상태를 읽지 못함'), st: 'blocked', badge: '<span class="badge error">확인 불가</span>' };
+    var ok = bs.signers.filter(function (z) { return z.status === 'signed'; }), bad = bs.signers.length - ok.length;
+    var mine = u && ok.some(function (z) { return z.userId === u.userId; });
+    var who = ok.map(function (z) { return z.userId; }).join(' · ');
+    var meta = '<span class="sc-k">' + esc(BRIEF.opId) + '</span> 읽고 이해함 ' + ok.length + '명' + (who ? ' — ' + esc(who) : '') + (bad ? ' <span class="badge error">무효 ' + bad + '</span>' : '');
+    var btn = mine ? '' : '<button class="btn inner" type="button" id="btnBriefSign" data-p0-edit' + (u && !execCtx.blocked ? '' : ' disabled') + ' title="' + esc(u ? '변경 내용을 읽고 이해했음을 서명 (현재 사용자 본인)' : '상단에서 사용자를 선택하세요') + '">읽고 이해함 서명</button>';
+    return { id: 'sc-brief', title: '변경 브리핑 ' + BRIEF.ccId, meta: meta + ' ' + btn, st: mine ? 'done' : 'pending', badge: mine ? '<span class="badge ok">서명함</span>' : '<span class="badge muted">미서명</span>' };
+  }
+  function openBriefSign() {
+    var bid = execCtx.batchId || BATCH.id || '';
+    RecSign.open({
+      meaning: 'read_understood', title: '변경 브리핑 — 읽고 이해함',
+      f1: bid + ' · ' + (BATCH.product || ''), l2: '변경', f2: BRIEF.ccId + ' · ' + BRIEF.opId, f6: 'briefing (변경 브리핑)', valTitle: '브리핑 내용',
+      rows: [{ k: '변경 관리', v: BRIEF.ccId }, { k: '대상 OP', v: BRIEF.opId + ' 습식 혼합' }, { k: '변경 항목', v: 'PH2-1-1 혼합 시간 — 목표 12 min' }, { k: '근거', v: 'CC-031 승인 MBR 개정' }],
+      note: '서명 뒤 브리핑 서명 현황 반영 (사람마다 1건)',
+      begin: function (x) { return x.beginBriefingSign({ batchId: bid, opId: BRIEF.opId, ccId: BRIEF.ccId, screen: 'S-EBR-PROD' }); },
+      okText: '브리핑 서명 완료',
+      onDone: function () { renderAll(); }
+    });
+  }
+  document.addEventListener('click', function (e) { var b = e.target.closest('#btnBriefSign'); if (b && !b.disabled) openBriefSign(); });
+
   function renderSigns() {
+    loadProdSig();
     var op = currentOpForSign();
-    var sg = state.signs[op] || { perform: false, confirm: false };
+    var sg = sigOf(op);
     var weigh = isWeighStep(op);
     var cards = [];
     var firstOp = OP_ORDER[0];
     if (activeOpIndex() > 0 || (firstOp && state.opDone[firstOp])) {
-      cards.push({
-        id: 'sc-prev', title: '선행 OP 서명',
-        meta: '완료된 단계 서명 유효', st: 'done', label: '잠금'
-      });
+      var prevOps = OP_ORDER.filter(function (k) { return state.opDone[k] && !isWeighStep(k) && k !== op; });
+      var prevMiss = prevOps.filter(function (k) { var g = sigOf(k); return !(g.perform && g.confirm); });
+      cards.push(prevMiss.length
+        ? { id: 'sc-prev', title: '선행 OP 서명', meta: esc('서명 누락 ' + prevMiss.join(' · ')), st: 'pending', badge: '<span class="badge warn">누락 ' + prevMiss.length + '</span>' }
+        : { id: 'sc-prev', title: '선행 OP 서명', meta: esc(prevOps.length ? '완료된 단계 서명 유효' : '칭량 OP만 완료 — 칭량 줄 서명으로 대체'), st: 'done', badge: '<span class="badge ok">유효 · 잠금</span>' });
     }
     var opName = op;
     PHASES_TMPL.forEach(function (u) { u.steps.forEach(function (s) { if (s.id === op) opName = s.name; }); });
     var wg = weigh ? weighGateFor(op) : null;
-    if (weigh) {   /* 칭량 E15 · Q8: 칭량 OP 는 OP 서명 없음 — 줄 2인 서명 요약 + 칭량 화면 링크 */
-      var weq = null, wst = 'pending', wlabel = '줄 서명 대기', wmeta = '검증 ' + wg.verified + '/' + wg.total + ' · 칭량 화면에서 줄마다 수행 · 확인 서명';
-      if (state.opDone[op]) { wst = 'done'; wlabel = '자동 완료'; wmeta = '검증 ' + wg.verified + '/' + wg.total + ' · OP 서명 없음 (줄 2인 서명)'; }
-      else if (wg.ok && state.il === 'absolute') { wst = 'blocked'; wlabel = '인터록'; wmeta = '검증 ' + wg.verified + '/' + wg.total + ' VERIFIED · Absolute 인터록 해소 후 자동 완료'; }
-      else if (wg.ok && !(weq = assertEquipUsableFor(op)).ok) { wst = 'blocked'; wlabel = '설비 사용 불가'; wmeta = '검증 ' + wg.verified + '/' + wg.total + ' VERIFIED · ' + String(weq.reason || '').split('\n')[0] + ' — 해소 후 자동 완료'; }
-      else if (wg.ok) { wst = 'done'; wlabel = '자동 완료 대상'; wmeta = '검증 ' + wg.verified + '/' + wg.total + ' VERIFIED · 열린 일탈 0'; }
+    if (weigh) {   /* 칭량 OP 는 OP 서명 없음 — 줄 2인 서명 요약 + 칭량 화면 링크 */
+      var ws = SignView.call('weighSignSummary', execCtx.batchId || BATCH.id || '');
+      var wn = ws && ws.ok ? ws.verified + '/' + ws.lines : wg.verified + '/' + wg.total;
+      var weq = null, wst = 'pending', wlabel = '줄 서명 대기', wmeta = '칭량 줄 서명 ' + wn + ' · 칭량 화면에서 줄마다 수행 · 확인 서명';
+      if (state.opDone[op]) { wst = 'done'; wlabel = '자동 완료'; wmeta = '칭량 줄 서명 ' + wn + ' · OP 서명 없음 (줄 2인 서명)'; }
+      else if (wg.ok && state.il === 'absolute') { wst = 'blocked'; wlabel = '인터록'; wmeta = '칭량 줄 서명 ' + wn + ' VERIFIED · Absolute 인터록 해소 후 자동 완료'; }
+      else if (wg.ok && !(weq = assertEquipUsableFor(op)).ok) { wst = 'blocked'; wlabel = '설비 사용 불가'; wmeta = '칭량 줄 서명 ' + wn + ' VERIFIED · ' + String(weq.reason || '').split('\n')[0] + ' — 해소 후 자동 완료'; }
+      else if (wg.ok) { wst = 'done'; wlabel = '자동 완료 대상'; wmeta = '칭량 줄 서명 ' + wn + ' VERIFIED · 열린 일탈 0'; }
       else if (wg.why !== 'pending') { wst = 'blocked'; wlabel = wg.why === 'open_deviation' ? '일탈 처분 대기' : '계획 없음'; wmeta = wg.message || '칭량 계획 없음'; }
-      cards.push({ id: 'sc-weigh', title: op + ' ' + opName + ' — 칭량 검증 ' + wg.verified + '/' + wg.total, meta: wmeta, st: wst, label: wlabel, link: weighScreenHref() });
+      var wbc = wst === 'done' ? 'ok' : wst === 'blocked' ? 'error' : 'muted';
+      cards.push({ id: 'sc-weigh', title: op + ' ' + opName + ' — 칭량 검증 ' + wg.verified + '/' + wg.total, meta: esc(wmeta), st: wst, badge: '<span class="badge ' + wbc + '">' + esc(wlabel) + '</span>', link: weighScreenHref() });
+    } else if (!sg.ok) {
+      var wm = RecSign.whyMsg({ why: PRODSIG.why, message: PRODSIG.message });
+      cards.push({ id: 'sc-cur', title: op + ' ' + opName, meta: esc('서명 상태를 읽지 못함 — ' + wm), st: 'blocked', badge: '<span class="badge error">확인 불가</span>' });
     } else {
-      var st = 'pending';
-      var meta = '수행 대기 · 확인 대기';
-      var label = '서명 대기';
-      if (sg.perform && !sg.confirm) { meta = '수행 A · 확인 대기'; label = '확인 대기'; }
-      if (sg.confirm) { st = 'done'; meta = '수행 A · 확인 B'; label = '유효'; }
-      if (state.il === 'absolute') {
-        st = 'blocked'; meta = '인터록 차단 — 서명 불가'; label = '차단';
-      }
-      cards.push({ id: 'sc-cur', title: op + ' ' + opName, meta: meta, st: st, label: label });
+      var meta = '<span class="sc-k">수행</span> ' + SignView.slotHtml(sg.p, '수행 대기') + ' <span class="sc-k">확인</span> ' + SignView.slotHtml(sg.v, '확인 대기');
+      var st = sg.confirm ? 'done' : 'pending', badge = sg.confirm ? '<span class="badge ok">2/2</span>' : '<span class="badge muted">' + (sg.perform ? '확인 대기' : '대기') + '</span>';
+      if ((sg.p && sg.p.status === 'invalid') || (sg.v && sg.v.status === 'invalid')) { st = 'blocked'; badge = '<span class="badge error">무효</span>'; }
+      if (state.il === 'absolute') { st = 'blocked'; meta = esc('인터록 차단 — 서명 불가'); badge = '<span class="badge error">차단</span>'; }
+      cards.push({ id: 'sc-cur', title: op + ' ' + opName, meta: meta, st: st, badge: badge });
     }
-    cards.push({
-      id: 'sc-brief', title: '변경 브리핑 CC-031',
-      meta: "읽고 이해함 A · B", st: 'done', label: '완료'
-    });
+    cards.push(briefCard());
 
     $('signCards').innerHTML = cards.map(function (c) {
       return '<div class="sign-card ' + c.st + '" data-sc="' + esc(c.id) + '">' +
-        '<span class="sc-title">' + esc(c.title) + '</span>' +
-        '<span class="sc-meta">' + esc(c.meta) + '</span>' +
+        '<span class="sc-title" title="' + esc(c.title) + '">' + esc(c.title) + '</span>' +
+        '<span class="sc-meta">' + c.meta + '</span>' +
         (c.link ? '<a class="lnk sc-link" id="lnkWeighScreen" href="' + esc(c.link) + '">칭량 화면 열기 →</a>' : '') +
-        '<span class="badge ' + (c.st === 'done' ? 'ok' : c.st === 'blocked' ? 'error' : 'warn') + '">' + esc(c.label) + '</span></div>';
+        c.badge + '</div>';
     }).join('');
 
     var pending;
@@ -1372,14 +1491,17 @@
     }
     $('kpiSign').textContent = String(pending);
 
-    /* 칭량 OP 는 OP 서명 버튼 숨김 (Q8). 다른 OP 는 그대로 */
+    /* 칭량 OP 는 OP 서명 버튼 숨김. 다른 OP 는 수행 → 확인 순서 */
     $('btnPerformSign').style.display = weigh ? 'none' : '';
     $('tipConfirm').style.display = weigh ? 'none' : '';
     var blocked = state.il === 'absolute' || state.opDone[op];
-    var canPerform = !weigh && !sg.perform && !blocked && !(state.eqFail && (op === 'OP2-1' || op === 'OP2-2'));
-    var canConfirm = !weigh && sg.perform && !sg.confirm && !blocked;
-    $('btnPerformSign').disabled = !canPerform;
-    $('btnConfirmSign').disabled = !canConfirm;
+    var canPerform = !weigh && sg.ok && !sg.perform && !blocked && !(state.eqFail && (op === 'OP2-1' || op === 'OP2-2'));
+    var canConfirm = !weigh && sg.ok && sg.perform && !sg.confirm && !blocked;
+    var tp = canPerform ? roleTip(op, 'perform') : '', tc = canConfirm ? (roleTip(op, 'verify') || (sg.p && sg.p.signerId && sg.p.signerId === ((window.EbrUserSession && EbrUserSession.getCurrentUserId && EbrUserSession.getCurrentUserId()) || '') ? '수행자(' + sg.p.signerId + ')와 다른 사용자가 확인 서명합니다' : '')) : '';
+    $('btnPerformSign').disabled = !canPerform || !!tp;
+    $('btnConfirmSign').disabled = !canConfirm || !!tc;
+    $('btnPerformSign').title = !sg.ok ? '서명 상태를 읽지 못해 서명할 수 없습니다' : tp;
+    $('tipConfirm').title = !sg.ok ? '서명 상태를 읽지 못해 서명할 수 없습니다' : tc || (!sg.perform ? '수행 서명 뒤 확인 서명' : sg.confirm ? '확인 서명 완료' : '');
   }
 
   function renderLog() {
@@ -1524,38 +1646,26 @@
     }
     var nm = op;
     PHASES_TMPL.forEach(function (u) { u.steps.forEach(function (s) { if (s.id === op) nm = s.name; }); });
-    $('dlgSignTitle').textContent = '전자서명 — ' + meaning + ' (플레이스홀더)';
-    $('dlgSignMeaning').textContent = meaning;
-    $('dlgSignStep').textContent = op + ' ' + nm;
-    $('dlgSignAuth').textContent = meaning === '확인' ? '전 요소 (ID + 카드 + PIN)' : 'PIN (연속 세션)';
-    $('dlgSignBody').textContent = meaning === '수행'
-      ? '수행 서명: 현재 세션 작업자가 Operation 값을 보증합니다. PoC에서는 상태만 갱신합니다.'
-      : '확인 서명: 수행자와 다른 사람이 전 요소 인증으로 확인합니다. 동일인 차단이 적용됩니다.';
-    MesUI.openDialog('dlgSignHint');
+    var slot = meaning === '확인' ? 'verify' : 'perform';
+    var bid = execCtx.batchId || BATCH.id || '';
+    /* 단계 기록 값은 화면이 넘긴다 (서명 값 = 해시 대상) — 서명 줄 제외 */
+    var values = state.logs.filter(function (r) { return r.step === op && r.kind !== '서명'; }).map(function (r) {
+      return { key: r.hash, label: r.item, value: r.value, judge: r.judge && r.judge !== '—' ? r.judge : '', source: r.src };
+    });
+    RecSign.open({
+      meaning: slot === 'verify' ? 'verified' : 'performed',
+      title: slot === 'verify' ? '공정 확인' : '공정 수행',
+      f1: bid + ' · ' + (BATCH.product || BATCH.name || ''), f2: op + ' ' + nm + ' · ' + (slot === 'verify' ? '확인' : '수행'),
+      f6: 'exec_step (생산 실행 단계)',
+      valTitle: op + ' 기록 값',
+      note: '서명 뒤 실행 기록 저장 · 출하 게이트 3 반영',
+      begin: function (x) { return x.beginStepSign({ batchId: bid, scope: 'prod', stepKey: op, slot: slot, values: values, screen: 'S-EBR-PROD-EXEC' }); },
+      okText: meaning + ' 서명 완료',
+      onDone: function () { saveState(); renderAll(); }
+    });
   }
   $('btnPerformSign').addEventListener('click', function () { openSign('수행'); });
   $('btnConfirmSign').addEventListener('click', function () { openSign('확인'); });
-  $('btnSignAck').addEventListener('click', function () {
-    var meaning = $('dlgSignMeaning').textContent;
-    var op = currentOpForSign();
-    if (!state.signs[op]) state.signs[op] = { perform: false, confirm: false };
-    if (meaning === '수행') state.signs[op].perform = true;
-    if (meaning === '확인') state.signs[op].confirm = true;
-    pushLog({
-      ts: nowTs(), kind: '서명', step: op,
-      item: meaning + ' 서명', value: meaning === '확인' ? '확인 · 전 요소' : '수행 · PIN',
-      equip: '—', src: 'MANUAL', judge: '—',
-      sig: meaning === '확인' ? '확인 B' : '수행 A',
-      user: meaning === '확인' ? 'B' : 'A',
-      hash: hash8(op + meaning + Date.now())
-    });
-    MesUI.closeDialog('dlgSignHint');
-    MesUI.toast(meaning + ' 서명 완료(데모)', 'ok');
-    saveState();
-    renderSigns();
-    renderLog();
-    renderKpi();
-  });
 
   $('ilActions').addEventListener('click', function (e) {
     var btn = e.target.closest('[data-il-act]');
@@ -1671,6 +1781,7 @@
   else MesUI.toast('신규 세션 · 칭량은 칭량 화면에서 (생산은 VERIFIED 결과만 사용)', 'info');
   /* 칭량 E17: 진입 · 창 복귀(focus) · 다른 탭 저장(storage — 칭량 · 발행 · 일탈 · 설비 상태) 때 칭량 OP 자동 완료 판정 */
   evaluateWeighAutoComplete('진입');
+  if (window.P0Ui) P0Ui.onUserChange(function () { renderAll(); });   /* 사용자 전환 → 서명 버튼 · 안내 다시 계산 */
   window.addEventListener('focus', function () {
     if (!evaluateWeighAutoComplete('focus').length && !execCtx.blocked) renderAll();
   });

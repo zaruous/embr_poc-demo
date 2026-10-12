@@ -2,7 +2,7 @@
 <!--
   화면 id      : s-adm-user-role-ui  (ADM 모듈 · S-41 사용자 · 역할)
   클래스       : CAdmSetupUserRoleMain   템플릿 T-02 + T-10 (900)  — 배치 발행 전자서명 P0 (ui-items UI-05 · UI-06)
-  모듈 폴더    : adm/  (경로 · 클래스명 PM 승인 2026-10-09)
+  모듈 폴더    : adm/  (경로 · 클래스명 승인 2026-10-09)
   구조         : master-t02.js MT.mountT02 · injectDialog 와 같은 DOM · 클래스를 화면 안에서 그림
                  (사용자 상태 active/inactive/locked 는 MBR 수명주기와 달라 전이 버튼 · Delete 없음. master-t02.js 는 수정하지 않음)
   저장         : localStorage 'ebmr.userRole.v1' {users, roles, userRoles} — 읽기·쓰기는 EbrUserSession(UI-09 ebr-user-session.js) 로만
@@ -34,7 +34,7 @@
   #grd-user td.roles .badge + .badge { margin-left: 4px; }
   /* ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 (공통 블록 — 기준정보 화면 + 배치 발행 동일) ====
      위치: .title-bar 안 .breadcrumb 바로 앞, margin-left:auto (DESIGN §11-3 grpTitle: title │ 1fr │ 브레드크럼)
-     역할 배지 매핑: ui-items UI-04 (PM 승인 P5) — 기존 .badge 변형 + --bc-* 토큰만, 라벨 항상 표시 */
+     역할 배지 매핑: ui-items UI-04 (승인 P5) — 기존 .badge 변형 + --bc-* 토큰만, 라벨 항상 표시 */
   .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
   .title-bar > .user-switch .tip { display: inline-flex; }
   .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }   /* UI-04: 24 (--title-h 29 안) — 키인 폼 컨트롤 높이 토큰 */
@@ -125,10 +125,10 @@
 
 <script src="../assets/mesui.js"></script>
 <script src="../assets/shared-store.js"></script>
-<script src="../assets/ebr-user-session.js"></script>   <!-- UI-09 DEVELOPER1 헬퍼 (window.EbrUserSession) -->
+<script src="../assets/ebr-user-session.js"></script>   <!-- UI-09 헬퍼 (window.EbrUserSession) -->
 <!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 + 배치 발행 동일) ==== -->
 <script>
-/* DEVELOPER1 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+/* 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
  *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
  *   hasSodConflict(roles) · onChange(fn) → unsub
  * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
@@ -165,7 +165,7 @@
     var host = document.getElementById('userSwitch');
     if (host) {
       if (!connected()) {
-        host.innerHTML = '<span class="tip" title="ebr-user-session.js (DEVELOPER1) 가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+        host.innerHTML = '<span class="tip" title="사용자 · 서명 헬퍼(ebr-user-session.js)가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
       } else {
         var cur = current(), list = users();
         var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
@@ -232,7 +232,7 @@
 </script>
 <script src="../assets/master-t02.js"></script>
 <script>
-/* ==== S-41 — EbrUserSession(UI-09, DEVELOPER1) 어댑터 (화면 → 헬퍼 호출은 이 구역 + 공통 블록 P0Ui 만) ====
+/* ==== S-41 — EbrUserSession(UI-09) 어댑터 (화면 → 헬퍼 호출은 이 구역 + 공통 블록 P0Ui 만) ====
  *   listUsers({q,role,status})  → PublicUser[] (pwHash 없음, roles[] 포함)
  *   saveUser({userId,name,dept,status,roles,note,password?, mode:'create'|'update'}, {screen}) → {ok,user,isNew,sodWarning} | {ok:false,code:NOT_ADMIN|DUP_ID|REQUIRED|NO_ROLE|BAD_STATUS|NOT_FOUND,message}
  *                               (create + 기존 ID → DUP_ID 덮어쓰기 없음 · update + 없는 ID → NOT_FOUND)
@@ -263,7 +263,7 @@ var S41Api = {
   var ROLES = ['OP', 'SV', 'QA', 'QP', 'ADMIN'], GMP = ['OP', 'SV', 'QA', 'QP'];
   var ROLE_T = { OP: '작업자 (OP)', SV: '감독자 (SV)', QA: 'QA', QP: 'QP', ADMIN: '관리자 (ADMIN)' };
   var ST = [{ v: 'active', t: '활성' }, { v: 'inactive', t: '비활성' }, { v: 'locked', t: '잠김' }];
-  var API_OFF = 'ebr-user-session.js (DEVELOPER1) 미로드 — 로드 후 편집할 수 있습니다';
+  var API_OFF = '사용자 · 서명 헬퍼(ebr-user-session.js) 미로드 — 로드 후 편집할 수 있습니다';
   var rows = [], F = null;   /* F = { isNew, orig } */
 
   function isAdmin() { var u = P0Ui.current(); return !!u && P0Ui.hasRole(u, 'ADMIN'); }
@@ -314,7 +314,7 @@ var S41Api = {
     if (notify) MesUI.toast('조회 완료 — ' + list.length + '건', 'info', 1500);
   }
   function updateSel() { var n = $$('#grd-user tbody td.col-check input:checked').length; $('#selInfo').textContent = n ? n + '건 선택' : ''; }
-  /* 권한 표시 (PM 승인 — UI-05 표 「권한」): ADMIN 만 New · 저장 · 시드 복원. 선택 없음 게이트는 공통 블록(P0Ui) 이 처리 */
+  /* 권한 표시 (UI-05 표 「권한」): ADMIN 만 New · 저장 · 시드 복원. 선택 없음 게이트는 공통 블록(P0Ui) 이 처리 */
   function setTip(wrap, btn, disabled, tip) { btn.disabled = !!disabled; wrap.title = disabled ? tip : ''; }
   function applyAuth() {
     var off = !S41Api.ok(), adm = !off && isAdmin(), noUser = !off && !P0Ui.current();

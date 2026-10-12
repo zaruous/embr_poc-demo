@@ -31,7 +31,7 @@
   .ell { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .num-t { font-variant-numeric: tabular-nums; }
 
-  /* ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 (공통 블록 — 배치 발행 화면과 같음, PM-19) ====
+  /* ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 (공통 블록 — 배치 발행 화면과 같음) ====
      OI 는 브레드크럼이 없어 제목 뒤 margin-left:auto → [선택기][역할 배지] · 12 · [Close] */
   .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
   .title-bar > .user-switch .tip { display: inline-flex; }
@@ -105,6 +105,9 @@
   .gate-row .g-msg { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .gate-row .g-next { color: var(--c-text-sub); white-space: nowrap; }
   .gate-row .sub-info { font-weight: normal; }
+  /* 저울 일상 점검 S-44 링크 (UI-07 · W5) — G12 줄 [저울 일상 점검 열기 >] (.btn.inner OI 28, 줄 높이 40 그대로) · KPI 저울 글자 링크 */
+  .gate-row a.btn.inner { flex: 0 0 auto; text-decoration: none; }
+  #kpiBalCode a, #schBalNote a { color: inherit; }
   .sign-card { display: grid; grid-template-columns: 1fr 1fr 1fr; border: 1px solid var(--c-border-03); border-radius: var(--radius); min-height: calc(var(--btn-normal-h) + var(--body-gap)); }
   .sign-card > div { display: flex; flex-direction: column; justify-content: center; gap: calc(var(--title-gap) / 4); padding: 0 var(--body-gap); min-width: 0; border-left: 1px solid var(--c-border-05); }
   .sign-card > div:first-child { border-left: 0; }
@@ -153,6 +156,9 @@
   .auth-row > .input { flex: 1 1 auto; min-width: 0; height: var(--ctrl-h-form); }
   .auth-row > textarea.input { height: calc(var(--ctrl-h-form) * 2.5); resize: none; padding: var(--radius) var(--title-gap); }
   .auth-hint { padding-left: calc(var(--label-w) + var(--title-gap)); min-height: var(--fs-base); }
+  /* UI-06 ⑦ 자격 — .qual-msg 높이 고정(--form-row-h, 결과 없어도 자리 유지) · 배지 한 줄 말줄임 */
+  .auth-panel .qual-msg { flex: 0 0 auto; min-height: var(--form-row-h); display: flex; align-items: center; gap: var(--badge-gap); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .auth-panel .qual-req { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sign-err { min-height: calc(var(--fs-base) * 1.4); font-weight: bold; }
   .sign-statement { flex: 0 0 auto; display: flex; align-items: center; min-height: var(--form-row-h); padding: 0 var(--title-gap); border: 1px solid var(--c-border-05); background: var(--bc-gray-light); font-size: var(--fs-base); min-width: 0; }
   /* a372608 서명 문장(builder 원문) 2줄 이내 — 줄 높이 = (행 36 − 테두리 2) / 2 → 2줄이어도 행 높이 그대로(분할 399 유지), 넘치면 2줄 말줄임 + title 전체 */
@@ -160,7 +166,7 @@
   #dlgDispenseSign .dialog-footer .sign-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }   /* 업무 안내(서명 뒤 값 잠금 등) — 서명 문장과 분리 */
   .form-grid > .field > textarea.input { height: calc(var(--ctrl-h-form) * 2.5); resize: none; padding: var(--radius) var(--title-gap); }
   .form-grid > .label.tall, .form-grid > .field.tall { min-height: calc(var(--form-row-h) * 2); }
-  /* PM: 재칭량 폐기 사유 60자 상한 — 서명 문장이 2줄 안에 말줄임 없이 다 보이도록 (저장소도 60자 초과 거부). 글자 수 n/60 은 입력 칸 오른쪽 아래 */
+  /* 재칭량 폐기 사유 60자 상한 — 서명 문장이 2줄 안에 말줄임 없이 다 보이도록 (저장소도 60자 초과 거부). 글자 수 n/60 은 입력 칸 오른쪽 아래 */
   #sgReasonForm .rs-count { flex: 0 0 auto; align-self: flex-end; padding-bottom: var(--title-gap); white-space: nowrap; font-variant-numeric: tabular-nums; }
   #frmReasonText > .field.tall { padding-top: var(--title-gap); padding-bottom: var(--title-gap); align-items: stretch; }
   #frmReasonText > .field.tall > textarea.input { height: auto; }
@@ -179,7 +185,7 @@
 <body>
 
 <div class="shell-scale oi" id="shellScale" style="--scale:1"><div class="shell shell-oi" id="shell">
-  <!-- ① title-bar 36: 제목 · 공용 사용자 선택기(PM-19) · Close -->
+  <!-- ① title-bar 36: 제목 · 공용 사용자 선택기 · Close -->
   <div class="title-bar">
     <span class="main-title">칭량 · 디스펜싱</span>
     <span class="user-switch" id="userSwitch"></span>
@@ -362,7 +368,9 @@
           <div class="auth-row"><span class="label">코멘트</span><textarea class="input" id="sgCmt" maxlength="200" placeholder="선택 입력"></textarea></div>
           <span class="sub-info" id="sgRemain">남은 시도 —</span>
           <div class="sign-err sub-info fc-fail" id="signErr" role="alert"></div>
+          <div class="qual-msg" id="sgQualMsg" aria-live="polite"></div>
           <span class="sub-info">서명자 = 이 창에 입력한 ID (상단 현재 사용자와 달라도 됨) · PoC 전용 — 실서비스는 LDAP(AM-IDPW)</span>
+          <span class="sub-info qual-req" id="sgQualReq"></span>
         </div>
       </div>
       <div class="sign-statement" id="sgStatementBox"><span class="st-text" id="sgStatement"></span></div>
@@ -413,11 +421,70 @@
 
 <script src="./assets/mesui.js"></script>
 <script src="./assets/ebr-p0-stores.js"></script>
-<script src="./assets/ebr-user-session.js"></script>   <!-- DEVELOPER1 사용자 · 서명 헬퍼 (window.EbrUserSession) -->
-<script src="./assets/ebr-dispense-store.js"></script>   <!-- DEVELOPER1 칭량 저장소 · 게이트 · 서명 연결 (window.EbrDispense) -->
-<!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 · 배치 발행과 동일 — 칭량 PM-19) ==== -->
+<script src="./assets/ebr-user-session.js"></script>   <!-- 사용자 · 서명 헬퍼 (window.EbrUserSession) -->
+<script src="./assets/ebr-balance-check-store.js"></script>   <!-- 저울 일상 점검 (window.EbrBalanceCheck) — G12 문구 · S-44 링크 -->
+<script src="./assets/ebr-dispense-store.js"></script>   <!-- 칭량 저장소 · 게이트 · 서명 연결 (window.EbrDispense) -->
+<script src="./assets/ebr-qual-store.js"></script>   <!-- 교육 · 자격 (window.EbrQual) — 서명 창 ⑦ 요구 자격 이름 표시용 (읽기만) -->
 <script>
-/* DEVELOPER1 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+/* ==== UI-06 서명 창 ⑦ 자격 표시 (교육 · 자격) — 판정은 verifySigner(⑦), 화면은 결과만 그린다 ====
+ *  .qual-req  : 요구 자격 이름만 (Q7 — 서명자 자격 상태 미리보기 금지). 출처 EbrQual.listRequirements · listQualDefs (읽기만)
+ *  .qual-msg  : ⑦ block 사유 배지(.badge.error) — res.items[] (code, qualId, expiresAt, message)
+ *  warn       : 서명 성공 뒤 토스트만 (res.qualWarn[]) — 창 안 표시 없음 (J5) */
+var QualSign = (function () {
+  var BLOCK = { qual_missing: 1, qual_expired: 1, training_outdated_sop: 1, qual_req_unset: 1, qual_store_error: 1, unknown_user: 1, training_overdue: 1 };
+  var MSG = {
+    qual_missing: '자격 없음 — 부여 이력이 없습니다. 교육 · 자격 담당(QA)에게 요청하세요.',
+    qual_expired: '자격 만료 — 재자격 후 서명하세요.',
+    training_outdated_sop: 'SOP 재교육 필요 — 현재 효력 버전 이수 기록이 없습니다.',
+    qual_req_unset: '자격 요구 미설정 — 교육 · 자격 [요구 매핑]에 설정을 요청하세요.',
+    qual_store_error: '자격 정보를 읽지 못해 서명할 수 없습니다 — 관리자에게 문의하세요.'
+  };
+  function e(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function Q() { return window.EbrQual || null; }
+  function names(targets) {
+    var q = Q(); if (!q || typeof q.listRequirements !== 'function') return null;
+    var reqs = [], defs = [];
+    try { reqs = q.listRequirements() || []; defs = typeof q.listQualDefs === 'function' ? (q.listQualDefs() || []) : []; } catch (x) { return null; }
+    var ids = [], seen = {};
+    (targets || []).forEach(function (t) { var r = reqs.filter(function (x) { return x.target === t; })[0]; ((r && r.qualIds) || []).forEach(function (id) { if (!seen[id]) { seen[id] = 1; ids.push(id); } }); });
+    return ids.map(function (id) { var d = defs.filter(function (x) { return x.qualId === id; })[0]; return id + (d && d.name ? ' ' + d.name : ''); });
+  }
+  function isQual(res) { return !!(res && (BLOCK[res.why] || BLOCK[res.code])); }
+  function badge(it) {
+    var md = String(it.expiresAt || '').slice(5);
+    var t = it.code === 'qual_expired' ? '만료 ' + md : it.code === 'training_outdated_sop' ? 'SOP v' + (it.requiredVer || '?') : it.code === 'qual_req_unset' ? '미설정' : it.code === 'qual_store_error' ? '저장소 오류' : '자격 없음';
+    return '<span class="badge error" title="' + e(it.message || '') + '">' + e((it.qualId || it.target || '') + ' ' + t) + '</span>';
+  }
+  return {
+    /* el = .qual-req 요소, targets = ['SIGN:SM-…', 'ISSUE', 'BALCLASS:…'] */
+    renderReq: function (el, targets) {
+      if (!el) return;
+      var n = names(targets);
+      var txt = n === null ? '요구 자격 — (자격 저장소 미연결)' : n.length ? '요구 자격 ' + n.join(' · ') : '요구 자격 — 없음(명시) 또는 미설정';
+      el.textContent = txt; el.title = txt;
+    },
+    clear: function (el) { if (el) { el.innerHTML = ''; el.title = ''; } },
+    isQual: isQual,
+    message: function (res) { var w = res.why || res.code; return res.message || MSG[w] || ('서명할 수 없습니다 (' + w + ')'); },
+    renderBlock: function (el, res) {
+      if (!el) return;
+      var items = (res.items || res.qualItems || []).filter(function (i) { return BLOCK[i.code]; });
+      if (!items.length) items = [{ code: res.why || res.code, message: res.message }];
+      var seen = {}; items = items.filter(function (i) { var k = i.code + '|' + (i.qualId || i.target || ''); if (seen[k]) return false; seen[k] = 1; return true; });   /* 같은 자격이 대상 키 여러 개(ISSUE · SIGN:…)에 걸리면 배지 1개 */
+      el.innerHTML = items.map(badge).join('');
+      el.title = items.map(function (i) { return i.message || i.code; }).join(' · ');
+    },
+    toastWarn: function (res) {
+      var w = (res && res.qualWarn) || [];
+      if (!w.length || !window.MesUI) return;
+      MesUI.toast('서명 완료 · ' + w.map(function (i) { return i.message || ('자격 만료 임박: ' + i.qualId + ' ' + (i.expiresAt || '') + (i.daysLeft != null ? ' (D-' + i.daysLeft + ')' : '')); }).join(' · '), 'warn', 4000);
+    }
+  };
+})();
+</script>
+<!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 · 배치 발행과 동일 — 칭량) ==== -->
+<script>
+/* 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
  *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
  *   hasSodConflict(roles) · onChange(fn) → unsub
  * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
@@ -454,7 +521,7 @@
     var host = document.getElementById('userSwitch');
     if (host) {
       if (!connected()) {
-        host.innerHTML = '<span class="tip" title="ebr-user-session.js (DEVELOPER1) 가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+        host.innerHTML = '<span class="tip" title="사용자 · 서명 헬퍼(ebr-user-session.js)가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
       } else {
         var cur = current(), list = users();
         var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
@@ -539,6 +606,15 @@
   var BADGE = { PLANNED: 'muted', BLOCKED: 'error', READY: 'info', TARED: 'info', WEIGHED: 'info', JUDGED: 'ok', REDO: 'warn', PERFORMED: 'warn', VERIFIED: 'ok', DEVIATION: 'error', VOID: 'muted' };
   var QBADGE = { DEVIATION: ['error', '일탈'], DONE: ['ok', '완료'], IN_PROGRESS: ['info', '진행 중'], NO_BALANCE_IN_ROOM: ['muted', '이 칭량실 저울 없음'] };
   var BAL_BLOCK_TEXT = { WG_BAL_CAL_EXPIRED: '교정 만료', WG_BAL_STATE: '저울 상태 사용 불가', WG_BAL_DAILY_CHECK: '일상 점검 없음', WG_BAL_RANGE: '용량 밖', WG_BAL_NOT_QUALIFIED: '클래스 부적격' };
+  /* UI-07 저울 일상 점검(S-44) 어댑터 — EbrBalanceCheck 가 있으면 statusOf 로 '불합격 · 사용 금지' / '미점검' 을 나눔, 없으면 기존 문구 그대로 */
+  function balStatus(id) { var B = window.EbrBalanceCheck; if (!id || !B || typeof B.statusOf !== 'function') return null; try { return B.statusOf(id) || null; } catch (e) { return null; } }
+  function balDailyText(id) { var s = balStatus(id); return !s ? BAL_BLOCK_TEXT.WG_BAL_DAILY_CHECK : s.state === 'fail' || s.blocked ? '불합격 · 사용 금지' : s.state === 'pass' ? '합격' : '미점검'; }
+  function balBlockText(k, id) { return k === 'WG_BAL_DAILY_CHECK' ? balDailyText(id) : (BAL_BLOCK_TEXT[k] || k); }
+  function balCheckHref(id) {
+    var rid = ''; try { rid = D && D.roomOf ? D.roomOf(id) : ''; } catch (e) { rid = ''; }
+    if (rid && typeof rid === 'object') rid = rid.roomId || '';
+    return './s-ebr-balance-check-ui.html?balanceId=' + encodeURIComponent(id || '') + '&roomId=' + encodeURIComponent(rid || room().id || '');
+  }
   var NEXT_ACT = {
     WG_NO_SNAPSHOT: '배치 재발행', WG_LOT_NOT_RESERVED: '예약 LOT 스캔', WG_MAT_MISMATCH: '맞는 자재 LOT 스캔', WG_LOT_NOT_RELEASED: '자재 QC 판정 후 재평가',
     WG_LOT_RETEST_PASSED: '재시험 후 재평가', WG_LOT_EXPIRED: '다른 LOT', WG_LOT_DATE_NEAR: '사유 입력', WG_LOT_SHORT: '잔량 확인 · 다른 LOT',
@@ -585,7 +661,9 @@
     return v;
   }
   function curLine() { return view && view.lines.filter(function (l) { return l.lineId === st.lineId; })[0] || null; }
-  function editable(l) { return !!l && (l.status === 'PLANNED' || l.status === 'BLOCKED'); }
+  /* 재칭량(REDO) 새 시도는 게이트 재평가(record.regate.ok) 전까지 대기 · 차단과 같게 — store 가 regate_required 로 전운 거부 (50a82cd) */
+  function needRegate(l) { return !!l && l.status === 'REDO' && !(l.current && l.current.regate && l.current.regate.ok); }
+  function editable(l) { return !!l && (l.status === 'PLANNED' || l.status === 'BLOCKED' || needRegate(l)); }
   function suggest(l, roomId) {
     if (!D || !l) return null;
     var r = D.suggestBalances(st.batchId, l.lineId, { roomId: roomId || st.roomId });
@@ -602,13 +680,22 @@
     sg = sg || suggest(l);
     return sg && sg.assigned ? sg.assigned : '';
   }
+  /* 저울 미선택인데 후보가 있으면 후보의 차단 게이트로 안내 — 일상 점검(G12)만 막힌 후보 → S-44 점검 후 게이트 평가.
+     store 가 다른 칭량실을 가리키면(elsewhere) 기존 'R-201 BAL-301에서 칭량하세요' 유지 → null */
+  function balHintFor(l, sg) {
+    if (!l || !editable(l) || balFor(l, sg)) return null;
+    sg = sg || suggest(l); if (!sg || elsewhereText(sg)) return null;
+    var c = (sg.candidates || []).filter(function (x) { return !x.usable && x.blocked.length === 1 && x.blocked[0] === 'WG_BAL_DAILY_CHECK'; })[0];
+    return c ? { balanceId: c.balanceId, text: c.balanceId + ' 오늘 일상 점검 ' + balDailyText(c.balanceId) + ' — S-44에서 점검 후 게이트 평가' } : null;
+  }
   function roomFor(l) { return (!editable(l) && l && l.current && l.current.roomId) ? l.current.roomId : st.roomId; }
   function readingFor(l) { var r = st.reading; return r && l && r.lineId === l.lineId && r.status === l.status ? r : null; }
   function gateRowsFor(l) {
     if (!D || !l) return { rows: [], preview: true };
     var cur = l.current;
-    if (cur && cur.gateResults && cur.gateResults.length && l.status !== 'PLANNED') return { rows: cur.gateResults, preview: false, ack: cur.gateAck };
-    return { rows: D.gateCheck(l, lotFor(l), balFor(l), st.roomId, { batchId: st.batchId }), preview: true, ack: null };
+    if (cur && cur.gateResults && cur.gateResults.length && l.status !== 'PLANNED' && !(needRegate(l) && !cur.regate)) return { rows: cur.gateResults, preview: false, ack: cur.gateAck };
+    var bh = balHintFor(l);   /* 저울 미선택 + 일상 점검만 막힌 후보 → 그 후보로 G9–G14 미리보기 (G12 S-44 링크 노출) */
+    return { rows: D.gateCheck(l, lotFor(l), balFor(l) || (bh ? bh.balanceId : ''), st.roomId, { batchId: st.batchId }), preview: true, ack: null };
   }
   function openDevs() {
     var out = [];
@@ -623,7 +710,7 @@
     var cur = l.current || {}, rd = readingFor(l), lot = lotFor(l), bal = balFor(l);
     switch (l.status) {
       case 'PLANNED':
-        if (!lot || !bal) return { label: '게이트 평가', act: 'gate', enabled: false, edit: true, tip: (!lot ? '원료 LOT 를 스캔하세요' : '저울을 선택하세요') + ' — LOT · 저울 선택 후 게이트 평가' };
+        if (!lot || !bal) return { label: '게이트 평가', act: 'gate', enabled: false, edit: true, tip: !lot ? '원료 LOT 를 스캔하세요 — LOT · 저울 선택 후 게이트 평가' : (balHintFor(l) ? balHintFor(l).text : '저울을 선택하세요 — LOT · 저울 선택 후 게이트 평가') };
         return { label: '게이트 평가', act: 'gate', enabled: true, edit: true, tip: '사전 게이트 G1–G16 평가 (경고는 사유 입력)' };
       case 'BLOCKED': {
         var pv = D.summarizeGates(D.gateCheck(l, lot, bal, st.roomId, { batchId: st.batchId }));
@@ -632,6 +719,10 @@
         return { label: '게이트 재평가', act: 'gate', enabled: false, edit: true, tip: '차단 사유 해소 후 게이트 재평가' + (bl ? ' — ' + bl.code : '') };
       }
       case 'READY': case 'REDO':
+        if (needRegate(l)) {
+          if (!lot || !bal) return { label: '게이트 재평가', act: 'gate', enabled: false, edit: true, tip: '재칭량 — ' + (!lot ? '원료 LOT 를 스캔하세요 후 게이트 재평가' : (balHintFor(l) ? balHintFor(l).text : '저울을 선택하세요 후 게이트 재평가')) };
+          return { label: '게이트 재평가', act: 'gate', enabled: true, edit: true, tip: '재칭량 새 시도 — 게이트 G1–G16 재평가 통과 후 전운 기록' + (cur.regate && !cur.regate.ok ? ' (직전 재평가 차단)' : '') };
+        }
         if (!rd) return { label: '전운 기록', act: 'tare', enabled: false, edit: true, tip: '용기를 올리고 DEMO [정상]으로 저울 값을 읽으세요' };
         if (!rd.stable) return { label: '전운 기록', act: 'tare', enabled: false, edit: true, tip: '불안정 — 다시 읽으세요' };
         return { label: '전운 기록', act: 'tare', enabled: true, edit: true, tip: '표시값 ' + f3(rd.value) + ' ' + (rd.uom || 'kg') + ' 을 전운으로 기록 · 용기 ID 부여' };
@@ -710,8 +801,8 @@
     $('kpiBalVal').textContent = bal ? bal + (cand && cand.eqClass ? ' · ' + cand.eqClass : (l && l.balanceClass ? ' · ' + l.balanceClass : '')) : '—';
     var calDue = cand ? cand.calDue : null;
     var calTxt = calDue ? '교정 ' + calDue + (g.G11 && !g.G11.ok ? ' (' + (g.G11.reason.match(/\((\d+)일 남음\)/) || ['', '?'])[1] + '일)' : '') + (g.G10 && !g.G10.ok ? ' 만료' : '') : (bal ? '교정 정보 없음' : '저울 미선택');
-    var dcTxt = g.G12 ? (g.G12.ok ? '일상 점검 합격 (오늘)' : '일상 점검 없음') : '';
-    $('kpiBalCode').textContent = [calTxt, dcTxt].filter(Boolean).join(' · ');
+    var dcTxt = g.G12 ? (g.G12.ok ? '일상 점검 합격 (오늘)' : '일상 점검 ' + balDailyText(bal)) : '';
+    $('kpiBalCode').innerHTML = esc(calTxt) + (dcTxt ? ' · <a href="' + esc(balCheckHref(bal)) + '" id="kpiBalChk" title="저울 일상 점검 열기 (S-44)">' + esc(dcTxt) + ' &gt;</a>' : '');
     $('kpiBalCode').title = rows.filter(function (x) { return !x.ok; }).map(function (x) { return x.gate + ' ' + x.code + ' — ' + x.reason; }).join('\n') || $('kpiBalCode').textContent;
     $('kpiBal').classList.toggle('warning', rows.some(function (x) { return !x.ok; }));
 
@@ -814,7 +905,7 @@
     $('scTitle').textContent = l ? l.lineId + ' · ' + (l.materialName || l.materialId) : (view.ok ? '줄을 선택하세요' : '배치를 선택하세요');
     $('scBadge').innerHTML = statusBadge(l);
     $('scAttempt').textContent = l ? '시도 ' + (l.attempt || 1) + '/' + (l.maxAttempts || 2) : '';
-    var simOn = !!(l && (l.status === 'READY' || l.status === 'REDO' || l.status === 'TARED' || l.status === 'WEIGHED'));
+    var simOn = !!(l && !needRegate(l) && (l.status === 'READY' || l.status === 'REDO' || l.status === 'TARED' || l.status === 'WEIGHED'));
     ['btnSimOk', 'btnSimOot', 'btnSimUnstable'].forEach(function (id) {
       $(id).disabled = !simOn;
       $(id).title = simOn ? $(id).getAttribute('data-tip0') || $(id).title : '저울 값은 준비 · 재칭량 · 용기 전운 · 칭량 상태에서만 읽습니다';
@@ -870,12 +961,20 @@
     renderSignCard(l);
   }
 
+  /* G12 줄 끝: (사용 금지면) 배지 · 일탈 번호 · 조치 + [저울 일상 점검 열기 >] — 줄 수 · 높이 변화 없음 */
+  function g12Extra(l) {
+    var bh = balHintFor(l), bal = balFor(l) || (bh ? bh.balanceId : ''), s = balStatus(bal);
+    var pre = s && s.blocked ? '<span class="badge error">사용 금지</span>' + (s.deviationId ? '<span class="fc-fail">' + esc(s.deviationId) + '</span>' : '') + '<span class="g-next">다른 저울 선택 또는 SV 재점검</span>' : '';
+    return pre + '<a class="btn inner" id="btnBalChk" href="' + esc(balCheckHref(bal)) + '" title="' + esc(bal ? bal + ' — ' + balDailyText(bal) : '저울 일상 점검') + '">저울 일상 점검 열기 &gt;</a>';
+  }
   function renderGates(l) {
     var host = $('gateBlock');
     if (!l) { host.innerHTML = '<div class="gate-row head"><span>사전 게이트</span><span class="sub-info">줄을 고르면 G1–G16 을 보여 줍니다</span></div>'; return; }
     var gr = gateRowsFor(l), rows = gr.rows || [];
     var passed = rows.filter(function (g) { return g.ok; }).length;
     var bl = rows.filter(function (g) { return !g.ok && g.grade === 'Absolute'; }), wn = rows.filter(function (g) { return !g.ok && g.grade === 'Warning'; });
+    /* 차단 상위 3개만 보일 때 G12(저울 일상 점검 미완)를 맨 앞 — 다음 행동(S-44)이 먼저 보이게 */
+    bl = bl.filter(function (g) { return g.code === 'WG_BAL_DAILY_CHECK'; }).concat(bl.filter(function (g) { return g.code !== 'WG_BAL_DAILY_CHECK'; }));
     var ack = gr.ack || null, bad = bl.concat(wn), shown = bad.slice(0, 3), rest = bad.slice(3);
     var head = '<div class="gate-row head" title="' + esc(rows.filter(function (g) { return g.ok; }).map(function (g) { return g.gate + ' ' + g.code; }).join(' · ')) + '">' +
       '<span>사전 게이트 통과 ' + passed + '/' + (rows.length || 16) + '</span>' +
@@ -886,7 +985,8 @@
       var isW = g.grade === 'Warning', acked = isW && ack && (ack.codes || []).indexOf(g.code) >= 0;
       return '<div class="gate-row" title="' + esc(g.gate + ' ' + g.title + ' — ' + g.reason) + '"><span class="dot ' + (isW ? 'warn' : 'error') + '"></span>' +
         '<span class="g-code">' + esc(g.code) + '</span><span class="g-msg">' + esc(g.reason) + '</span>' +
-        (acked ? '<span class="badge warn" title="' + esc(ack.reason) + '">사유 입력됨</span>' : '<span class="g-next">→ ' + esc(NEXT_ACT[g.code] || '사유 해소 후 재평가') + '</span>') + '</div>';
+        (g.code === 'WG_BAL_DAILY_CHECK' ? g12Extra(l) :
+        acked ? '<span class="badge warn" title="' + esc(ack.reason) + '">사유 입력됨</span>' : '<span class="g-next">→ ' + esc(NEXT_ACT[g.code] || '사유 해소 후 재평가') + '</span>') + '</div>';
     }).join('');
   }
 
@@ -927,7 +1027,7 @@
       opts.push('<option value="">저울 선택</option>');
       cands.forEach(function (c) {
         var suffix = '';
-        if (!c.usable) suffix = ' (' + (c.blocked.map(function (k) { return BAL_BLOCK_TEXT[k] || k; }).join(' · ')) + ' — 선택 불가)';
+        if (!c.usable) suffix = ' (' + (c.blocked.map(function (k) { return balBlockText(k, c.balanceId); }).join(' · ')) + ' — 선택 불가)';
         else if (c.warnings.length) {
           var w11 = (c.gates || []).filter(function (g) { return g.code === 'WG_BAL_CAL_DUE_SOON' && !g.ok; })[0];
           var dd = w11 && /\((\d+)일 남음\)/.exec(w11.reason);
@@ -941,7 +1041,7 @@
       var usable = cands.filter(function (c) { return c.usable; });
       bsel.disabled = !usable.length;
       if (!usable.length) {
-        tip = (elsewhereText(sg) || '쓸 수 있는 저울이 없습니다') + ' — ' + st.roomId + ' 의 ' + l.balanceClass + ' 후보: ' + (cands.map(function (c) { return c.balanceId + (c.usable ? '' : '(선택 불가)'); }).join(', ') || '없음');
+        tip = (elsewhereText(sg) || '쓸 수 있는 저울이 없습니다') + ' — ' + st.roomId + ' 의 ' + l.balanceClass + ' 후보: ' + (cands.map(function (c) { return c.balanceId + (c.usable ? '' : '(' + c.blocked.map(function (k) { return balBlockText(k, c.balanceId); }).join(' · ') + ')'); }).join(', ') || '없음');
         if (!cands.length) opts.push('<option value="" disabled>' + esc(st.roomId + ' 에 ' + l.balanceClass + ' 저울 없음') + '</option>');
       } else if (elsewhereText(sg)) tip = st.roomId + ' 에 쓸 수 있는 주 저울 없음 — ' + elsewhereText(sg) + ' (예비 저울은 수동 선택 가능)';
     }
@@ -949,8 +1049,11 @@
     if (l && canEdit) bsel.value = balFor(l, sg) || '';
     wrap.title = tip;
     var ew = l && canEdit ? elsewhereText(sg) : '';
-    $('schBalNote').textContent = l ? '적격 ' + l.balanceClass + (ew ? ' · ' + ew : '') : '';
-    $('schBalNote').title = ew ? tip : '';
+    var bh = l && canEdit ? balHintFor(l, sg) : null;
+    if (bh) wrap.title = tip = tip + ' → ' + bh.text;
+    if (bh) $('schBalNote').innerHTML = '적격 ' + esc(l.balanceClass) + ' · <a href="' + esc(balCheckHref(bh.balanceId)) + '" id="schBalChk" title="' + esc(bh.text) + '">' + esc(bh.balanceId) + ' 일상 점검 &gt;</a>';
+    else $('schBalNote').textContent = l ? '적격 ' + l.balanceClass + (ew ? ' · ' + ew : '') : '';
+    $('schBalNote').title = ew || bh ? tip : '';
   }
 
   function renderButtons(l) {
@@ -991,8 +1094,9 @@
     }
     if (!r.ok) { failMsg(r); render(); return; }
     st.reading = null;
-    if (r.state === 'BLOCKED') toast('차단 — ' + r.blocked.map(function (g) { return g.code; }).join(', '), 'error', 3500);
-    else toast('게이트 통과 ' + r.passed + '/' + r.total + (r.warnings.length ? ' (경고 사유 입력)' : '') + ' — 준비', 'ok');
+    var blk = r.blocked || [];   /* REDO 재평가는 상태가 REDO 로 남음 — 차단 여부는 blocked 로 판단 */
+    if (r.state === 'BLOCKED' || blk.length) toast((l.status === 'REDO' ? '재평가 차단 — ' : '차단 — ') + blk.map(function (g) { return g.code; }).join(', '), 'error', 3500);
+    else toast('게이트 통과 ' + r.passed + '/' + r.total + (r.warnings && r.warnings.length ? ' (경고 사유 입력)' : '') + (l.status === 'REDO' ? ' — 재칭량 전운 기록 가능' : ' — 준비'), 'ok');
     render();
   }
   function doTare() {
@@ -1040,7 +1144,7 @@
   }
   function selectLine(id) { st.lineId = id; st.reading = null; render(); }
 
-  /* ---------- 배치 큐 (UI-03, D1 queue) ---------- */
+  /* ---------- 배치 큐 (UI-03, queue) ---------- */
   function queueItems() {
     var q = D ? D.queue(st.roomId) : { items: [], skipped: [] };
     return q && q.ok ? q : { items: [], skipped: [] };
@@ -1148,6 +1252,11 @@
     var note = SIGN_NOTE[kind] || '';
     $('sgNote').textContent = note; $('sgNote').title = note;
     $('sgId').value = ''; $('sgPw').value = ''; $('sgCmt').value = ''; $('signErr').textContent = '';
+    /* ⑦ 요구 자격 이름: 대상 = target.qualTargets 우선, 없으면 SIGN:규칙 + (수행) 줄 저울 클래스 */
+    var SG_RULE = { perform: 'SM-PERF-WEIGH', verify: 'SM-VERI-WEIGH', reweigh: 'SM-APPR-REWEIGH' }, lq = curLine() || {};
+    var qt = Array.isArray(t.qualTargets) ? ['SIGN:' + (t.ruleId || SG_RULE[kind])].concat(t.qualTargets)
+      : ['SIGN:' + (t.ruleId || SG_RULE[kind])].concat(kind === 'perform' && lq.balanceClass ? ['BALCLASS:' + lq.balanceClass] : []);
+    QualSign.clear($('sgQualMsg')); QualSign.renderReq($('sgQualReq'), qt);
     signInput();
     MesUI.openDialog('dlgDispenseSign'); $('sgId').focus();
   }
@@ -1191,14 +1300,17 @@
     var r = D.signAndCommit(st.sign.ticket, { userId: $('sgId').value.trim(), password: $('sgPw').value, comment: $('sgCmt').value.trim(), voidReason: kind === 'reweigh' ? $('sgReason').value.trim() : undefined,
       statement: $('sgStatement').textContent });   /* 표시한 문장 그대로 — 저장 문장과 다르면 statement_mismatch (비밀번호 판정 전 거부) */
     if (r.ok) {
-      st.sign.done = true; st.sign.ticket = null;
+      st.sign.done = true; st.sign.ticket = null; $('sgPw').value = '';   /* 성공 뒤 비밀번호 칸 비움 */
       MesUI.closeDialog('dlgDispenseSign');
       toast(SIGN_META[kind][1] + ' 서명 완료 — ' + (r.signature ? r.signature.signatureId + ' · ' + uidLabel(r.signature.signerId) : ''), 'ok', 3200);
+      QualSign.toastWarn(r);   /* ⑦ warn(만료 임박): 서명 성공 뒤 토스트만 */
       st.reading = null; render();
       if (kind === 'perform') { var l = curLine(); if (l && l.lineId === lineId && !l.labelAfterPass) openLabel(); }
       return;
     }
     $('signErr').textContent = r.message || '서명하지 못했습니다.';
+    QualSign.clear($('sgQualMsg'));
+    if (QualSign.isQual(r)) { $('signErr').textContent = QualSign.message(r); QualSign.renderBlock($('sgQualMsg'), r); $('sgPw').value = ''; signInput(); return; }   /* ⑦ block: 창 유지 · 실패 카운트 불변 */
     if (r.clearPassword) $('sgPw').value = '';
     signInput();
     if (typeof r.failCount === 'number' && r.why === 'bad_password') $('sgRemain').textContent = '남은 시도 ' + Math.max(0, (r.maxFail || 5) - r.failCount) + '/' + (r.maxFail || 5);
@@ -1333,7 +1445,7 @@
       if (!e.key || /^ebr\.(dispense|issued|batch|dev|equip|mat|qc)/i.test(e.key) || /dispense|issued|deviation|equip|mat/i.test(e.key)) render();
     });
   }
-  /* 사용자 미선택: 배너 + 모든 기록 버튼 비활성 (PM 결정) */
+  /* 사용자 미선택: 배너 + 모든 기록 버튼 비활성  */
   function lockNoUser() {
     if (!(window.P0Ui && P0Ui.gateOn())) return;
     Array.prototype.forEach.call(document.querySelectorAll('[data-p0-edit]'), function (b) {

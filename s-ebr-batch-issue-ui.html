@@ -125,12 +125,15 @@
   .user-card { border: 1px solid var(--c-border-04); border-radius: var(--radius); padding: var(--title-gap) 12px; display: flex; align-items: baseline; gap: var(--title-gap); background: var(--c-board-normal); flex-wrap: wrap; }   /* 높이는 내용(이름 · 배지)으로 */
   .user-card .name { font-size: var(--fs-group); font-weight: bold; }
   .user-card .badges { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; align-self: center; }
+  /* UI-06 ⑦ 자격 — .qual-msg 높이 고정(--form-row-h, 결과 없어도 자리 유지) · 배지 한 줄 말줄임 */
+  .auth-panel .qual-msg { flex: 0 0 auto; min-height: var(--form-row-h); display: flex; align-items: center; gap: var(--badge-gap); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .auth-panel .qual-req { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sign-err { min-height: 18px; font-weight: bold; }                                                        /* 글자 = .sub-info(12) · 색 = .fc-fail */
   .sign-statement { flex: 0 0 auto; display: flex; align-items: center; min-height: var(--form-row-h); padding: 6px 10px; border: 1px solid var(--c-border-05); background: var(--bc-gray-light); font-size: var(--fs-base); min-width: 0; }
   #grdSignTarget .mono { font-family: Consolas, monospace; }
   /* ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 (공통 블록 — 기준정보 화면 + 배치 발행 동일) ====
      위치: .title-bar 안 .breadcrumb 바로 앞, margin-left:auto (DESIGN §11-3 grpTitle: title │ 1fr │ 브레드크럼)
-     역할 배지 매핑: ui-items UI-04 (PM 승인 P5) — 기존 .badge 변형 + --bc-* 토큰만, 라벨 항상 표시 */
+     역할 배지 매핑: ui-items UI-04 (승인 P5) — 기존 .badge 변형 + --bc-* 토큰만, 라벨 항상 표시 */
   .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; }
   .title-bar > .user-switch .tip { display: inline-flex; }
   .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }   /* UI-04: 24 (--title-h 29 안) — 키인 폼 컨트롤 높이 토큰 */
@@ -430,7 +433,9 @@
           <div class="auth-row"><span class="label">코멘트</span><input class="input" type="text" id="signCmt" placeholder="선택 입력" autocomplete="off"></div>
           <span class="sub-info" id="signRemain">남은 요소: ID · 비밀번호</span>
           <div class="sign-err sub-info fc-fail" id="signErr" role="alert"></div>
+          <div class="qual-msg" id="signQualMsg" aria-live="polite"></div>
           <span class="sub-info" id="signPocNote">PoC 전용 — 실서비스는 LDAP(AM-IDPW)</span>
+          <span class="sub-info qual-req" id="signQualReq"></span>
         </div>
       </div>
       <div class="sign-statement" id="signStatement"></div>
@@ -446,11 +451,69 @@
 <script src="./tree-designer.js"></script>
 <script src="./assets/ebr-p0-stores.js"></script>
 <script src="./assets/ebr-exec-snapshot.js"></script>
-<script src="./assets/ebr-user-session.js"></script>   <!-- UI-09 DEVELOPER1 헬퍼 (window.EbrUserSession) -->
-<script src="./assets/ebr-dispense-store.js"></script>   <!-- 칭량 E6 DEVELOPER1 계획 계산 (window.EbrDispense) -->
+<script src="./assets/ebr-user-session.js"></script>   <!-- UI-09 헬퍼 (window.EbrUserSession) -->
+<script src="./assets/ebr-qual-store.js"></script>   <!-- 교육 · 자격 (window.EbrQual) — 서명 창 ⑦ 요구 자격 이름 표시용 (읽기만) -->
+<script>
+/* ==== UI-06 서명 창 ⑦ 자격 표시 (교육 · 자격) — 판정은 verifySigner(⑦), 화면은 결과만 그린다 ====
+ *  .qual-req  : 요구 자격 이름만 (Q7 — 서명자 자격 상태 미리보기 금지). 출처 EbrQual.listRequirements · listQualDefs (읽기만)
+ *  .qual-msg  : ⑦ block 사유 배지(.badge.error) — res.items[] (code, qualId, expiresAt, message)
+ *  warn       : 서명 성공 뒤 토스트만 (res.qualWarn[]) — 창 안 표시 없음 (J5) */
+var QualSign = (function () {
+  var BLOCK = { qual_missing: 1, qual_expired: 1, training_outdated_sop: 1, qual_req_unset: 1, qual_store_error: 1, unknown_user: 1, training_overdue: 1 };
+  var MSG = {
+    qual_missing: '자격 없음 — 부여 이력이 없습니다. 교육 · 자격 담당(QA)에게 요청하세요.',
+    qual_expired: '자격 만료 — 재자격 후 서명하세요.',
+    training_outdated_sop: 'SOP 재교육 필요 — 현재 효력 버전 이수 기록이 없습니다.',
+    qual_req_unset: '자격 요구 미설정 — 교육 · 자격 [요구 매핑]에 설정을 요청하세요.',
+    qual_store_error: '자격 정보를 읽지 못해 서명할 수 없습니다 — 관리자에게 문의하세요.'
+  };
+  function e(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function Q() { return window.EbrQual || null; }
+  function names(targets) {
+    var q = Q(); if (!q || typeof q.listRequirements !== 'function') return null;
+    var reqs = [], defs = [];
+    try { reqs = q.listRequirements() || []; defs = typeof q.listQualDefs === 'function' ? (q.listQualDefs() || []) : []; } catch (x) { return null; }
+    var ids = [], seen = {};
+    (targets || []).forEach(function (t) { var r = reqs.filter(function (x) { return x.target === t; })[0]; ((r && r.qualIds) || []).forEach(function (id) { if (!seen[id]) { seen[id] = 1; ids.push(id); } }); });
+    return ids.map(function (id) { var d = defs.filter(function (x) { return x.qualId === id; })[0]; return id + (d && d.name ? ' ' + d.name : ''); });
+  }
+  function isQual(res) { return !!(res && (BLOCK[res.why] || BLOCK[res.code])); }
+  function badge(it) {
+    var md = String(it.expiresAt || '').slice(5);
+    var t = it.code === 'qual_expired' ? '만료 ' + md : it.code === 'training_outdated_sop' ? 'SOP v' + (it.requiredVer || '?') : it.code === 'qual_req_unset' ? '미설정' : it.code === 'qual_store_error' ? '저장소 오류' : '자격 없음';
+    return '<span class="badge error" title="' + e(it.message || '') + '">' + e((it.qualId || it.target || '') + ' ' + t) + '</span>';
+  }
+  return {
+    /* el = .qual-req 요소, targets = ['SIGN:SM-…', 'ISSUE', 'BALCLASS:…'] */
+    renderReq: function (el, targets) {
+      if (!el) return;
+      var n = names(targets);
+      var txt = n === null ? '요구 자격 — (자격 저장소 미연결)' : n.length ? '요구 자격 ' + n.join(' · ') : '요구 자격 — 없음(명시) 또는 미설정';
+      el.textContent = txt; el.title = txt;
+    },
+    clear: function (el) { if (el) { el.innerHTML = ''; el.title = ''; } },
+    isQual: isQual,
+    message: function (res) { var w = res.why || res.code; return res.message || MSG[w] || ('서명할 수 없습니다 (' + w + ')'); },
+    renderBlock: function (el, res) {
+      if (!el) return;
+      var items = (res.items || res.qualItems || []).filter(function (i) { return BLOCK[i.code]; });
+      if (!items.length) items = [{ code: res.why || res.code, message: res.message }];
+      var seen = {}; items = items.filter(function (i) { var k = i.code + '|' + (i.qualId || i.target || ''); if (seen[k]) return false; seen[k] = 1; return true; });   /* 같은 자격이 대상 키 여러 개(ISSUE · SIGN:…)에 걸리면 배지 1개 */
+      el.innerHTML = items.map(badge).join('');
+      el.title = items.map(function (i) { return i.message || i.code; }).join(' · ');
+    },
+    toastWarn: function (res) {
+      var w = (res && res.qualWarn) || [];
+      if (!w.length || !window.MesUI) return;
+      MesUI.toast('서명 완료 · ' + w.map(function (i) { return i.message || ('자격 만료 임박: ' + i.qualId + ' ' + (i.expiresAt || '') + (i.daysLeft != null ? ' (D-' + i.daysLeft + ')' : '')); }).join(' · '), 'warn', 4000);
+    }
+  };
+})();
+</script>
+<script src="./assets/ebr-dispense-store.js"></script>   <!-- 칭량 E6 계획 계산 (window.EbrDispense) -->
 <!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 + 배치 발행 동일) ==== -->
 <script>
-/* DEVELOPER1 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+/* 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
  *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
  *   hasSodConflict(roles) · onChange(fn) → unsub
  * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
@@ -487,7 +550,7 @@
     var host = document.getElementById('userSwitch');
     if (host) {
       if (!connected()) {
-        host.innerHTML = '<span class="tip" title="ebr-user-session.js (DEVELOPER1) 가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+        host.innerHTML = '<span class="tip" title="사용자 · 서명 헬퍼(ebr-user-session.js)가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
       } else {
         var cur = current(), list = users();
         var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
@@ -1335,7 +1398,7 @@
   }
 
   /* ================================================================== P0 발행 서명 (UI-01 · UI-02 · UI-03)
-     EbrUserSession(UI-09, DEVELOPER1) 호출은 이 구역만:
+     EbrUserSession(UI-09) 호출은 이 구역만:
        beginIssueSign(batchRec, {manifestObjectCount}) → {ok,ticket,target} | {ok:false,why,message}
        signAndCommitIssue(ticket, {userId,password,comment}) → {ok:true,batchRec,signature,order,closeDialog} | {ok:false,stage,why,detail,message,failCount,maxFail,locked,clearPassword,closeDialog}
        cancelIssueSign(ticket) (닫힌 티켓은 no-op → 서명 창 dialogclose 마다 무조건 호출) · issueSignatureOf(rec) · formatSignLine(sig) · canSign(id, ruleId)
@@ -1369,7 +1432,7 @@
 
   function openIssueSign(draft) {
     var api = signApi();
-    if (!api) { MesUI.alert('전자서명 헬퍼(ebr-user-session.js)가 로드되지 않아 발행할 수 없습니다.\nDEVELOPER1 배포 후 다시 시도하세요.', 'Warning'); return; }
+    if (!api) { MesUI.alert('전자서명 헬퍼(ebr-user-session.js)가 로드되지 않아 발행할 수 없습니다.\n헬퍼 배포 후 다시 시도하세요.', 'Warning'); return; }
     var b = api.beginIssueSign(draft.batchRec, { manifestObjectCount: manifestRows().length });
     /* 거부 · 가드(save_error = ISSUE_SIGN_OPEN 감사 저장 실패 포함): 서명 창 안 열림, SIGN 미설정 → [발행] 그대로 사용 가능 */
     if (!b || !b.ok) { b = b || {}; MesUI.alert(signMsg(b), b.why === 'save_error' ? 'Error' : 'Warning'); updateIssueBtn(); return; }
@@ -1411,6 +1474,7 @@
     $('#signPocNote').textContent = hint || 'PoC 전용 — 실서비스는 LDAP(AM-IDPW)';   /* 헬퍼 안내문에 LDAP 문구 포함 — 중복 표기 방지 */
     $('#signId').value = ''; $('#signPw').value = ''; $('#signCmt').value = '';   /* ID 는 현재 사용자로 미리 채우지 않음 (기획 §3.1) */
     $('#signErr').textContent = '';
+    QualSign.clear($('#signQualMsg')); QualSign.renderReq($('#signQualReq'), ['ISSUE', 'SIGN:' + SIGN_RULE]);
     renderSignUser(true);
     updateSignBtn();
   }
@@ -1457,9 +1521,18 @@
       $('#signPw').value = '';
       MesUI.closeDialog('dlgIssueSign');
       finishIssue(ctx, res);
+      QualSign.toastWarn(res);   /* ⑦ warn(만료 임박): 서명 성공 뒤 토스트만 */
       return;
     }
     if (res.clearPassword) $('#signPw').value = '';
+    QualSign.clear($('#signQualMsg'));
+    if (QualSign.isQual(res)) {   /* ⑦ block: 창 유지 · 비밀번호 비움 · 실패 카운트 불변 */
+      $('#signPw').value = '';
+      $('#signErr').textContent = QualSign.message(res);
+      QualSign.renderBlock($('#signQualMsg'), res);
+      renderSignUser(false); updateSignBtn(); $('#signPw').focus();
+      return;
+    }
     if (!res.closeDialog) {
       $('#signErr').textContent = signMsg(res);
       renderSignUser(false); updateSignBtn();
@@ -1485,6 +1558,7 @@
     }
     SIGN = null; signBusy = false;
     $('#signPw').value = ''; $('#signId').value = ''; $('#signCmt').value = ''; $('#signErr').textContent = '';
+    QualSign.clear($('#signQualMsg'));
     updateIssueBtn();
   });
   /* 서명 창이 열린 중 현재 사용자가 바뀌면(다른 탭 포함) 카드 갱신 + 안내 (UI-04) */

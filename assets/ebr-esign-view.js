@@ -5,14 +5,15 @@
      공용 저장소 '미연결' 표시를 더한다.
    - localStorage.setItem 을 부르지 않는다 (조회는 감사하지 않음, P0).
    - 공용 저장소(ebr.esign.v1 · ebr.audit.v1)에 없는 서명은 '미연결'(linkState 'unlinked'):
-       ① 공용 헬퍼를 쓰지 않는 화면(생산 실행 · 포장 실행 · 출하 게이트 — 설계 §1.5, PM 확정 Q3) → UNLINKED_SCREENS
+       ① 공용 헬퍼를 쓰지 않는 화면 → UNLINKED_SCREENS (생산 실행 · 포장 실행 · 출하 게이트는 연결됨 — 현재 빈 목록)
        ② 다른 저장소가 가리키는 signatureId 가 ebr.esign.v1 에 없음(발행 레코드 issueSignature 사본 · 칭량 performed/verified/reweigh) → linkStatus() */
 (function (global) {
   'use strict';
 
-  var K = { ESIGN: 'ebr.esign.v1', AUDIT: 'ebr.audit.v1', ISSUED: 'ebr.batch.issued.v1', DISPENSE: 'ebr.dispense.v1' };
+  var K = { ESIGN: 'ebr.esign.v1', AUDIT: 'ebr.audit.v1', ISSUED: 'ebr.batch.issued.v1', DISPENSE: 'ebr.dispense.v1',
+            EXEC: 'ebr.execRecord.v1', RELEASE: 'ebr.release.v1', MBR: 'ebr.mbrSign.v1', MATLOT: 'ebr.materialLot.v1' };
   var RESULTS = ['signed', 'failed', 'locked', 'cancelled', 'rolledback'];
-  var DEFAULT_RESULTS = ['signed', 'failed', 'locked'];   /* PM 확정 Q8 — 기본 체크 */
+  var DEFAULT_RESULTS = ['signed', 'failed', 'locked'];   /* 확정 Q8 — 기본 체크 */
   var RESULT_LABEL = { signed: '성공', failed: '실패', locked: '잠금', cancelled: '취소', rolledback: '롤백' };
   var MEANING = {   /* GCM EBR_SIGN_MEANING 과 같은 값 (설계 §2.2). 색은 화면이 --c-sign-* 토큰으로 매핑 */
     performed: { ko: '수행', en: 'Performed by', token: '--c-sign-performed' },
@@ -26,16 +27,18 @@
     allowed_roles_unset: '허용 역할 미설정', role_denied: '서명 권한 없는 역할', same_person: '동일인 서명 불가', unknown_user: '미등록 ID',
     cancel: '사용자 취소', error: '오류로 취소', precheck_changed: '사전 확인 값 변경', save_error: '저장 실패'
   };
-  var RECORD_TYPE_LABEL = { batch_issue: '배치 발행', weigh_value: '칭량 값', weigh_reweigh: '재칭량 승인', 'weigh_*': '칭량 (구분 불가)' };
+  var RECORD_TYPE_LABEL = { batch_issue: '배치 발행', weigh_value: '칭량 값', weigh_reweigh: '재칭량 승인', 'weigh_*': '칭량 (구분 불가)',
+    step_value: '단계 실행 값', batch_review: '배치 기록 검토', rbe_exception: 'RBE 예외 검토', audit_trail: '감사추적 검토',
+    release: '출하 승인', briefing: '변경점 브리핑', mbr_approval: 'MBR 승인', material_qc: '자재 QC 판정' };
+  /* 고아 서명 판정 대상 (실행 · 출하 서명) — 가리키는 기록(실행 · 출하 · MBR 서명 · LOT 판정)이 없으면 고아 */
+  var ORPHAN_RECORD_TYPES = ['step_value', 'batch_review', 'rbe_exception', 'audit_trail', 'release', 'briefing', 'mbr_approval', 'material_qc'];
+  var ORPHAN_LABEL = '실행 기록 없음(데모 초기화)';
   var UNKNOWN_RECORD_TYPE = '알 수 없음';   /* R4 */
   var UNLINKED_LABEL = '미연결';
   var UNLINKED_MESSAGE = '공용 저장소 미연결 — 이 화면의 서명은 공용 저장소(ebr.esign.v1 · ebr.audit.v1)에 기록되지 않아 조회 대상이 아닙니다 (P1 이관).';
-  var UNLINKED_SCREENS = [
-    { screen: 's-ebr-production-exec-ui', file: 's-ebr-production-exec-ui.html', label: '생산 실행', storage: '화면 세션 키 ebr-prod-exec-v2' },
-    { screen: 's-ebr-packaging-exec-ui', file: 's-ebr-packaging-exec-ui.html', label: '포장 실행', storage: '화면 메모리' },
-    { screen: 's-ebr-release-gate-ui', file: 's-ebr-release-gate-ui.html', label: '출하 게이트', storage: '화면 메모리' }
-  ].map(function (s) { s.linkState = 'unlinked'; s.linkLabel = UNLINKED_LABEL; s.message = UNLINKED_MESSAGE; return s; });
-  var SCOPE_BY_ROLE = {   /* 설계 §3.8 · PM 확정 Q6 (ADMIN 전체 읽기 · 인쇄 가능 · CSV 불가). canExport 는 P1 CSV 용 표시값 */
+  /* 생산 실행 · 포장 실행 · 출하 게이트는 공용 저장소로 연결됨 (EbrExecSign) — 남은 미연결 화면 없음. 구조는 유지 */
+  var UNLINKED_SCREENS = [].map(function (s) { s.linkState = 'unlinked'; s.linkLabel = UNLINKED_LABEL; s.message = UNLINKED_MESSAGE; return s; });
+  var SCOPE_BY_ROLE = {   /* 설계 §3.8 · 확정 Q6 (ADMIN 전체 읽기 · 인쇄 가능 · CSV 불가). canExport 는 P1 CSV 용 표시값 */
     QP: { scope: 'all', canPrint: true, canExport: true }, QA: { scope: 'all', canPrint: true, canExport: true },
     SV: { scope: 'all', canPrint: true, canExport: false }, OP: { scope: 'own', canPrint: true, canExport: false },
     ADMIN: { scope: 'all', canPrint: true, canExport: false }
@@ -97,10 +100,10 @@
       r.meaningToken = mm ? mm.token : null;
       r.resultLabel = RESULT_LABEL[r.result] || r.result;
       r.recordTypeLabel = r.recordType ? (RECORD_TYPE_LABEL[r.recordType] || r.recordType) : UNKNOWN_RECORD_TYPE;
-      r.signerDisplayName = r.registered === false ? '미등록 ID' : (r.signerName || '');   /* PM 확정 Q9: ID 는 원문 그대로 */
+      r.signerDisplayName = r.registered === false ? '미등록 ID' : (r.signerName || '');   /* 확정 Q9: ID 는 원문 그대로 */
       if (sig && !r.signerRole) r.signerRole = sig.signerRole || '';
       r.whyLabel = whyLabel(r);
-      r.status = r.source === 'esign' ? ((sig && sig.status) || 'valid') : '';   /* PM 확정 Q10 */
+      r.status = r.source === 'esign' ? ((sig && sig.status) || 'valid') : '';   /* 확정 Q10 */
       r.orderLabel = r.orderNo || '오더 미연결';
       r.targetRef = r.recordType === 'batch_issue'
         ? (sig ? [sig.processTreeId ? sig.processTreeId + ' v' + sig.ver : '', sig.manifestId || ''].filter(Boolean).join(' · ') : (r.batchId || r.batchHint || ''))
@@ -118,7 +121,7 @@
       if (!sig) return { statement: null, statementSource: null };
       if (typeof sig.statement === 'string' && sig.statement) return { statement: sig.statement, statementSource: 'original' };
       var u = U(), kind = u && u.statementKindOf ? u.statementKindOf(sig) : '';
-      if (!kind) return { statement: null, statementSource: null };
+      if (!kind || /^balance_check/.test(kind)) return { statement: null, statementSource: null };   /* 저울 점검 서명: 원문만 (재구성 안 함) */
       var c;
       if (kind === 'batch_issue') {
         var b = issuedRec(sig.batchId);
@@ -311,9 +314,45 @@
       return { ok: true, total: total, rows: lim > 0 ? rows.slice(off, off + lim) : rows.slice(off), scope: sc, source: 'issued', applied: f };
     }
 
+    /* ---- S-42 고아 서명 (읽기 전용)
+       signatureRefs() → { ok:true, count, refs:{ [signatureId]: [{ store, ref }] } }
+         store: 'execRecord'(ref = batchId · scope · stepKey · slot) | 'release'(batchId) | 'mbrSign'(mbrId · ver · kind) | 'materialLot'(lotNo)
+       isOrphan(sigIdOrRow, refs?) → boolean — ebr.esign.v1 에 있는 서명 중 recordType ∈ ORPHAN_RECORD_TYPES 이고 어느 기록도 가리키지 않으면 true.
+         행(row)을 넘기면 source 'esign' 행만 대상. 없는 서명 · 다른 recordType(발행 · 칭량 등) → false. refs 를 넘기면 다시 읽지 않음(목록 렌더용).
+       orphans(o?) → { ok, total, rows:[{ signatureId, recordType, recordTypeLabel, batchId, signerId, at, status }] } — 권한 범위(viewScope) 적용 */
+    function signatureRefs() {
+      var m = {}, n = 0;
+      function add(sid, store, ref) { if (!sid) return; if (!m[sid]) { m[sid] = []; n++; } m[sid].push({ store: store, ref: ref }); }
+      readArr(K.EXEC).forEach(function (x) { if (x) add(x.signatureId, 'execRecord', [x.batchId, x.scope, x.stepKey, x.slot].filter(function (v) { return v != null && v !== ''; }).join(' · ')); });
+      readArr(K.RELEASE).forEach(function (x) { if (x) add(x.signatureId, 'release', String(x.batchId || '')); });
+      readArr(K.MBR).forEach(function (x) { if (x) add(x.signatureId, 'mbrSign', [x.mbrId, x.ver, x.kind].filter(function (v) { return v != null && v !== ''; }).join(' · ')); });
+      readArr(K.MATLOT).forEach(function (x) { if (x) add(x.judgeSignatureId, 'materialLot', String(x.lotNo || '')); });
+      return { ok: true, count: n, refs: m };
+    }
+    function sigById(id) { return readArr(K.ESIGN).filter(function (x) { return x && x.signatureId === id; })[0] || null; }
+    function isOrphan(x, refs) {
+      var sid, rt;
+      if (x && typeof x === 'object') { if (x.source !== 'esign' || !x.signatureId) return false; sid = x.signatureId; rt = x.recordType; if (!sigById(sid)) return false; }
+      else { sid = String(x == null ? '' : x); var sg = sid ? sigById(sid) : null; if (!sg) return false; rt = sg.recordType; }
+      if (ORPHAN_RECORD_TYPES.indexOf(rt) < 0) return false;
+      var r = (refs && refs.refs) || refs || signatureRefs().refs;
+      return !r[sid];
+    }
+    function orphans(o) {
+      var sc = scopeOrFail(o); if (!sc.ok) return { ok: false, why: sc.why, message: sc.message, total: 0, rows: [] };
+      var refs = signatureRefs().refs, rows = [];
+      readArr(K.ESIGN).forEach(function (g) {
+        if (!g || ORPHAN_RECORD_TYPES.indexOf(g.recordType) < 0 || refs[g.signatureId]) return;
+        if (sc.scope === 'own' && normId(g.signerId) !== normId(sc.userId)) return;
+        rows.push({ signatureId: g.signatureId, recordType: g.recordType, recordTypeLabel: RECORD_TYPE_LABEL[g.recordType], batchId: g.batchId || null, signerId: g.signerId || '', at: g.at || g.signedAt || '', status: g.status || '' });
+      });
+      return { ok: true, total: rows.length, rows: rows, label: ORPHAN_LABEL };
+    }
+
     return {
       VERSION: 1, KEYS: clone(K), RESULTS: RESULTS.slice(), DEFAULT_RESULTS: DEFAULT_RESULTS.slice(), RESULT_LABEL: clone(RESULT_LABEL),
       MEANING: clone(MEANING), WHY_LABEL: clone(WHY_LABEL), RECORD_TYPE_LABEL: clone(RECORD_TYPE_LABEL), UNKNOWN_RECORD_TYPE: UNKNOWN_RECORD_TYPE,
+      ORPHAN_RECORD_TYPES: ORPHAN_RECORD_TYPES.slice(), ORPHAN_LABEL: ORPHAN_LABEL, signatureRefs: signatureRefs, isOrphan: isOrphan, orphans: orphans,
       UNLINKED_LABEL: UNLINKED_LABEL, UNLINKED_MESSAGE: UNLINKED_MESSAGE, UNLINKED_SCREENS: clone(UNLINKED_SCREENS), SCOPE_BY_ROLE: clone(SCOPE_BY_ROLE),
       viewScope: viewScope, query: query, get: get, timeline: timeline, verify: verify, batchSummary: batchSummary, linkStatus: linkStatus, batches: batches,
       whyLabel: whyLabel, create: create

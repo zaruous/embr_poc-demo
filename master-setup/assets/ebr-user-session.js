@@ -1,6 +1,6 @@
 /* =====================================================================
    ebr-user-session.js — eBR · eMBR PoC 사용자 · 역할 · 전자서명 · 감사추적 공용 헬퍼 (전역 EbrUserSession)
-   - UI-09 (DEVELOPER1). 공개 API 명세: ui-09-ebr-user-session-api.md (PM 승인 2026-10-09)
+   - UI-09. 공개 API 명세: ui-09-ebr-user-session-api.md (승인 2026-10-09)
    - 같은 파일 2벌 (바이트 동일, tests/check-user-session.cjs 가 검사):
        docs/design/poc/assets/ebr-user-session.js              (eBR 화면: ./assets/)
        docs/design/poc/master-setup/assets/ebr-user-session.js (기준정보 화면: ../assets/)
@@ -22,6 +22,7 @@
     CURRENT_USER: 'ebmr.currentUser.v1',
     ESIGN: 'ebr.esign.v1',
     AUDIT: 'ebr.audit.v1',
+    ESIGN_VOID: 'ebr.esignVoid.v1',   /* 서명 무효화 기록 (추가 전용 · 해시 사슬) — ESIGN_INVALIDATED 감사와 대조 */
     MASTER: 'ebmr.masterSetup.v2',
     ISSUED: 'ebr.batch.issued.v1',
     ORDER: 'ebr.order.v1',
@@ -42,10 +43,12 @@
   var MEANING_DEFAULT = {
     performed: { color: 'var(--c-sign-performed)', en: 'Performed by', ko: '수행' },
     verified: { color: 'var(--c-sign-verified)', en: 'Verified by', ko: '확인' },
-    approved: { color: MEANING_COLOR, en: MEANING_EN, ko: '승인' }
+    approved: { color: MEANING_COLOR, en: MEANING_EN, ko: '승인' },
+    reviewed: { color: 'var(--c-sign-reviewed)', en: 'Reviewed by', ko: '검토' },
+    read_understood: { color: 'var(--c-sign-read-understood)', en: 'Read and understood', ko: '읽고 이해함' }
   };
-  /* 칭량 서명 규칙 (기획 칭량 §4.3, 결정 W6 · W8) · 저울 일일점검(P1 예약, 흐름 없음) */
-  var WEIGH_RULES = { PERFORM: 'SM-PERF-WEIGH', VERIFY: 'SM-VERI-WEIGH', REWEIGH: 'SM-APPR-REWEIGH', BALCHK: 'SM-PERF-BALCHK' };
+  /* 칭량 서명 규칙 (기획 칭량 §4.3, 결정 W6 · W8) · 저울 일상 점검(BALCHK) · 불합격 후 재점검(BALRECHK, 감독자) — 저울 점검 설계 개정 2 B1-11 */
+  var WEIGH_RULES = { PERFORM: 'SM-PERF-WEIGH', VERIFY: 'SM-VERI-WEIGH', REWEIGH: 'SM-APPR-REWEIGH', BALCHK: 'SM-PERF-BALCHK', BALRECHK: 'SM-PERF-BALRECHK' };
 
   /* S-39 발행 승인 규칙 내장본 — shared-store.js 시드 행과 같은 값 (해시 제외, 테스트가 대조) */
   var SEED_ISSUE_RULE = {
@@ -64,14 +67,33 @@
   BUILTIN_RULES[WEIGH_RULES.PERFORM] = seedRule(WEIGH_RULES.PERFORM, 2, 'performed', 'weigh_value', 'pin_session', '2026-07-01', '', ['OP', 'SV']);
   BUILTIN_RULES[WEIGH_RULES.VERIFY] = seedRule(WEIGH_RULES.VERIFY, 2, 'verified', 'weigh_value', 'full_factor', '2026-07-01', '', ['OP', 'SV', 'QA']);
   BUILTIN_RULES[WEIGH_RULES.REWEIGH] = seedRule(WEIGH_RULES.REWEIGH, 1, 'approved', 'weigh_reweigh', 'full_factor', '2026-10-09', '재칭량 승인 (허용오차 이탈 1회차 · 감독자/QA)', ['SV', 'QA']);
-  BUILTIN_RULES[WEIGH_RULES.BALCHK] = seedRule(WEIGH_RULES.BALCHK, 1, 'performed', 'balance_check', 'pin_session', '2026-10-09', 'P1 예약 — 저울 일일점검 (흐름 없음)', ['OP', 'SV']);
+  BUILTIN_RULES[WEIGH_RULES.BALCHK] = seedRule(WEIGH_RULES.BALCHK, 1, 'performed', 'balance_check', 'pin_session', '2026-10-09', '저울 일상 점검 (분동 점검 · 작업자/감독자)', ['OP', 'SV']);
+  BUILTIN_RULES[WEIGH_RULES.BALRECHK] = seedRule(WEIGH_RULES.BALRECHK, 1, 'performed', 'balance_check', 'pin_session', '2026-10-11', '저울 재점검 (불합격 후 사용 금지 해제 · 감독자)', ['SV']);
+  /* 실행 · 출하 서명 규칙 (실행 · 출하 서명 설계 §2.2 · D1-02) — 재사용 7 + 신규 4 + MBR 검토(P1). shared-store.js S-39 시드 행(effective 최고 버전)과 같은 값 */
+  var EXEC_RULES = {
+    STEP_PERFORM: 'SM-PERF-STEP', STEP_VERIFY: 'SM-VERI-STEP', PACK_LABEL_QA: 'SM-VERI-PKLAB', PACK_REVIEW: 'SM-REV-PACK', MATQC: 'SM-APPR-MATQC',
+    RBE: 'SM-REV-RBE', BATCH_REVIEW: 'SM-REV-BATCH', AUDIT_REVIEW: 'SM-REV-AUDIT', RELEASE: 'SM-APPR-REL', MBR_REVIEW: 'SM-REV-MBR', MBR_APPROVE: 'SM-APPR-MBR', BRIEFING: 'SM-READ-BRIEF'
+  };
+  function seedRuleB(id, ver, meaning, recType, auth, batch, upd, note, roles) { var r = seedRule(id, ver, meaning, recType, auth, upd, note, roles); r.batch = batch; return r; }
+  BUILTIN_RULES['SM-PERF-STEP'] = seedRuleB('SM-PERF-STEP', 3, 'performed', 'step_value', 'pin_session', false, '2026-07-01', 'Operation 종료 시 수행 서명', ['OP', 'SV']);
+  BUILTIN_RULES['SM-VERI-STEP'] = seedRuleB('SM-VERI-STEP', 3, 'verified', 'step_value', 'full_factor', false, '2026-07-01', '동일인 차단 · 랜덤 키패드', ['OP', 'SV', 'QA']);
+  BUILTIN_RULES['SM-APPR-MBR'] = seedRuleB('SM-APPR-MBR', 2, 'approved', 'mbr_approval', 'full_factor', false, '2026-06-05', '', ['QA']);
+  BUILTIN_RULES['SM-APPR-REL'] = seedRuleB('SM-APPR-REL', 2, 'approved', 'release', 'full_factor', false, '2026-06-05', '개별 · 일괄 불가', ['QP', 'QA']);
+  BUILTIN_RULES['SM-READ-BRIEF'] = seedRuleB('SM-READ-BRIEF', 2, 'read_understood', 'briefing', 'pin_session', true, '2026-08-20', '', ['OP', 'SV', 'QA', 'QP']);
+  BUILTIN_RULES['SM-REV-RBE'] = seedRuleB('SM-REV-RBE', 1, 'reviewed', 'rbe_exception', 'full_factor', true, '2026-08-10', '', ['QA', 'QP']);
+  BUILTIN_RULES['SM-REV-AUDIT'] = seedRuleB('SM-REV-AUDIT', 2, 'reviewed', 'audit_trail', 'full_factor', false, '2026-10-12', '감사추적 검토 (출하 게이트 4 · 배치별)', ['QA', 'QP']);
+  BUILTIN_RULES['SM-VERI-PKLAB'] = seedRuleB('SM-VERI-PKLAB', 1, 'verified', 'step_value', 'full_factor', false, '2026-10-12', '포장 라벨 · 코딩 첫 시료 QA 확인', ['QA']);
+  BUILTIN_RULES['SM-REV-PACK'] = seedRuleB('SM-REV-PACK', 1, 'reviewed', 'batch_review', 'full_factor', false, '2026-10-12', '포장 기록 검토 (1차 · 감독자)', ['SV']);
+  BUILTIN_RULES['SM-APPR-MATQC'] = seedRuleB('SM-APPR-MATQC', 1, 'approved', 'material_qc', 'full_factor', false, '2026-10-12', '자재 QC 판정 (적합 해제 · 부적합 · QA)', ['QA']);
+  BUILTIN_RULES['SM-REV-BATCH'] = seedRuleB('SM-REV-BATCH', 1, 'reviewed', 'batch_review', 'full_factor', false, '2026-10-12', '배치 기록 2차 검토 (critical 전수 · QA)', ['QA']);
+  BUILTIN_RULES['SM-REV-MBR'] = seedRuleB('SM-REV-MBR', 1, 'reviewed', 'mbr_approval', 'full_factor', false, '2026-10-12', 'MBR 독립 검토 (작성자와 다른 사람)', ['QA', 'SV']);
 
   var ROLE_DEFS = [
     { code: 'OP', name: '작업자', gmpSign: true }, { code: 'SV', name: '감독자', gmpSign: true },
     { code: 'QA', name: 'QA', gmpSign: true }, { code: 'QP', name: 'QP (출하 책임자)', gmpSign: true },
     { code: 'ADMIN', name: '관리자', gmpSign: false }
   ];
-  /* 시드 10명 = MS.USERS 6명 + 포장 화면 4명 (기획 마스터 §3.2). [userId, name, dept, roles, note] */
+  /* 시드 11명 = MS.USERS 6명 + 포장 화면 4명 + QP 1명(출하 승인 데모, 실행 · 출하 서명 설계 X3 · X13). [userId, name, dept, roles, note] */
   var SEED_USERS = [
     ['QA-0011', '이수진', 'QA팀', ['QA'], ''],
     ['QA-0012', '박정훈', 'QA팀', ['QA'], ''],
@@ -82,11 +104,13 @@
     ['OP-0101', '작업자 A', '포장팀', ['OP'], '자격 PK-L02 유효(2027-04)'],
     ['OP-0102', '작업자 B', '포장팀', ['OP'], '자격 PK-L02 유효(2027-01)'],
     ['SV-0003', '감독자 C', '포장팀', ['SV'], '자격 유효(2027-06)'],
-    ['QA-0007', 'QA D', 'QA팀', ['QA'], '현장 QA · 자격 유효(2027-03)']
+    ['QA-0007', 'QA D', 'QA팀', ['QA'], '현장 QA · 자격 유효(2027-03)'],
+    ['QP-0001', 'QP E', 'QA팀', ['QP'], '출하 승인 (QP 인증)']
   ];
+  /* 예전 저장소 보충 (1회 · 추가만): 표지 o.backfills 에 id 를 남겨, 사용자가 뒤에 삭제 · 수정해도 다시 넣지 않는다. 그 ID 가 이미 있으면 표지만 */
+  var USER_BACKFILLS = [{ id: 'BF-USER-QP0001', userId: 'QP-0001' }];
   /* 스모크 픽스처 (시드와 별도, _test.seedSmokeFixtures() 로만 추가). [userId, name, dept, roles, status] */
   var FIXTURE_USERS = [
-    ['QP-0001', 'QP E', 'QA팀', ['QP'], 'active'],
     ['OP-0103', '작업자 L', '포장팀', ['OP'], 'locked'],
     ['OP-0104', '작업자 Z', '포장팀', ['OP'], 'inactive'],
     ['SV-0004', '감독자 F', '생산1팀', ['SV', 'OP'], 'active']
@@ -319,7 +343,7 @@
              authMethod: 'AM-IDPW', pwHash: hashPw(id, DEMO_PASSWORD), note: note || '', upd: at, updBy: updBy || 'SEED' };
   }
   function seedStore() {
-    var at = nowIsoLocal(), o = { v: 1, seededAt: at, users: [], roles: clone(ROLE_DEFS), userRoles: [] };
+    var at = nowIsoLocal(), o = { v: 1, seededAt: at, users: [], roles: clone(ROLE_DEFS), userRoles: [], backfills: USER_BACKFILLS.map(function (b) { return b.id; }) };
     SEED_USERS.forEach(function (r) {
       o.users.push(mkUser(r[0], r[1], r[2], 'active', r[4], at, 'SEED'));
       r[3].forEach(function (code) { o.userRoles.push({ userId: r[0], roleCode: code, validFrom: '', validTo: '' }); });
@@ -329,10 +353,24 @@
   function validStore(o) { return o && typeof o === 'object' && Array.isArray(o.users) && Array.isArray(o.userRoles); }
   function loadStore() {
     var o = readJson(KEYS.USER_ROLE, null);
-    if (validStore(o)) return o;
+    if (validStore(o)) { backfillUsers(o); return o; }
     o = seedStore();
     try { writeJson(KEYS.USER_ROLE, o); } catch (e) { /* 저장 불가(file:// 정책 등) → 메모리 시드 */ }
     return o;
+  }
+  function backfillUsers(o) {
+    if (!Array.isArray(o.backfills)) o.backfills = [];
+    var changed = false;
+    USER_BACKFILLS.forEach(function (b) {
+      if (o.backfills.indexOf(b.id) >= 0) return;
+      var r = SEED_USERS.filter(function (x) { return x[0] === b.userId; })[0];
+      if (r && !findUser(o, b.userId)) {
+        o.users.push(mkUser(r[0], r[1], r[2], 'active', r[4], nowIsoLocal(), 'SEED'));
+        r[3].forEach(function (code) { o.userRoles.push({ userId: r[0], roleCode: code, validFrom: '', validTo: '' }); });
+      }
+      o.backfills.push(b.id); changed = true;
+    });
+    if (changed) { try { writeJson(KEYS.USER_ROLE, o); } catch (e) { /* 저장 불가 → 메모리 사본으로 진행, 다음 로드에 재시도 */ } }
   }
   function saveStore(o) { writeJson(KEYS.USER_ROLE, o, 'users'); emit('users', false); }
   function findUser(o, id) { id = normId(id); for (var i = 0; i < o.users.length; i++) if (normId(o.users[i].userId) === id) return o.users[i]; return null; }
@@ -574,7 +612,7 @@
     return null;
   }
 
-  /* ------------------------------------------------------------------ 서명 판정 ① 본인 일치 → ② 계정 상태 → ③ 비밀번호 → ④ 허용 역할 설정 → ⑤ 역할 → ⑥ 동일인
+  /* ------------------------------------------------------------------ 서명 판정 ① 본인 일치 → ② 계정 상태 → ③ 비밀번호 → ④ 허용 역할 설정 → ⑤ 역할 → ⑥ 동일인 → ⑦ 자격
      ⑥ 은 req.distinctFrom (userId 문자열 또는 {userId, label} 배열)이 있을 때만: 현재 사용자가 그중 하나면 거부 'same_person'
      (감사 ESIGN_ROLE_DENIED why same_person, 실패 카운트 불변). 발행 서명은 distinctFrom 을 넘기지 않으므로 기존과 같다 */
   function normDistinct(list) {
@@ -659,31 +697,175 @@
       r6.failCount = 0;
       return r6;
     }
-    return { ok: true, user: getUser(curId), signerRole: cs.signerRole, rule: cs.rule };
+    /* ⑦ 자격 (교육 · 자격 설계 §5.2) — targets = 'SIGN:'+규칙 + ctx.qualTargets (AND · 중복 제거), at = 지금 고정.
+       EbrQual 미로드 · 예외 = qual_store_error 차단. 차단은 카운트 불변 · ESIGN_QUAL_DENIED, 경고는 qualWarn (감사 QUAL_GATE_WARN 은 커밋 묶음) */
+    var at7 = nowIsoLocal();   /* ⑦ 판정 시각 = 커밋 단계 at (호출자 commit 이 v.at 을 그대로 씀) */
+    var q7 = qualGate(curId, ruleId, ctx.qualTargets, at7);
+    if (q7.result === 'blocked') {
+      var it7 = q7.items[0] || { code: 'qual_store_error', message: '' };
+      var a7 = audit('ESIGN_QUAL_DENIED', it7.code, (ctx.val ? ctx.val + ' · ' : '') + (it7.target || '') + (it7.qualId ? ' ' + it7.qualId : ''));
+      var r7 = reject(it7.code, it7.message || it7.code, { qualItems: q7.items });
+      if (!a7) r7.auditError = true;
+      r7.failCount = 0;
+      return r7;
+    }
+    var okRes = { ok: true, user: getUser(curId), signerRole: cs.signerRole, rule: cs.rule, at: at7 };
+    if (q7.result === 'warn') okRes.qualWarn = q7.items;
+    return okRes;
+  }
+  function qualGate(userId, ruleId, extra, at) {
+    var Q = global.EbrQual, targets = uniq(['SIGN:' + ruleId].concat(Array.isArray(extra) ? extra : []));
+    var storeErr = { result: 'blocked', items: [{ target: null, qualId: null, code: 'qual_store_error', expiresAt: null, daysLeft: null, mode: 'block',
+                                                  message: '자격 정보를 읽지 못해 서명할 수 없습니다 — 관리자에게 문의하세요.' }] };
+    if (!Q || typeof Q.checkQualification !== 'function') return storeErr;
+    try {
+      var r = Q.checkQualification({ userId: userId, targets: targets, at: at });
+      return r && (r.result === 'ok' || r.result === 'warn' || r.result === 'blocked') && Array.isArray(r.items) ? r : storeErr;
+    } catch (e) { return storeErr; }
+  }
+  /* ⑦ 경고 → 커밋 단계 감사 묶음에 넣을 QUAL_GATE_WARN 항목 */
+  function qualWarnAudits(v, base, struct) {
+    return (v.qualWarn || []).map(function (it) {
+      var e = { uid: base.uid, act: 'QUAL_GATE_WARN', tgt: it.target || '', why: it.code, val: (it.qualId || '') + ' · ' + it.code + (it.daysLeft != null ? ' D-' + it.daysLeft : ''),
+                orderNo: base.orderNo, screen: base.screen, at: base.at };
+      return withStruct(e, struct);
+    });
   }
 
   /* ------------------------------------------------------------------ 서명 레코드 ebr.esign.v1 */
+  /* ------------------------------------------------------------------ 서명 무효화 기록 ebr.esignVoid.v1 (실행 · 출하 서명 D1-13 개정)
+     { v:1, items:[{ seq, voidId, signatureId, signRuleId, signerId, batchId, at, by, byName, reason, prevHash, hash }] } — 추가만, hash = sha256(stableStringify(항목 − hash)), prevHash = 앞 항목 hash (사슬).
+     대조(voidState): 사슬 · 순번 · 해시가 깨지면 intact false → 모든 서명 tampered (전체 fail-closed).
+     서명별: 기록 있음 · 감사(ESIGN_INVALIDATED, tgt = signatureId) 없음 / 감사 있음 · 기록 없음 / 기록 ≠ 감사(after.voidId · after.hash) / 중복 기록 → 그 서명 tampered.
+     서명 레코드: 무효 기록이 있는데 status 'valid' → tampered, 무효 기록 없이 status ≠ 'valid' → tampered. */
+  function voidHash(r) { var b = clone(r); delete b.hash; return sha256Hex(stableStringify(b)); }
+  function voidState() {
+    var raw = readRaw(KEYS.ESIGN_VOID), items = [], intact = true, mm = [], bySig = {};
+    if (raw != null) {
+      var o = null; try { o = JSON.parse(raw); } catch (e) { o = null; }
+      if (o && Array.isArray(o.items)) items = o.items; else { intact = false; mm.push('void_store_unreadable'); }
+    }
+    var prev = '';
+    items.forEach(function (r, i) {
+      if (!r || typeof r !== 'object' || r.seq !== i + 1 || (r.prevHash || '') !== prev || r.hash !== voidHash(r)) { intact = false; mm.push('void_chain:' + (r && r.voidId ? r.voidId : '#' + (i + 1))); }
+      prev = r && r.hash ? r.hash : '';
+    });
+    function ent(sid) { return bySig[sid] || (bySig[sid] = { record: null, audit: null, mismatches: [] }); }
+    items.forEach(function (r) { if (!r || !r.signatureId) return; var e = ent(r.signatureId); if (e.record) e.mismatches.push('void_duplicate'); else e.record = r; });
+    readArr(KEYS.AUDIT).forEach(function (a) {
+      if (!a || a.act !== 'ESIGN_INVALIDATED') return;
+      if (!a.tgt) { intact = false; mm.push('audit_without_target'); return; }
+      var e = ent(a.tgt); if (e.audit) e.mismatches.push('audit_duplicate'); else e.audit = a;
+    });
+    Object.keys(bySig).forEach(function (sid) {
+      var e = bySig[sid];
+      if (e.record && !e.audit) e.mismatches.push('void_without_audit');
+      if (e.audit && !e.record) e.mismatches.push('audit_without_void');
+      if (e.record && e.audit) { var af = e.audit.after || {}; if (af.voidId !== e.record.voidId || af.hash !== e.record.hash) e.mismatches.push('void_audit_mismatch'); }
+    });
+    return { intact: intact, mismatches: mm, bySig: bySig, count: items.length };
+  }
+  function validity(sig) {
+    if (!sig) return { state: 'missing', mismatches: ['no_signature'], voidRecord: null };
+    var mm = [], body = clone(sig); delete body.signatureHash;
+    if (sig.status !== 'valid') { body.status = 'valid'; delete body.voidId; delete body.invalidation; }   /* 서명 당시 본문 */
+    if (sha256Hex(stableStringify(body)) !== sig.signatureHash) mm.push('signatureHash');
+    var vs = voidState(), e = vs.bySig[sig.signatureId];
+    if (!vs.intact) mm.push('void_store_integrity');
+    if (e) { mm = mm.concat(e.mismatches); if (sig.status === 'valid') mm.push('valid_while_voided'); if (e.record && sig.voidId && sig.voidId !== e.record.voidId) mm.push('void_ref_mismatch'); }
+    else if (sig.status !== 'valid') mm.push('invalid_without_void');
+    return { state: mm.length ? 'tampered' : (e ? 'void' : 'valid'), mismatches: mm, voidRecord: e && e.record ? clone(e.record) : null };
+  }
+
   var ESign = {
     KEY: KEYS.ESIGN,
     list: function (f) {
       f = f || {};
       return readArr(KEYS.ESIGN).filter(function (s) { return (!f.batchId || s.batchId === f.batchId) && (!f.signerId || s.signerId === f.signerId); }).map(clone);
     },
-    get: function (id) { var s = readArr(KEYS.ESIGN).filter(function (x) { return x.signatureId === id; })[0]; return s ? clone(s) : null; },
-    /* 서명 레코드 무결성 + (선택) 발행 레코드와의 연결(§11.70) 확인 */
+    /* 서명 레코드 무결성 + 무효화 대조 + (선택) 발행 레코드와의 연결(§11.70) 확인.
+       → { ok, mismatches[], voided? } — ok = 변조 없음. 정상 무효화된 서명은 ok true + voided true (유효 서명 아님 — 유효 판정은 validity) */
     verify: function (sig, batchRec) {
-      var mm = [];
       if (!sig) return { ok: false, mismatches: ['no_signature'] };
-      var body = clone(sig); delete body.signatureHash;
-      if (sha256Hex(stableStringify(body)) !== sig.signatureHash) mm.push('signatureHash');
+      var vd = validity(sig), mm = vd.mismatches.slice();
       if (batchRec) {
         if (computeSnapshotHash(batchRec.snapshot) !== sig.snapshotHash) mm.push('snapshotHash');
         ['batchId', 'contentHash', 'processTreeId'].forEach(function (k) { if (String(batchRec[k]) !== String(sig[k])) mm.push(k); });
         if (String(batchRec.manifestId || batchRec.mf || '') !== String(sig.manifestId || '')) mm.push('manifestId');
       }
-      return { ok: !mm.length, mismatches: mm };
-    }
+      var out = { ok: !mm.length, mismatches: mm };
+      if (vd.state === 'void') out.voided = true;
+      return out;
+    },
+    /* 유효 판정 (게이트 · 체크리스트 · 조회가 함께 쓰는 한 곳): state 'valid' | 'void'(정상 무효화) | 'tampered'(대조 불일치 — fail-closed) | 'missing' */
+    validity: function (sigOrId) { return validity(typeof sigOrId === 'string' ? ESign.get(sigOrId) : sigOrId); },
+    /* 무효화 기록 대조 결과 { intact, mismatches[], bySig:{sigId:{record, audit, mismatches[]}} } */
+    voidState: function () { return clone(voidState()); },
+    voidOf: function (sigId) { var e = voidState().bySig[sigId]; return e && e.record ? clone(e.record) : null; },
+    get: function (id) { var s = readArr(KEYS.ESIGN).filter(function (x) { return x.signatureId === id; })[0]; return s ? clone(s) : null; }
   };
+
+  /* ------------------------------------------------------------------ 서명 무효화 (실행 · 출하 서명 D1-13 개정)
+     voidSignature({ signatureId, reason, password, screen? }) — 현재 사용자 본인 · QA · 활성 계정 · 비밀번호 재입력(verifyPassword, 저장 안 함) · 사유 1–200자.
+     비밀번호 틀림 → recordFail(본인) · 감사 ESIGN_VOID_AUTH_FAIL · 5회째 잠금. 성공 → resetFail.
+     무효 기록 추가 + 서명 레코드 status 'invalid'(+ voidId) + 감사 ESIGN_INVALIDATED(after.voidId · after.hash) — 하나라도 저장 실패하면 셋 다 원복.
+     → { ok:true, voidRecord, signature } | { ok:false, why, message, failCount?, locked? } */
+  var VOID_REASON_MAX = 200;
+  var VOID_MSG = {
+    no_current_user: '로그인한 사용자가 없습니다.', not_qa: '서명 무효화는 QA 만 할 수 있습니다.', account_inactive: '계정이 활성 상태가 아닙니다.',
+    reason_required: '무효화 사유를 입력하세요.', reason_too_long: '무효화 사유는 200자 이하로 입력하세요.', password_required: '비밀번호를 다시 입력하세요.',
+    bad_password: '비밀번호가 올바르지 않습니다.', locked: '인증 실패가 반복되어 계정이 잠겼습니다.', no_signature: '서명을 찾을 수 없습니다.',
+    already_void: '이미 무효화된 서명입니다.', sig_tampered: '서명 또는 무효화 기록의 대조가 맞지 않아 처리할 수 없습니다.',
+    void_store_integrity: '무효화 기록이 손상되어 처리할 수 없습니다.', save_error: '무효화 저장에 실패했습니다 — 바뀌지 않았습니다.'
+  };
+  function voidFail(why, extra) { var r = { ok: false, why: why, message: VOID_MSG[why] || why }; if (extra) Object.keys(extra).forEach(function (k) { r[k] = extra[k]; }); return r; }
+  function voidSignature(req) {
+    req = req || {};
+    var uid = getCurrentUserId(), u = uid ? getUser(uid) : null;
+    if (!u) return voidFail('no_current_user');
+    if (rolesOf(uid).indexOf('QA') < 0) return voidFail('not_qa');
+    if (u.status && u.status !== 'active') return voidFail(u.status === 'locked' ? 'locked' : 'account_inactive');
+    var reason = String(req.reason == null ? '' : req.reason).trim();
+    if (!reason) return voidFail('reason_required');
+    if (Array.from(reason).length > VOID_REASON_MAX) return voidFail('reason_too_long');
+    var sid = String(req.signatureId || ''), sig = ESign.get(sid);
+    if (!sig) return voidFail('no_signature');
+    var vd = validity(sig);
+    if (vd.state === 'void') return voidFail('already_void');
+    if (vd.state !== 'valid') return voidFail(vd.mismatches.indexOf('void_store_integrity') >= 0 ? 'void_store_integrity' : 'sig_tampered', { mismatches: vd.mismatches });
+    var pw = req.password == null ? '' : String(req.password);
+    if (!pw) return voidFail('password_required');
+    if (!verifyPassword(uid, pw)) {
+      var rf = recordFailCore(uid, { screen: req.screen });
+      var en = [{ uid: uid, act: 'ESIGN_VOID_AUTH_FAIL', tgt: sid, val: '무효화 재인증 실패 ' + (rf.failCount || 0) + '/' + MAX_FAIL, why: 'bad_password', screen: req.screen }];
+      if (rf.lockAudit) en.push(rf.lockAudit);
+      tryAudit(en);
+      return voidFail(rf.locked ? 'locked' : 'bad_password', { failCount: rf.failCount, locked: !!rf.locked, maxFail: MAX_FAIL });
+    }
+    resetFail(uid);
+    var vs = voidState(), items = [];
+    if (!vs.intact) return voidFail('void_store_integrity');
+    var vraw = readRaw(KEYS.ESIGN_VOID), eraw = readRaw(KEYS.ESIGN), araw = readRaw(KEYS.AUDIT);
+    if (vraw != null) items = JSON.parse(vraw).items.slice();
+    var at = nowIsoLocal(), prev = items.length ? items[items.length - 1].hash : '';
+    var rec = { seq: items.length + 1, voidId: nextSeq(items, 'EV-' + ymdOf(at) + '-', 'voidId', 4), signatureId: sid, signRuleId: sig.signRuleId || null,
+                signerId: sig.signerId || null, batchId: sig.batchId || null, at: at, by: uid, byName: u.name || '', reason: reason, prevHash: prev };
+    rec.hash = voidHash(rec);
+    items.push(rec);
+    var list = readArr(KEYS.ESIGN).slice(), out = null;
+    list = list.map(function (x) { if (x && x.signatureId === sid) { x = clone(x); x.status = 'invalid'; x.voidId = rec.voidId; out = x; } return x; });
+    try {
+      writeJson(KEYS.ESIGN_VOID, { v: 1, items: items }, 'void');
+      writeJson(KEYS.ESIGN, list, 'esign');
+      appendAudit([{ uid: uid, act: 'ESIGN_INVALIDATED', tgt: sid, val: (sig.signRuleId || '') + ' · ' + (sig.signerId || '') + ' · ' + reason, why: reason,
+                     before: { status: 'valid' }, after: { status: 'invalid', voidId: rec.voidId, hash: rec.hash },
+                     batchId: sig.batchId || null, signRuleId: sig.signRuleId || null, recordType: sig.recordType || null, screen: req.screen }], 'audit');
+    } catch (e) {
+      restoreRaw(KEYS.ESIGN_VOID, vraw); restoreRaw(KEYS.ESIGN, eraw); restoreRaw(KEYS.AUDIT, araw);
+      return voidFail('save_error');
+    }
+    return { ok: true, voidRecord: clone(rec), signature: clone(out) };
+  }
 
   /* ------------------------------------------------------------------ 발행 서명 트랜잭션 (UI-03) */
   var tickets = {}, ticketSeq = 0;
@@ -838,7 +1020,7 @@
     input = input || {};
     var t = tickets[ticket];
     if (!t || !t.open || t.kind === 'record') return guard('ticket_closed', MSG.ticket_closed);
-    var ctx = { tgt: t.tgt, val: t.val, orderNo: t.orderNo, hasOrder: true, screen: t.screen, struct: t.struct };
+    var ctx = { tgt: t.tgt, val: t.val, orderNo: t.orderNo, hasOrder: true, screen: t.screen, struct: t.struct, qualTargets: ['ISSUE'] };
     var v = verifySigner({ userId: input.userId, password: input.password, signRuleId: ISSUE_RULE_ID, ctx: ctx });
     if (!v.ok) { if (v.locked) closeTicket(t); return v; }
     var pc = precheck(t);
@@ -859,7 +1041,7 @@
     var orig = {}; keys.forEach(function (k) { orig[k] = readRaw(k); });
     var stage = 'issued', sig, rec, orderAfter = null, before = null, after = null, signer = v.user;
     try {
-      var at = nowIsoLocal(), esignList = readArr(KEYS.ESIGN).slice();
+      var at = v.at || nowIsoLocal(), esignList = readArr(KEYS.ESIGN).slice();
       sig = {
         signatureId: nextSeq(esignList, 'ES-' + ymdOf(at) + '-', 'signatureId', 4),
         signerId: signer.userId, signerName: signer.name, signerRole: v.signerRole,
@@ -903,7 +1085,7 @@
       appendAudit([
         withStruct({ uid: signer.userId, act: 'ESIGN_SIGNED', tgt: t.tgt, val: t.val + ' · ' + sig.signatureId + ' · ' + v.signerRole, orderNo: t.orderNo, screen: t.screen, at: at }, t.struct),
         { uid: signer.userId, act: 'BATCH_ISSUED', tgt: t.tgt, val: t.val + ' · ' + sig.signatureId, orderNo: t.orderNo, before: before, after: after, screen: t.screen, at: at }
-      ], 'audit');
+      ].concat(qualWarnAudits(v, { uid: signer.userId, orderNo: t.orderNo, screen: t.screen, at: at }, t.struct)), 'audit');
     } catch (e) {
       var restored = keys.map(function (k) { return restoreRaw(k, orig[k]); }).every(Boolean);
       closeTicket(t);
@@ -913,7 +1095,9 @@
                message: MSG.save_error, closeDialog: true, clearPassword: true, locked: false, maxFail: MAX_FAIL };
     }
     closeTicket(t);
-    return { ok: true, batchRec: rec, signature: clone(sig), order: orderAfter, closeDialog: true, clearPassword: true };
+    var okIssue = { ok: true, batchRec: rec, signature: clone(sig), order: orderAfter, closeDialog: true, clearPassword: true };
+    if (v.qualWarn) okIssue.qualWarn = clone(v.qualWarn);   /* ⑦ 경고 → 화면은 성공 토스트만 (J5) */
+    return okIssue;
   }
   function issueSignatureOf(batchRec) {
     if (!batchRec) return null;
@@ -947,6 +1131,7 @@
     var miss = ['signRuleId', 'recordType', 'tgt'].filter(function (k) { return !spec[k]; });
     if (typeof spec.apply !== 'function') miss.push('apply');
     if (miss.length) return guard('bad_input', '서명 요청 필수 항목 누락: ' + miss.join(', '), { missing: miss });
+    if (spec.qualTargets != null && !Array.isArray(spec.qualTargets)) return guard('bad_input', '서명 요청 qualTargets 는 배열이어야 합니다.', { missing: ['qualTargets'] });
     var rule = getSignRule(spec.signRuleId), meaning = (rule && rule.meaning) || spec.meaning || '', gm = gcmMeaningOf(meaning);
     var sc = cur ? canSign(cur.userId, spec.signRuleId) : { ok: false, why: 'no_current_user', message: '' }, distinct = normDistinct(spec.distinctFrom);
     var screen = spec.screen || screenName(), orderNo = spec.orderNo ? String(spec.orderNo) : null;
@@ -1002,7 +1187,7 @@
     var stmt = recordStatement(t, input);
     /* 화면이 보여 준 문장(input.statement, 선택)을 넘기면 저장할 문장과 같아야 한다 — 다르면 비밀번호 판정 전 거부(카운트 · 감사 없음) */
     if (input.statement != null && String(input.statement) !== stmt) return guard('statement_mismatch', MSG.statement_mismatch, { statement: stmt });
-    var ctx = { tgt: t.tgt, val: t.val, orderNo: t.orderNo, hasOrder: true, screen: t.screen, struct: t.struct };
+    var ctx = { tgt: t.tgt, val: t.val, orderNo: t.orderNo, hasOrder: true, screen: t.screen, struct: t.struct, qualTargets: (spec.qualTargets || []).slice() };
     var v = verifySigner({ userId: input.userId, password: input.password, signRuleId: spec.signRuleId, ctx: ctx, distinctFrom: t.distinct, signerMode: t.signerMode });
     if (!v.ok) { if (v.locked) closeTicket(t); return v; }
     var pc = typeof spec.precheck === 'function' ? spec.precheck() : null;
@@ -1016,7 +1201,7 @@
     var orig = {}; keys.forEach(function (k) { orig[k] = readRaw(k); });
     var stage = 'esign', sig, applied = null, signer = v.user;
     try {
-      var at = nowIsoLocal(), esignList = readArr(KEYS.ESIGN).slice();
+      var at = v.at || nowIsoLocal(), esignList = readArr(KEYS.ESIGN).slice();
       sig = {
         signatureId: nextSeq(esignList, 'ES-' + ymdOf(at) + '-', 'signatureId', 4),
         signerId: signer.userId, signerName: signer.name, signerRole: v.signerRole,
@@ -1038,7 +1223,8 @@
       stage = 'audit';
       appendAudit([withStruct({ uid: signer.userId, act: 'ESIGN_SIGNED', tgt: t.tgt, val: t.val + ' · ' + sig.signatureId + ' · ' + v.signerRole, orderNo: t.orderNo, screen: t.screen, at: at,
                                 signerMode: t.signerMode === 'entered' ? 'entered' : undefined }, t.struct)]
-        .concat((applied.audits || []).map(function (e) { var c = clone(e); if (!c.at) c.at = at; if (c.uid == null) c.uid = signer.userId; if (!c.screen) c.screen = t.screen; return c; })), 'audit');
+        .concat((applied.audits || []).map(function (e) { var c = clone(e); if (!c.at) c.at = at; if (c.uid == null) c.uid = signer.userId; if (!c.screen) c.screen = t.screen; return c; }))
+        .concat(qualWarnAudits(v, { uid: signer.userId, orderNo: t.orderNo, screen: t.screen, at: at }, t.struct)), 'audit');
     } catch (e) {
       var restored = keys.map(function (k) { return restoreRaw(k, orig[k]); }).every(Boolean);
       closeTicket(t);
@@ -1048,7 +1234,9 @@
                message: spec.saveErrorMessage || MSG.record_save_error, closeDialog: true, clearPassword: true, locked: false, maxFail: MAX_FAIL };
     }
     closeTicket(t);
-    return { ok: true, signature: clone(sig), result: applied.result === undefined ? null : clone(applied.result), closeDialog: true, clearPassword: true };
+    var okRec = { ok: true, signature: clone(sig), result: applied.result === undefined ? null : clone(applied.result), closeDialog: true, clearPassword: true };
+    if (v.qualWarn) okRec.qualWarn = clone(v.qualWarn);   /* ⑦ 경고 → 화면은 성공 토스트만 (J5) */
+    return okRec;
   }
   /* ------------------------------------------------------------------ 서명 문장 (서명 창에 보이는 문장 = 서명 레코드 statement · signatureHash 대상)
      조립은 여기 한 곳 — 칭량 store · 발행 서명 · 서명 내역 조회(재구성)가 같이 쓴다. 문체: '본인은 …' 한글 문장 + 영문 의미 괄호
@@ -1058,9 +1246,19 @@
              weigh_verify    { batchId, lineId, dispenseId, net, uom, judge, performerName, performerId }
              reweigh_approve { batchId, lineId, dispenseId, net, uom, judge, voidReason }
              batch_issue     { processTreeId, ver, contentHash(앞 8자), batchId, size(kg) }
+             balance_check   { balanceId, eqClass, date, planId, planVer, sopRef, tolPct, n, recheckOf? }
+             balance_check_fail { balanceId, eqClass, date, planId, planVer, sopRef, n, failed, maxDevPct, maxDevWeightId, reason, recheckOf? }
+             exec_step · exec_step_verify { batchId, opId, opName, n }      pack_step · pack_step_verify { batchId, stepNo, stepName }
+             pack_label_qa { batchId }   pack_review { batchId, n }   matqc_release · matqc_legacy_confirm { lotNo, matCode }   matqc_reject { lotNo, matCode, reason }
+             rbe_review { batchId, exceptionId }   batch_review { batchId, n }   audit_review { batchId, n }
+             batch_release { batchId, manifestHash(앞 8자만 표시), qaProxy(true = QA 대행 꼬리) }
+             mbr_review · mbr_approve { mbrId, ver, contentHash(앞 8자) }   briefing_read { batchId, opId, ccId }   (P1)
        숫자: net 은 소수 3자리(0.000), size 는 천 단위 구분 · 소수 최대 6자리. 빈 값은 '—' */
-  var STATEMENT_KINDS = ['weigh_perform', 'weigh_verify', 'reweigh_approve', 'batch_issue'];
-  var STATEMENT_ALIAS = { perform: 'weigh_perform', verify: 'weigh_verify', reweigh: 'reweigh_approve', issue: 'batch_issue' };
+  var STATEMENT_KINDS = ['weigh_perform', 'weigh_verify', 'reweigh_approve', 'batch_issue', 'balance_check', 'balance_check_fail',
+    'exec_step', 'exec_step_verify', 'pack_step', 'pack_step_verify', 'pack_label_qa', 'pack_review', 'matqc_release', 'matqc_reject', 'matqc_legacy_confirm',
+    'rbe_review', 'batch_review', 'batch_release', 'audit_review', 'mbr_review', 'mbr_approve', 'briefing_read'];
+  var STATEMENT_ALIAS = { perform: 'weigh_perform', verify: 'weigh_verify', reweigh: 'reweigh_approve', issue: 'batch_issue', balchk: 'balance_check', balchk_fail: 'balance_check_fail' };
+  function stPct(v, signed) { var x = Number(v); if (v == null || v === '' || !isFinite(x)) return '—'; var t = Math.abs(x).toFixed(2); return signed ? (x < 0 ? '-' : '+') + t : (x < 0 ? '-' : '') + t; }
   function stTxt(v) { var s = String(v == null ? '' : v).trim(); return s || '—'; }
   function stQty(v) { var x = Number(v); return v == null || v === '' || !isFinite(x) ? '—' : x.toFixed(3); }
   function signStatement(kind, ctx) {
@@ -1080,6 +1278,34 @@
       return '본인은 ' + stTxt(c.processTreeId) + ' v' + stTxt(c.ver) + ' (hash ' + stTxt(String(c.contentHash == null ? '' : c.contentHash).slice(0, 8)) + ') 기준으로 배치 ' + stTxt(c.batchId) +
         '(' + (c.size == null || c.size === '' ? '—' : fmtNum(c.size)) + ' kg) 발행을 승인합니다. (Approved by)';
     }
+    if (k === 'balance_check' || k === 'balance_check_fail') {
+      var bh = '본인은 저울 ' + stTxt(c.balanceId) + '(' + stTxt(c.eqClass) + ') ' + stTxt(c.date) + ' 일상 점검' + (c.recheckOf ? ' 재점검(원 ' + stTxt(c.recheckOf) + ')' : '') +
+               '(계획 ' + stTxt(c.planId) + ' v' + stTxt(c.planVer) + ' · ' + stTxt(c.sopRef);
+      if (k === 'balance_check') return bh + ' · 허용 ±' + stPct(c.tolPct, false) + ' %)을 분동 ' + stTxt(c.n) + '점 모두 합격으로 수행했습니다. (Performed by)';
+      return bh + ')을 분동 ' + stTxt(c.failed) + '/' + stTxt(c.n) + '점 불합격(최대 편차 ' + stPct(c.maxDevPct, true) + ' % · ' + stTxt(c.maxDevWeightId) + ')으로 확정했습니다. 사유: ' + stTxt(c.reason) + ' (Performed by)';
+    }
+    var bb = '본인은 배치 ' + stTxt(c.batchId);
+    if (k === 'exec_step') return bb + ' ' + stTxt(c.opId) + ' ' + stTxt(c.opName) + '의 기록 값 ' + stTxt(c.n) + '건을 수행했습니다. (Performed by)';
+    if (k === 'exec_step_verify') return bb + ' ' + stTxt(c.opId) + ' ' + stTxt(c.opName) + '의 기록 값 ' + stTxt(c.n) + '건과 수행 서명을 확인했습니다. (Verified by)';
+    if (k === 'pack_step') return bb + ' 포장 ' + stTxt(c.stepNo) + ' ' + stTxt(c.stepName) + '을(를) 수행했습니다. (Performed by)';
+    if (k === 'pack_step_verify') return bb + ' 포장 ' + stTxt(c.stepNo) + ' ' + stTxt(c.stepName) + '을(를) 확인했습니다. (Verified by)';
+    if (k === 'pack_label_qa') return bb + ' 포장 라벨 · 코딩 첫 시료를 QA로 확인했습니다. (Verified by)';
+    if (k === 'pack_review') return bb + ' 포장 기록(서명 ' + stTxt(c.n) + '건)을 검토했습니다. (Reviewed by)';
+    var lh = '본인은 자재 LOT ' + stTxt(c.lotNo) + ' (' + stTxt(c.matCode) + ')의 ';
+    if (k === 'matqc_release') return lh + 'QC 판정 적합(released)을 승인합니다. (Approved by)';
+    if (k === 'matqc_reject') return lh + 'QC 판정 부적합(rejected)을 승인합니다. 사유: ' + stTxt(c.reason) + ' (Approved by)';
+    if (k === 'matqc_legacy_confirm') return lh + '기존 적합(released) 판정을 재확인하여 승인합니다. (Approved by)';
+    if (k === 'rbe_review') return bb + ' RBE 예외 ' + stTxt(c.exceptionId) + '를 검토했습니다. (Reviewed by)';
+    if (k === 'batch_review') return bb + '의 critical 기록 전수를 검토했습니다(미종결 일탈 0건 · 예외 ' + stTxt(c.n) + '건 검토 포함). (Reviewed by)';
+    if (k === 'audit_review') return bb + '의 감사추적 ' + stTxt(c.n) + '건을 검토했습니다. (Reviewed by)';
+    if (k === 'batch_release') {
+      return bb + '의 출하 전제 조건 12건 평가(manifest ' + stTxt(String(c.manifestHash == null ? '' : c.manifestHash).slice(0, 8)) + ')를 확인하고 QP 인증 및 출하를 승인합니다. (Approved by)' +
+        (c.qaProxy ? ' (PoC: QA 대행, QP 인증 아님)' : '');
+    }
+    var mh = '본인은 MBR ' + stTxt(c.mbrId) + ' v' + stTxt(c.ver) + ' (hash ' + stTxt(String(c.contentHash == null ? '' : c.contentHash).slice(0, 8)) + ')';
+    if (k === 'mbr_review') return mh + '을(를) 작성자와 독립적으로 검토했습니다. (Reviewed by)';
+    if (k === 'mbr_approve') return mh + '을(를) 승인합니다. (Approved by)';
+    if (k === 'briefing_read') return bb + ' ' + stTxt(c.opId) + ' 변경 브리핑 ' + stTxt(c.ccId) + '을(를) 읽고 이해했습니다. (Read and understood)';
     return '';
   }
   /* 서명 레코드(또는 signRuleId) → 문장 kind ('' = 해당 없음) — 서명 내역 재구성용 */
@@ -1089,6 +1315,21 @@
     if (o.signRuleId === WEIGH_RULES.PERFORM) return 'weigh_perform';
     if (o.signRuleId === WEIGH_RULES.VERIFY) return 'weigh_verify';
     if (o.signRuleId === WEIGH_RULES.REWEIGH) return 'reweigh_approve';
+    if (o.signRuleId === WEIGH_RULES.BALCHK || o.signRuleId === WEIGH_RULES.BALRECHK) return o.checkResult === 'fail' ? 'balance_check_fail' : 'balance_check';
+    /* 실행 · 출하 서명: 레코드에 statementKind 가 있으면 그 값(같은 규칙을 여러 지점이 씀 — 예 SM-PERF-STEP = 생산 · 포장) */
+    if (o.statementKind && STATEMENT_KINDS.indexOf(o.statementKind) >= 0) return o.statementKind;
+    if (o.signRuleId === EXEC_RULES.STEP_PERFORM) return o.scope === 'pack' ? 'pack_step' : 'exec_step';
+    if (o.signRuleId === EXEC_RULES.STEP_VERIFY) return o.scope === 'pack' ? 'pack_step_verify' : 'exec_step_verify';
+    if (o.signRuleId === EXEC_RULES.PACK_LABEL_QA) return 'pack_label_qa';
+    if (o.signRuleId === EXEC_RULES.PACK_REVIEW) return 'pack_review';
+    if (o.signRuleId === EXEC_RULES.MATQC) return o.matqcTo === 'rejected' ? 'matqc_reject' : (o.matqcTo === 'legacy_confirm' ? 'matqc_legacy_confirm' : 'matqc_release');
+    if (o.signRuleId === EXEC_RULES.RBE) return 'rbe_review';
+    if (o.signRuleId === EXEC_RULES.BATCH_REVIEW) return 'batch_review';
+    if (o.signRuleId === EXEC_RULES.AUDIT_REVIEW) return 'audit_review';
+    if (o.signRuleId === EXEC_RULES.RELEASE) return 'batch_release';
+    if (o.signRuleId === EXEC_RULES.MBR_REVIEW) return 'mbr_review';
+    if (o.signRuleId === EXEC_RULES.MBR_APPROVE) return 'mbr_approve';
+    if (o.signRuleId === EXEC_RULES.BRIEFING) return 'briefing_read';
     return '';
   }
   /* 칭량 값 해시 (기획 칭량 §6) — sha256Hex(stableStringify(obj)) */
@@ -1103,7 +1344,7 @@
   var HISTORY_RESULT = {
     ESIGN_AUTH_FAIL: 'failed', ESIGN_ROLE_DENIED: 'failed', USER_LOCKED: 'locked',
     ISSUE_SIGN_CANCEL: 'cancelled', DISPENSE_SIGN_CANCEL: 'cancelled', RECORD_SIGN_CANCEL: 'cancelled',
-    ISSUE_ROLLBACK: 'rolledback', DISPENSE_ROLLBACK: 'rolledback', RECORD_ROLLBACK: 'rolledback'
+    ISSUE_ROLLBACK: 'rolledback', DISPENSE_ROLLBACK: 'rolledback', RECORD_ROLLBACK: 'rolledback', REL_ROLLBACK: 'rolledback'
   };
   function historyBound(v, end) {
     if (!v) return null;
@@ -1188,7 +1429,7 @@
     VERSION: 1,
     KEYS: KEYS, ROLES: ROLES.slice(), ROLE_PRIORITY: ROLE_PRIORITY.slice(), ROLE_LABEL: ROLE_LABEL, GMP_ROLES: GMP_ROLES.slice(),
     MAX_FAIL: MAX_FAIL, ISSUE_RULE_ID: ISSUE_RULE_ID, DEMO_PASSWORD: DEMO_PASSWORD, DEMO_PASSWORD_HINT: DEMO_PASSWORD_HINT, SEED_ISSUE_RULE: clone(SEED_ISSUE_RULE),
-    WEIGH_RULES: clone(WEIGH_RULES), BUILTIN_RULES: clone(BUILTIN_RULES),
+    WEIGH_RULES: clone(WEIGH_RULES), EXEC_RULES: clone(EXEC_RULES), BUILTIN_RULES: clone(BUILTIN_RULES), MEANING_DEFAULT: clone(MEANING_DEFAULT),
     /* 사용자 · 현재 사용자 */
     ensureSeed: ensureSeed, listUsers: listUsers, getUser: getUser, rolesOf: rolesOf, hasSodConflict: hasSodConflict,
     saveUser: saveUser, unlockUser: unlockUser, resetSeed: resetSeed,
@@ -1204,7 +1445,7 @@
     signStatement: signStatement, statementKindOf: statementKindOf, STATEMENT_KINDS: STATEMENT_KINDS.slice(),
     sha256Hex: sha256Hex, stableStringify: stableStringify, getCurrentUserId: getCurrentUserId,
     /* 저장소 */
-    ESign: ESign, Audit: Audit, nowIsoLocal: nowIsoLocal,
+    ESign: ESign, Audit: Audit, nowIsoLocal: nowIsoLocal, voidSignature: voidSignature, VOID_REASON_MAX: VOID_REASON_MAX,
     /* 서명 내역 조회 (D1-8, 읽기 전용) */
     signHistory: signHistory, AUDIT_STRUCT_KEYS: STRUCT_KEYS.slice(),
     /* 스모크 · 테스트 전용 */
