@@ -3,7 +3,7 @@
    - 설계: poc-exec-release-esign-design.md 개정 1.1 §3.1 · §3.4 · §5.2 · §5.3 (D1-04 ~ D1-07 · D1-10), UI 항목 UI-12
    - 모든 서명은 EbrUserSession.beginRecordSign / signAndCommitRecord / cancelRecordSign 한 경로 (판정 ①–⑦ · ebr.esign.v1 · ebr.audit.v1).
      칭량 EbrDispense.beginSign 과 같은 구조 — spec = { signRuleId, recordType, fields, statementKind, statementCtx, distinctFrom, qualTargets, requireInput, precheck, apply, keys, openAct }.
-   - 저장 키 (이 파일 소유): ebr.execRecord.v1 { v, items:[{batchId, scope, stepKey, slot, signatureId, at, by, valueHash, valueCount}] }
+   - 저장 키 (이 파일 소유): ebr.execRecord.v1 { v, items:[{batchId, scope, stepKey, slot, signatureId, at, by, valueHash, valueCount, values(값 사본 — 정정 대상 조회용)}] }
                             ebr.release.v1    { v, items:[{batchId, releasedAt, signatureId, manifestHash(64), gateSnapshot:[{no, st, refs}], orderNo}] }
                             ebr.mbrSign.v1    { v, items:[{mbrId, ver, contentHash, kind, signatureId, at, by}] }  (P1 MBR 검토 · 승인)
      함께 쓰기(커밋 안에서만, 실패 시 헬퍼가 원본 복원): ebr.materialLot.v1 (judgeSignatureId · judgedAt · judgedBy · judgeReason · status), ebr.order.v1 (출하 시 오더 완료)
@@ -14,7 +14,8 @@
 (function (global) {
   'use strict';
 
-  var KEYS = { EXEC: 'ebr.execRecord.v1', RELEASE: 'ebr.release.v1', MAT: 'ebr.materialLot.v1', ORDER: 'ebr.order.v1', ISSUED: 'ebr.batch.issued.v1', MBR: 'ebr.mbrSign.v1', ESIGN: 'ebr.esign.v1' };
+  var KEYS = { EXEC: 'ebr.execRecord.v1', RELEASE: 'ebr.release.v1', MAT: 'ebr.materialLot.v1', ORDER: 'ebr.order.v1', ISSUED: 'ebr.batch.issued.v1', MBR: 'ebr.mbrSign.v1', ESIGN: 'ebr.esign.v1', DOWNTIME: 'ebr.downtime.v1', INTEGRITY: 'ebr.integrity.v1' };
+  var COND_ACT = { 7: 'DOWNTIME_REVIEWED', 10: 'CHANGE_IMPACT_REVIEWED', 11: 'CONTROL_EVAL_REVIEWED', 12: 'RESTORE_ACKED' };
   var RULES = {
     STEP_PERFORM: 'SM-PERF-STEP', STEP_VERIFY: 'SM-VERI-STEP', PACK_LABEL_QA: 'SM-VERI-PKLAB', PACK_REVIEW: 'SM-REV-PACK',
     MATQC: 'SM-APPR-MATQC', RBE: 'SM-REV-RBE', BATCH_REVIEW: 'SM-REV-BATCH', AUDIT_REVIEW: 'SM-REV-AUDIT', RELEASE: 'SM-APPR-REL',
@@ -47,7 +48,9 @@
     bad_mbr: 'MBR ID · 버전 · 내용 해시 · 작성자가 필요합니다.', review_missing: '같은 내용(해시)의 독립 검토 서명이 먼저 필요합니다.', bad_mbr_kind: '알 수 없는 MBR 서명 종류입니다 (review | approve).',
     no_signature: '서명 레코드를 찾을 수 없습니다.', already_invalid: '이미 무효인 서명입니다.', not_qa: '서명 무효화는 QA만 할 수 있습니다.', unknown_actor: '행위자(현재 사용자)를 확인할 수 없습니다 — 사용자를 선택하세요.',
     invalidate_reason_required: '무효화 사유(QA 조사 내용)를 입력하세요.', invalidate_reason_too_long: '무효화 사유는 ' + INVALIDATE_REASON_MAX + '자 이내로 입력하세요.',
-    bad_briefing: '배치 · 단계 · 변경 번호가 필요합니다.'
+    bad_briefing: '배치 · 단계 · 변경 번호가 필요합니다.',
+    no_gate_eval: '출하 게이트 판정 모듈(EbrGateEval)을 찾을 수 없습니다 — 차단(fail-closed).', read_only: '복원 탐지로 읽기 전용입니다 — QA 복원 확인 서명 필요(데모 초기화는 QA·관리자만)',
+    cond_changed: '서명 창을 연 뒤 조건 판정이 바뀌었습니다 — 창을 닫고 다시 여세요.'
   };
 
   function clone(o) { return o == null ? o : JSON.parse(JSON.stringify(o)); }
@@ -66,6 +69,13 @@
     function MQ() { return opts.matqc || (global.EbrP0 && global.EbrP0.MatQC) || global.MatQC || null; }
     function DV() { return opts.dev || (global.EbrP0 && global.EbrP0.Dev) || global.Dev || null; }
     function QS() { return opts.qual || global.EbrQual || null; }
+    function GE() { return opts.gateEval || global.EbrGateEval || null; }
+    /* 조건 12 읽기 전용 (개정 1.2 G1-04 · J4): 서명 시작 · 커밋 · 저장 모두 거부. 해소 서명(조건 12 SM-REV-RESTORE)만 예외 — 설계 §3 · G1-04 '(SM-REV-RESTORE 제외)'.
+       배치가 없는 서명(MBR 등)은 전역 무결성(배치 '')으로 판정. 판정 모듈이 없으면 검사 생략(출하 승인은 manifestOf 에서 별도 fail-closed) */
+    function roCheck(batchId, isRestoreAck) {
+      var ge = GE(); if (!ge || isRestoreAck) return null;
+      var ro = ge.readOnly(str(batchId)); return ro.readOnly ? fail('read_only', MSG.read_only, { readOnlyWhy: ro.why, closeDialog: true }) : null;
+    }
     var tickets = {};
 
     function ruleInfo(ruleId) {
@@ -94,11 +104,13 @@
     /* 공통: 헬퍼 beginRecordSign 호출 + 화면용 target 보강 */
     function open(kind, spec, extra) {
       var s = S(); if (!s) return fail('no_session');
+      /* 조건 12 (복원 탐지 · 무결성 불일치) 동안 배치 서명 금지 — 해소 서명(조건 12 QA 확인)만 허용. 판정 모듈이 없으면 검사 생략(출하 승인은 별도로 fail-closed) */
+      var ro = roCheck(extra.batchId, kind === 'cond' && extra.condNo === 12); if (ro) return ro;
       var ri = ruleInfo(spec.signRuleId);
       spec.target = Object.assign({ rule: ri, ruleLine: ruleLine(ri), qualReq: qualReq(spec.signRuleId, spec.qualTargets), note: extra.note || '' }, spec.target || {});
       var r = s.beginRecordSign(spec);
       if (!r.ok) return r;
-      tickets[r.ticket] = { kind: kind, batchId: extra.batchId || null };
+      tickets[r.ticket] = { kind: kind, batchId: extra.batchId || null, condNo: extra.condNo || null };
       return r;
     }
     function execAppend(item) { var o = readStore(KEYS.EXEC); o.v = 1; o.items.push(item); writeJson(KEYS.EXEC, o); return item; }
@@ -169,7 +181,7 @@
           return null;
         },
         apply: function (sig, c) {
-          execAppend({ batchId: batchId, scope: scope, stepKey: step.stepKey, slot: sd.slot, signatureId: sig.signatureId, at: c.at, by: sig.signerId, valueHash: valueHash, valueCount: values.length });
+          execAppend({ batchId: batchId, scope: scope, stepKey: step.stepKey, slot: sd.slot, signatureId: sig.signatureId, at: c.at, by: sig.signerId, valueHash: valueHash, valueCount: values.length, values: JSON.parse(JSON.stringify(values)) });
           var act = isPack ? (sd.slot === 'review' ? 'PACK_REVIEWED' : 'PACK_STEP_SIGNED') : (sd.slot === 'perform' ? 'EXEC_STEP_PERFORMED' : 'EXEC_STEP_VERIFIED');
           return { audits: [{ act: act, tgt: tgt, val: sig.signatureId + ' · ' + sd.slot, batchId: batchId, signRuleId: sd.signRuleId, recordType: recType }],
                    result: { batchId: batchId, scope: scope, stepKey: step.stepKey, slot: sd.slot, signatureId: sig.signatureId } };
@@ -188,14 +200,17 @@
       var to = req.to, lot = mq.get(str(req.lotNo));
       if (MATQC_TO.indexOf(to) < 0) return fail('bad_to');
       if (!lot) return fail('no_lot');
-      var okState = to === 'legacy_confirm' ? (lot.status === 'released' && !lot.judgeSignatureId) : lot.status === 'testing';
+      /* S2: 데모 시드 판정 서명(서명 demoSeedBatch · LOT judgeDemoBatch)은 데모 배치에서만 인정 → 실배치 사용자는 같은 LOT 를 다시 판정(재확인)할 수 있어야 함 */
+      var demoB = req.demoSeedBatch ? str(req.demoSeedBatch) : '';
+      var okState = to === 'legacy_confirm' ? (lot.status === 'released' && (!lot.judgeSignatureId || (!demoB && !!lot.judgeDemoBatch))) : lot.status === 'testing';
       if (!okState) return fail('bad_state', MSG.bad_state + ' (현재 ' + lot.status + (lot.judgeSignatureId ? ' · 판정 서명 있음' : '') + ')');
       var kind = to === 'rejected' ? 'matqc_reject' : (to === 'legacy_confirm' ? 'matqc_legacy_confirm' : 'matqc_release');
       var before = lot.status, after = to === 'legacy_confirm' ? 'released' : to, lotNo = lot.lotNo, tgt = 'LOT ' + lotNo + ' (' + (lot.materialId || '') + ')';
       return open('matqc', {
         signRuleId: RULES.MATQC, recordType: 'material_qc', tgt: tgt, val: before + ' → ' + after, screen: req.screen,
         statementKind: kind, statementCtx: { lotNo: lotNo, matCode: lot.materialId || '', reason: '' }, statementInputKeys: to === 'rejected' ? ['reason'] : [],
-        fields: { batchId: lot.batchId || null, lotNo: lotNo, materialId: lot.materialId || '', matqcTo: to, statementKind: kind, beforeStatus: before },
+        fields: demoB ? { batchId: lot.batchId || null, lotNo: lotNo, materialId: lot.materialId || '', matqcTo: to, statementKind: kind, beforeStatus: before, demoSeedBatch: demoB }
+                      : { batchId: lot.batchId || null, lotNo: lotNo, materialId: lot.materialId || '', matqcTo: to, statementKind: kind, beforeStatus: before },
         target: { lot: { lotNo: lotNo, materialId: lot.materialId || '', materialName: lot.materialName || '', status: before }, to: to, after: after, requireReason: to === 'rejected', reasonMax: REASON_MAX },
         openAct: 'MATQC_SIGN_OPEN',
         requireInput: function (input) {
@@ -211,7 +226,7 @@
           return null;
         },
         apply: function (sig, c) {
-          var patch = { lotNo: lotNo, status: after, judgeSignatureId: sig.signatureId, judgedAt: c.at, judgedBy: sig.signerId };
+          var patch = { lotNo: lotNo, status: after, judgeSignatureId: sig.signatureId, judgedAt: c.at, judgedBy: sig.signerId, judgeDemoBatch: demoB || null };   /* 실판정은 데모 표지 지움 */
           if (to === 'rejected') patch.judgeReason = str(c.input.reason);
           var next = mq.upsert(patch);
           return { audits: [{ act: 'MATQC_JUDGED', tgt: tgt, val: before + ' → ' + after + ' · ' + sig.signatureId, why: patch.judgeReason || undefined, before: { status: before, judgeSignatureId: lot.judgeSignatureId || null },
@@ -282,13 +297,14 @@
       }, { batchId: batchId, note: NOTE.review });
     }
 
-    /* 출하 manifest (§3.4-3): {v:1, batchId, gate:[{no, st, refs}] no 오름차순, signs:[정렬]} — 시각 · basis · 화면 상태 · 현재 사용자 제외 */
+    /* 출하 manifest (§3.4-3 · 게이트 동적 판정 G1-07): EbrGateEval.manifestInput — {v:1, batchId, gate:[{no, st:'pass'|'block'|'na', refs}] 12건, signs:[정렬]}.
+       시각 · basis · 화면 상태 · 현재 사용자 제외. 판정 모듈이 없으면 fail-closed */
     function manifestOf(batchId) {
-      var ss = SS(), g = ss.gateSignItems(batchId); if (!g.ok) return { ok: false, why: g.why, message: g.message };
-      var gate = Object.keys(g.items).map(Number).sort(function (a, b) { return a - b; }).map(function (n) { var it = g.items[n]; return { no: it.no, st: it.st, refs: it.refs.slice().sort() }; });
-      var gs = ss.getSignStatus({ batchId: batchId }), signs = gs.items.filter(function (i) { return i.status === 'signed'; }).map(function (i) { return i.signatureId; }).sort();
-      var m = { v: 1, batchId: batchId, gate: gate, signs: signs }, s = S();
-      return { ok: true, manifest: m, hash: s.sha256Hex(s.stableStringify(m)), blocked: g.blocked, items: g.items, signers: gs.signers };
+      var ge = GE(); if (!ge) return { ok: false, why: 'no_gate_eval', message: MSG.no_gate_eval };
+      var mi = ge.manifestInput(batchId); if (!mi.ok) return { ok: false, why: mi.why, message: mi.message };
+      var m = mi.manifest, s = S(), items = {};
+      mi.items.forEach(function (x) { items[x.no] = x; });
+      return { ok: true, manifest: m, hash: s.sha256Hex(s.stableStringify(m)), blocked: mi.blocked, naNos: mi.naNos, items: items, signers: mi.signers };
     }
 
     /**
@@ -320,15 +336,22 @@
       var iss = ss.issuedOf(batchId); if (!iss) return fail('no_issued');
       var orderNo = str(iss.orderNo); if (!orderNo) return fail('no_order');
       var mf = manifestOf(batchId); if (!mf.ok) return fail(mf.why, mf.message);
-      if (mf.blocked.length) return fail('gate_blocked', MSG.gate_blocked + ' (게이트 ' + mf.blocked.join(' · ') + ')', { blocked: mf.blocked });
+      if (mf.blocked.length) {
+        /* 결정 7: gate_blocked 가 먼저여도 읽기 전용이면 사유를 함께 싣는다 */
+        var roG = mf.items[12] && mf.items[12].st === 'block';
+        return fail('gate_blocked', MSG.gate_blocked + ' (게이트 ' + mf.blocked.join(' · ') + ')' + (roG ? ' ' + MSG.read_only : ''),
+          roG ? { blocked: mf.blocked, readOnly: true, readOnlyWhy: mf.items[12].why || 'restore_detected' } : { blocked: mf.blocked });
+      }
       var me = curId(), qaProxy = !!me && rolesOf(me).indexOf('QP') < 0;
       var distinct = mf.signers.map(function (x) { return { userId: x.userId, label: x.label }; });
+      /* ⑥ (P-a1): 조건 10 변경 영향 검토 서명자 추가 (7 · 11 · 12 서명자는 넣지 않음) */
+      (mf.items[10] && mf.items[10].st === 'pass' ? mf.items[10].refs : []).forEach(function (id) { var g = s.ESign.get(id); if (g && g.signRuleId === 'SM-REV-CHG') distinct.push({ userId: g.signerId, label: '변경 영향 검토자 (조건 10)' }); });
       var hash = mf.hash, tgt = batchId + ' · 출하 승인';
       return open('release', {
         signRuleId: RULES.RELEASE, recordType: 'release', tgt: tgt, val: 'manifest ' + hash.slice(0, 8), orderNo: orderNo, screen: req.screen,
-        statementKind: 'batch_release', statementCtx: { batchId: batchId, manifestHash: hash, qaProxy: qaProxy }, distinctFrom: uniqDistinct(distinct), qualTargets: [],
-        fields: { batchId: batchId, manifestHash: hash, statementKind: 'batch_release', qaProxy: qaProxy },
-        target: { manifestHash: hash, manifestHash8: hash.slice(0, 8), gate: clone(mf.manifest.gate), gateItems: clone(mf.items), qaProxy: qaProxy, qaProxyBadge: qaProxy ? 'PoC 전용 — QA 대행 · QP 인증 아님' : '' },
+        statementKind: 'batch_release', statementCtx: { batchId: batchId, manifestHash: hash, qaProxy: qaProxy, naCount: mf.naNos.length, naNos: mf.naNos.slice() }, distinctFrom: uniqDistinct(distinct), qualTargets: [],
+        fields: { batchId: batchId, manifestHash: hash, statementKind: 'batch_release', qaProxy: qaProxy, naNos: mf.naNos.slice() },
+        target: { manifestHash: hash, manifestHash8: hash.slice(0, 8), gate: clone(mf.manifest.gate), gateItems: clone(mf.items), naNos: mf.naNos.slice(), qaProxy: qaProxy, qaProxyBadge: qaProxy ? 'PoC 전용 — QA 대행 · QP 인증 아님' : '' },
         openAct: 'REL_SIGN_OPEN', rollbackAct: 'REL_ROLLBACK',
         precheck: function () {
           if (ss.releaseState(batchId)) return { detail: 'already_released', message: MSG.already_released };
@@ -350,6 +373,44 @@
         saveErrorMessage: '출하 기록 저장 또는 오더 완료에 실패해 전부 되돌렸습니다.',
         keys: [KEYS.RELEASE, KEYS.ORDER]
       }, { batchId: batchId, note: NOTE.release });
+    }
+
+    /* ------------------------------------------------------------ 출하 게이트 조건 서명 (게이트 동적 판정 G1-06 — 조건 7 · 10 · 11 · 12, 허용 QA · 자격 QD-REVBATCH)
+       spec 은 EbrGateEval.condSignSpec 이 만든다(판정과 같은 근거). 커밋 시 precheck 로 다시 판정해 바뀌었으면 cond_changed. */
+    /**
+     * @param {{batchId, no:7|10|11|12, dtId?:string, screen?}} req  dtId = 조건 7 대상 다운타임(없으면 첫 미검토)
+     */
+    function beginCondSign(req) {
+      req = req || {};
+      var ge = GE(); if (!S()) return fail('no_session'); if (!ge) return fail('no_gate_eval');
+      var batchId = str(req.batchId); if (!batchId) return fail('no_batch');
+      var no = Number(req.no), sp = ge.condSignSpec(batchId, no, { dtId: req.dtId });
+      if (!sp.ok) return fail(sp.why, sp.message);
+      var ri = ruleInfo(sp.signRuleId);
+      if (!ri.effective || !ri.roles.length) return fail('rule_not_effective', MSG.rule_not_effective + ' (' + sp.signRuleId + ')');
+      var keys = no === 7 ? [KEYS.DOWNTIME] : no === 12 ? [KEYS.INTEGRITY] : [];
+      return open('cond', {
+        signRuleId: sp.signRuleId, recordType: sp.recordType, tgt: sp.tgt, val: sp.val, screen: req.screen,
+        statementKind: sp.statementKind, statementCtx: sp.statementCtx, distinctFrom: uniqDistinct(sp.distinctFrom || []), qualTargets: [],
+        fields: sp.fields, target: { cond: { no: no, label: sp.label, key: sp.key } }, openAct: 'GATE_COND_SIGN_OPEN',
+        precheck: function () {
+          var p2 = ge.condSignSpec(batchId, no, { dtId: req.dtId });
+          if (!p2.ok || p2.key !== sp.key) return { detail: p2.ok ? 'cond_changed' : p2.why, message: MSG.cond_changed };
+          return null;
+        },
+        apply: function (sig, c) {
+          if (no === 7) {
+            var o = readJson(KEYS.DOWNTIME, null); if (!o || !Array.isArray(o.items)) throw codeErr('no_downtime');
+            var d = o.items.filter(function (x) { return x && x.dtId === sp.fields.dtId; })[0]; if (!d || d.reviewSignatureId) throw codeErr('cond_changed');
+            d.reviewSignatureId = sig.signatureId; d.reviewedAt = c.at; d.reviewedBy = sig.signerId;
+            writeJson(KEYS.DOWNTIME, o);
+          }
+          if (no === 12) S().Integrity.reset(sig.signatureId);
+          return { audits: [{ act: COND_ACT[no], tgt: sp.tgt, val: sig.signatureId + ' · ' + sp.val, batchId: batchId, signRuleId: sp.signRuleId, recordType: sp.recordType }],
+                   result: { batchId: batchId, no: no, signatureId: sig.signatureId, key: sp.key } };
+        },
+        keys: keys
+      }, { batchId: batchId, condNo: no, note: '서명 뒤 출하 게이트 조건 ' + no + ' 재평가' });
     }
 
     /* ------------------------------------------------------------ P1 D1-12 · MBR 독립 검토 · QA 승인
@@ -417,6 +478,7 @@
      */
     function invalidateSignature(req) {
       var s = S(); if (!s || !s.voidSignature) return fail('no_session');
+      var g0 = req && req.signatureId && s.ESign.get(str(req.signatureId)); var ro = roCheck(g0 ? g0.batchId : '', false); if (ro) return ro;
       return s.voidSignature(req || {});
     }
 
@@ -465,6 +527,8 @@
     /** 공통 커밋 (헬퍼 signAndCommitRecord 위임) → 헬퍼 결과 + signatureId · (apply 실패) reason 코드 */
     function signAndCommit(ticket, input) {
       var s = S(); if (!s) return fail('no_session');
+      var tk = tickets[ticket];
+      if (tk) { var ro = roCheck(tk.batchId, tk.kind === 'cond' && tk.condNo === 12); if (ro) { delete tickets[ticket]; s.cancelRecordSign(ticket, { why: 'error', message: 'read_only' }); return ro; } }
       var r = s.signAndCommitRecord(ticket, input || {});
       if (r && r.ok) { r.signatureId = r.signature.signatureId; delete tickets[ticket]; return r; }
       if (r && r.why === 'save_error' && r.detail === 'apply') {
@@ -477,27 +541,150 @@
     /** 서명 창 닫기 (헬퍼 cancelRecordSign 위임, 감사 RECORD_SIGN_CANCEL) */
     function cancel(ticket, o) { var s = S(); if (!s) return fail('no_session'); delete tickets[ticket]; return s.cancelRecordSign(ticket, o || {}); }
 
-    /** 데모 초기화: ebr.execRecord.v1 · ebr.release.v1 비우기 + SEED_RESET 감사 (ebr.esign.v1 은 지우지 않음 — 남은 서명은 고아 서명, 게이트 영향 없음) */
+    /** 데모 초기화 (QA · ADMIN, 현재 사용자 필수): ebr.execRecord.v1 · ebr.release.v1 비우기 + SEED_RESET 감사.
+     *  o.wipeSignatures:true → 서명(ebr.esign.v1) · 무효 사슬(ebr.esignVoid.v1)도 비움. 복원 탐지(읽기 전용) 해제는 이렇게 서명 0건이 된 경우만 —
+     *  탐지 중인데 서명을 남기는 초기화는 아무것도 바꾸지 않고 restore_ack_required (조건 12 SM-REV-RESTORE 확인 서명 필요). */
     function resetDemo(o) {
       o = o || {};
       var s = S(); if (!s) return fail('no_session');
-      var actor = str(o.actorId) || curId() || 'SYSTEM';
-      var raw = { e: global.localStorage.getItem(KEYS.EXEC), r: global.localStorage.getItem(KEYS.RELEASE) };
+      var actor = curId(); if (!actor) return fail('no_current_user', '현재 사용자를 선택하세요.');
+      if (o.actorId && str(o.actorId) !== actor) return fail('actor_mismatch', '현재 사용자만 데모 초기화를 할 수 있습니다.');
+      var rs = s.rolesOf(actor) || []; if (rs.indexOf('QA') < 0 && rs.indexOf('ADMIN') < 0) return fail('role_restricted', '데모 초기화는 QA · ADMIN 만 할 수 있습니다.');
+      var st = s.Integrity.state(), detected = !!(st.restored || st.unreadable), wipe = !!o.wipeSignatures;
+      /* 서명까지 비우는 초기화(복원 탐지 해제 포함)는 비밀번호 재입력 (verifyPassword, 저장하지 않음) */
+      /* 틀린 비밀번호는 실패 카운트 +1 · 5회째 잠금 (reauthCurrent, 21 CFR 11.300(d)) */
+      if (wipe) {
+        var ra = s.reauthCurrent(actor, o.password, { screen: o.screen, act: '데모 초기화(서명 비움) 재인증' });
+        if (!ra.ok) return fail(ra.why, ra.why === 'reauth_required' ? '서명까지 비우는 데모 초기화는 현재 사용자 비밀번호를 다시 입력해야 합니다.' + (ra.failCount ? ' (인증 실패 ' + ra.failCount + '/' + s.MAX_FAIL + ')' : '') : ra.why === 'locked' ? '계정이 잠겼습니다 — 관리자 잠금 해제가 필요합니다.' : '비활성 계정입니다.', { failCount: ra.failCount, locked: !!ra.locked, maxFail: s.MAX_FAIL });
+      }
+      if (detected && !wipe) return fail('restore_ack_required', '복원 탐지 상태입니다 — 서명 기록을 남기는 데모 초기화로는 해제할 수 없습니다. 조건 12 QA 복원 확인 서명(SM-REV-RESTORE) 또는 서명까지 비우는 데모 초기화(wipeSignatures)를 쓰세요.');
+      var KE = s.KEYS.ESIGN, KV = s.KEYS.ESIGN_VOID, ls = global.localStorage;
+      var KM = 'ebr.materialLot.v1', KD = DEMO_SEED_KEY;
+      var keys = [KEYS.EXEC, KEYS.RELEASE, s.Integrity.KEY, 'ebr.interlockDemo.v1', KM].concat(wipe ? [KE, KV, KD] : []), raw = {}, cleared = false;   /* 인터록 데모 · 자재 LOT 도 되돌림 대상 (seedDemo 가 쓰므로) */
+      keys.forEach(function (k) { raw[k] = ls.getItem(k); });
       try {
         writeJson(KEYS.EXEC, { v: 1, items: [] }); writeJson(KEYS.RELEASE, { v: 1, items: [] });
-        s.Audit.append({ uid: actor, act: 'SEED_RESET', tgt: KEYS.EXEC + ' · ' + KEYS.RELEASE, val: '실행 · 출하 서명 데모 초기화 (서명 레코드는 보존)', screen: o.screen || '' });
+        if (wipe) {
+          ls.setItem(KE, '[]'); ls.removeItem(KV); ls.removeItem(KD);   /* 데모 시드 표지도 지움 → 다음 시드에서 판정 서명 다시 생성 */
+          /* 자재 LOT 판정 서명 참조(…SignatureId)를 비움 — 서명 원장이 비었으니 참조만 남기지 않는다 (판정 상태는 그대로 = 레거시 LOT) */
+          var mr = ls.getItem(KM); if (mr) { var mo = JSON.parse(mr); (mo.lots || []).forEach(function (l) { Object.keys(l || {}).forEach(function (f) { if (/[sS]ignatureId$/.test(f)) delete l[f]; }); }); ls.setItem(KM, JSON.stringify(mo)); }
+        }
+        if (global.EbrInterlock && typeof global.EbrInterlock.seedDemo === 'function') global.EbrInterlock.seedDemo({ force: true });   /* 인터록 데모 데이터(정상 프리셋) — ILR-DEMO 병합 (인터록 I1-11) */
+        s.Audit.append({ uid: actor, act: 'SEED_RESET', tgt: KEYS.EXEC + ' · ' + KEYS.RELEASE + (wipe ? ' · ' + KE + ' · ' + KV : ''), val: wipe ? '실행 · 출하 · 서명 · 무효 사슬 데모 초기화' : '실행 · 출하 서명 데모 초기화 (서명 레코드는 보존)', screen: o.screen || '' });
+        if (detected) {
+          var dr = s.Integrity.demoReset(actor, o.screen || '', o.password);
+          if (!dr.ok) throw { why: dr.why, message: dr.message, refs: dr.refs };
+          cleared = dr.cleared;
+        }
       } catch (e) {
-        [[KEYS.EXEC, raw.e], [KEYS.RELEASE, raw.r]].forEach(function (p) { try { if (p[1] == null) global.localStorage.removeItem(p[0]); else global.localStorage.setItem(p[0], p[1]); } catch (e2) { /* 무시 */ } });
+        keys.forEach(function (k) { try { if (raw[k] == null) ls.removeItem(k); else ls.setItem(k, raw[k]); } catch (e2) { /* 무시 */ } });
+        if (e && e.why) { var fr = fail(e.why, e.message); if (e.refs) fr.refs = e.refs; return fr; }
         return fail('save_error', '데모 초기화 저장에 실패했습니다 — 바뀌지 않았습니다.');
       }
-      return { ok: true };
+      return { ok: true, integrityCleared: cleared, wiped: wipe };
     }
 
     /* 스모크용: 데모 체인(설계 §5.4)으로 생산 · 포장 · 검토 서명을 실제 헬퍼 경로로 만든다 (데모 비밀번호, 날짜 = 실행 시각). 현재 사용자는 끝나면 원래대로 */
+    /**
+     * 데모 기본 시드 — 데모 배치(EbrSignStatus.DEMO_BATCH) LOT 중 released 이고 판정 서명이 없는(레거시) LOT 를 QA-0011 legacy_confirm 으로 서명.
+     * 실제 서명 경로(beginMatQcSign → signAndCommit, 헬퍼 ⑤⑥⑦ · 읽기 전용 판정 그대로). 표지 ebr.demoSeed.v1.matqcSign 로 1회만(서명을 무효화해도 다시 만들지 않음).
+     * MatQC.seedIfEmpty 가 부른다 → 화면은 따로 부르지 않는다. → { ok, signed, skipped? }
+     */
+    var DEMO_SEED_KEY = 'ebr.demoSeed.v1';
+    /* S2: 외부(export) 호출은 demoGuard(데모 배치 · 데모 표지 · ADMIN) — 거부 시 감사만. seedDemoReleaseReady 는 가드를 통과한 뒤 core 를 부름 */
+    function seedDemoMatQc(o) {
+      o = o || {};
+      var g = demoGuard('seedDemoMatQc', str(o.batchId) || (SS() && SS().DEMO_BATCH), true); if (g) return g;
+      return seedDemoMatQcCore(o);
+    }
+    /* 판정 서명은 LOT 단위 → 서명(demoSeedBatch) · LOT(judgeDemoBatch)에 데모 배치 표지. EbrSignStatus 는 다른 배치에서 이 서명을 판정 서명으로 보지 않음(조건 9 차단 유지) */
+    function seedDemoMatQcCore(o) {
+      o = o || {};
+      var s = S(), ss = SS(); if (!s || !ss) return fail('no_session');
+      var mark = readJson(DEMO_SEED_KEY, null) || {};
+      if (mark.matqcSign && !o.force) return { ok: true, signed: 0, skipped: 'done' };
+      var batchId = str(o.batchId) || ss.DEMO_BATCH, ms = ss.matqcSignStatus(batchId);
+      if (!ms.ok) return fail(ms.why, ms.message);
+      var prev = curId(), done = [], failed = [];
+      ms.items.filter(function (x) { return x.sign === 'legacy' && x.status === 'released'; }).forEach(function (x) {
+        try { s.setCurrentUser('QA-0011'); } catch (e) { /* 무시 */ }
+        var b = beginMatQcSign({ lotNo: x.lotNo, to: 'legacy_confirm', screen: 'demoSeed', demoSeedBatch: batchId }); if (!b.ok) { failed.push({ lotNo: x.lotNo, why: b.why }); return; }
+        var r = signAndCommit(b.ticket, { userId: 'QA-0011', password: s.DEMO_PASSWORD });
+        if (r.ok) done.push(r.signatureId); else failed.push({ lotNo: x.lotNo, why: r.why });
+      });
+      try { s.setCurrentUser(prev || null); } catch (e) { /* 무시 */ }
+      if (!failed.length && done.length) { mark.matqcSign = { at: s.nowIsoLocal(), batchId: batchId, signatureIds: done }; try { writeJson(DEMO_SEED_KEY, mark); } catch (e) { /* 표지 실패 — 다음에 다시 시도 */ } }
+      return { ok: !failed.length, signed: done.length, signatureIds: done, failed: failed };
+    }
+    /** 데모: 출하 승인 창이 열리도록 서명으로 해소할 차단을 모두 서명 (seedDemoMatQc + seedSignedBatch 전 범위). 판정 자체는 바꾸지 않음 → { ok, signed, failed, blocked } */
+    /* 데모 배치 발행 기록 — 데모 배치에 발행 기록이 아예 없을 때만 만든다 (있으면 절대 덮어쓰지 않음: 불완전한 기록은 그대로 조건 7 · 10 차단).
+       효력 데모 MBR PT-TAB-A v3 · EF 0매 · 예약 LOT = 데모 LOT. 오더가 없으면 데모 오더(in_progress). 감사 DEMO_ISSUE_SEED */
+    var DEMO_ISSUE = { orderNo: 'WO-DEMO-0001', processTreeId: 'PT-TAB-A', ver: '3', line: 'L-01' };
+    function seedDemoIssue(batchId) {
+      var s = S(), ss = SS(); if (!s || !ss) return { ok: false, why: 'no_session' };
+      if (batchId !== ss.DEMO_BATCH) return { ok: true, created: false };
+      if (ss.issuedOf(batchId)) return { ok: true, created: false };
+      var rows = readJson(KEYS.ISSUED, []); if (!Array.isArray(rows)) return { ok: false, why: 'issued_unreadable' };
+      var lots = (ss.reservedLots(batchId) || []).map(function (l) { return { lotNo: l.lotNo, materialId: l.materialId, qty: l.qty }; });
+      if (!lots.length) return { ok: false, why: 'no_demo_lots' };
+      var rec = { batchId: batchId, orderNo: DEMO_ISSUE.orderNo, processTreeId: DEMO_ISSUE.processTreeId, ver: DEMO_ISSUE.ver, line: DEMO_ISSUE.line, issuedAt: s.nowIsoLocal(),
+                  efCount: 0, efRange: [], reservedLots: lots, demoSeed: true };
+      var ords = readJson(KEYS.ORDER, []); if (!Array.isArray(ords)) ords = [];
+      var addOrd = !ords.some(function (x) { return x && x.orderNo === DEMO_ISSUE.orderNo; });
+      var raw0 = global.localStorage.getItem(KEYS.ISSUED), rawO = global.localStorage.getItem(KEYS.ORDER);
+      try {
+        writeJson(KEYS.ISSUED, rows.concat([rec]));
+        if (addOrd) writeJson(KEYS.ORDER, ords.concat([{ orderNo: DEMO_ISSUE.orderNo, status: 'in_progress', batchNo: batchId }]));
+        s.Audit.append({ uid: curId() || 'SYSTEM', act: 'DEMO_ISSUE_SEED', tgt: batchId, val: '데모 발행 기록 ' + rec.processTreeId + ' v' + rec.ver + ' · EF 0 · LOT ' + lots.length + (addOrd ? ' · 오더 ' + rec.orderNo : ''), screen: 'seedDemoReleaseReady' });
+      } catch (e) {
+        try { if (raw0 == null) global.localStorage.removeItem(KEYS.ISSUED); else global.localStorage.setItem(KEYS.ISSUED, raw0);
+              if (rawO == null) global.localStorage.removeItem(KEYS.ORDER); else global.localStorage.setItem(KEYS.ORDER, rawO); } catch (e2) { /* 무시 */ }
+        return { ok: false, why: 'save_error' };
+      }
+      return { ok: true, created: true };
+    }
+    /* 데모 시드 가드 (실데이터 서명 위조 차단): 데모 배치(DEMO_BATCH)만 · 데모 표지(발행 기록 없음 → 데모 발행 기록을 만들 경우, 또는 발행 기록 demoSeed:true · 데모 오더 번호)
+       · requireAdmin 이면 현재 사용자 ADMIN 만. 거부 시 감사 DEMO_SEED_REFUSED (데이터는 바꾸지 않음) */
+    function demoGuard(fn, batchId, requireAdmin) {
+      var s = S(), ss = SS(); if (!s || !ss) return fail('no_session');
+      var why = null, actor = curId(), iss = null;
+      if (batchId !== ss.DEMO_BATCH) why = 'not_demo_batch';
+      else {
+        iss = ss.issuedOf(batchId);
+        if (iss && !(iss.demoSeed === true || /^(WO|ORD)-DEMO-/.test(str(iss.orderNo)))) why = 'no_demo_marker';
+        else if (requireAdmin && (!actor || (s.rolesOf(actor) || []).indexOf('ADMIN') < 0)) why = actor ? 'role_restricted' : 'no_current_user';
+      }
+      if (!why) return null;
+      try { s.Audit.append({ uid: actor || 'SYSTEM', act: 'DEMO_SEED_REFUSED', tgt: str(batchId) || '—', val: fn + ' 거부 — ' + why, why: why, screen: fn }); } catch (e) { /* 감사 실패해도 거부 유지 */ }
+      return fail(why, why === 'not_demo_batch' ? '데모 배치(' + ss.DEMO_BATCH + ')에서만 쓸 수 있습니다.' : why === 'no_demo_marker' ? '데모 표지가 없는 발행 기록입니다 — 실데이터에는 데모 시드를 쓸 수 없습니다.'
+        : why === 'role_restricted' ? '데모 출하 준비 시드는 관리자(ADMIN)만 실행할 수 있습니다.' : '현재 사용자를 선택하세요.', { signed: 0, failed: [], blocked: null, blockedDetail: null });
+    }
+    function seedDemoReleaseReady(batchId, o) {
+      batchId = str(batchId) || SS().DEMO_BATCH; o = o || {};
+      var g = demoGuard('seedDemoReleaseReady', batchId, true); if (g) return g;
+      var di = o.issue === false ? { ok: true, created: false } : seedDemoIssue(batchId);
+      if (!di.ok) return { ok: false, why: di.why, signed: 0, failed: [], blocked: null, blockedDetail: null };
+      var m = seedDemoMatQcCore({ batchId: batchId, force: true }), r = seedSignedBatchCore(batchId, o);
+      var mf = manifestOf(batchId), GE = global.EbrGateEval, ev = null;
+      try { ev = GE && GE.evaluate ? GE.evaluate(batchId) : null; } catch (e) { ev = null; }
+      /* 막힌 조건마다 이유 (데모 배치는 발행 기록이 없을 때만 데모 발행 기록을 만든다 — 이미 있는 불완전한 기록은 그대로 조건 7 · 10 차단) */
+      var blockedDetail = mf.ok ? mf.blocked.map(function (no) {
+        var it = ev && ev.items ? ev.items[no - 1] : null;
+        return { no: no, why: it ? it.why || 'blocked' : 'blocked', basis: it ? it.basis || '' : '', message: it ? it.msg || it.basis || '' : '' };
+      }) : null;
+      var ok = m.ok && r.ok && mf.ok && !mf.blocked.length;
+      return { ok: ok, issueCreated: !!di.created, signed: (m.signed || 0) + r.signed, failed: (m.failed || []).concat(r.failed || []), blocked: mf.ok ? mf.blocked : null, blockedDetail: blockedDetail,
+               why: !mf.ok ? mf.why : ok ? undefined : (mf.blocked.length ? 'gate_blocked' : 'sign_failed') };
+    }
+    /* 시험 · 스모크 훅(_test): 데모 배치 + 데모 표지만 (역할 제한 없음 — 스모크가 QP 화면에서 부름) */
     function seedSignedBatch(batchId, o) {
+      batchId = str(batchId) || 'BR-DEMO-0001';
+      var g = demoGuard('seedSignedBatch', batchId, false); if (g) return g;
+      return seedSignedBatchCore(batchId, o);
+    }
+    function seedSignedBatchCore(batchId, o) {
       o = o || {};
       var s = S(); if (!s) return fail('no_session');
-      batchId = str(batchId) || 'BR-DEMO-0001';
       var pw = s.DEMO_PASSWORD, prev = curId(), done = [], failed = [];
       function sign(user, begin, input) {
         try { s.setCurrentUser(user); } catch (e) { /* 무시 */ }
@@ -505,8 +692,8 @@
         var r = signAndCommit(b.ticket, Object.assign({ userId: user, password: pw }, input || {}));
         if (r.ok) done.push(r.signatureId); else failed.push({ user: user, why: r.why, message: r.message });
       }
-      var C = Object.assign({ prodPerform: 'OP-0101', prodVerify: 'SV-0003', packPerform: 'OP-0102', packVerify: 'SV-0003', packLabelQa: 'QA-0007', packReview: 'SV-0011', rbe: 'QA-0011', review: 'QA-0013' }, o.chain || {});
-      var scopes = o.scopes || ['prod', 'pack', 'review'];
+      var C = Object.assign({ prodPerform: 'OP-0101', prodVerify: 'SV-0003', packPerform: 'OP-0102', packVerify: 'SV-0003', packLabelQa: 'QA-0007', packReview: 'SV-0011', rbe: 'QA-0011', review: 'QA-0013', cond: 'QA-0011' }, o.chain || {});
+      var scopes = o.scopes || ['prod', 'pack', 'review', 'cond'];
       if (scopes.indexOf('prod') >= 0) stepsFor('prod', batchId).forEach(function (st) {
         sign(C.prodPerform, function () { return beginStepSign({ batchId: batchId, scope: 'prod', stepKey: st.stepKey, slot: 'perform', values: [], screen: 'seedSignedBatch' }); });
         sign(C.prodVerify, function () { return beginStepSign({ batchId: batchId, scope: 'prod', stepKey: st.stepKey, slot: 'verify', values: [], screen: 'seedSignedBatch' }); });
@@ -522,6 +709,14 @@
         sign(C.review, function () { return beginReviewSign({ batchId: batchId, kind: 'batch', screen: 'seedSignedBatch' }); });
         sign(C.review, function () { return beginReviewSign({ batchId: batchId, kind: 'audit', screen: 'seedSignedBatch' }); });
       }
+      /* 출하 게이트 조건 서명 (7 미검토 다운타임 · 10 · 11) — 서명으로 해소할 차단만. scopes 에 'cond' 를 넣을 때만 */
+      if (scopes.indexOf('cond') >= 0 && GE()) [7, 10, 11].forEach(function (no) {
+        for (var guardN = 0; guardN < 20; guardN++) {
+          var sp = GE().condSignSpec(batchId, no); if (!sp.ok) break;
+          var before = done.length; sign(C.cond, function () { return beginCondSign({ batchId: batchId, no: no, screen: 'seedSignedBatch' }); });
+          if (done.length === before) break;
+        }
+      });
       try { s.setCurrentUser(prev || null); } catch (e) { /* 무시 */ }
       return { ok: !failed.length, signed: done.length, signatureIds: done, failed: failed };
     }
@@ -529,9 +724,10 @@
     return {
       VERSION: 1, KEYS: clone(KEYS), RULES: clone(RULES), SCOPES: SCOPES.slice(), SLOTS: SLOTS.slice(), REVIEW_KINDS: REVIEW_KINDS.slice(), MATQC_TO: MATQC_TO.slice(),
       REASON_MAX: REASON_MAX, MSG: clone(MSG), NOTE: clone(NOTE),
+      seedDemoMatQc: seedDemoMatQc, seedDemoReleaseReady: seedDemoReleaseReady,
       stepsFor: stepsFor, beginStepSign: beginStepSign, beginMatQcSign: beginMatQcSign, beginReviewSign: beginReviewSign, beginReleaseSign: beginReleaseSign,
-      beginMbrSign: beginMbrSign, mbrSignState: mbrSignState, invalidateSignature: invalidateSignature, beginBriefingSign: beginBriefingSign, briefingStatus: briefingStatus, INVALIDATE_REASON_MAX: INVALIDATE_REASON_MAX,
-      signAndCommit: signAndCommit, cancel: cancel, markOrderCompleted: markOrderCompleted, resetDemo: resetDemo, manifestOf: function (b) { var m = manifestOf(str(b)); return m.ok ? { ok: true, manifest: m.manifest, hash: m.hash, blocked: m.blocked } : m; },
+      beginMbrSign: beginMbrSign, mbrSignState: mbrSignState, invalidateSignature: invalidateSignature, beginBriefingSign: beginBriefingSign, briefingStatus: briefingStatus, beginCondSign: beginCondSign, INVALIDATE_REASON_MAX: INVALIDATE_REASON_MAX,
+      signAndCommit: signAndCommit, cancel: cancel, markOrderCompleted: markOrderCompleted, resetDemo: resetDemo, manifestOf: function (b) { var m = manifestOf(str(b)); return m.ok ? { ok: true, manifest: m.manifest, hash: m.hash, blocked: m.blocked, naNos: m.naNos } : m; },
       create: create,
       _test: { seedSignedBatch: seedSignedBatch }
     };

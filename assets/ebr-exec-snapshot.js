@@ -133,6 +133,13 @@
     freeze.snapshot.nodes = exec.nodes;
     freeze.snapshot.edges = exec.edges;
     freeze.snapshot.phaseList = exec.phaseList;
+    /* 인터록 룰 세트 고정 (인터록 설계 §4 · I1-6): 정적 문자열 대신 실제 ruleSetFor 결과(id · ver · hash, 데모 모드면 ILR-DEMO 포함) */
+    var IL = global.EbrInterlock;
+    if (IL && typeof IL.freezeManifest === 'function') {
+      var fm = IL.freezeManifest({});
+      freeze.snapshot.manifest = Object.assign({}, freeze.snapshot.manifest || {}, { ILR: fm.ok ? fm.ILR : { error: fm.why } });
+      if (!fm.ok) { freeze.ok = false; freeze.why = fm.why; freeze.message = fm.message; }   /* 규칙 세트를 못 읽으면 발행 불가 (fail-closed) */
+    }
     return freeze;
   }
 

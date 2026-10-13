@@ -230,7 +230,7 @@ var RecSign = (function () {
   function showErr(msg) { $('signErr').textContent = msg; $('signErr').title = msg; }
 
   function open(o) {
-    var a = api();
+    var a = api() || (o.commit ? {} : null);   /* o.commit · o.cancel = 서명 저장소가 아닌 커밋 경로(인터록 감독자 승인 — ilr-ui-wire.js) */
     if (!a) { toast(WHY.no_store, 'error'); return { ok: false, why: 'no_store' }; }
     var r;
     try { r = o.begin(a); } catch (x) { if (window.console) console.error('[EbrExecSign] begin', x); r = { ok: false, why: 'exception', message: '서명을 시작하지 못했습니다 — ' + (x && x.message || x) }; }
@@ -257,9 +257,12 @@ var RecSign = (function () {
     userCard();
     var rl = ruleLine(t.rule); $('signRule').textContent = rl; $('signRule').title = rl;
     $('signId').value = u ? u.userId : ''; $('signPw').value = ''; $('signCmt').value = '';
-    $('signCmtLabel').textContent = o.reason ? '사유' : '코멘트';
-    $('signCmtLabel').classList.toggle('required', !!o.reason);
-    $('signCmt').placeholder = o.reason ? '1–60자 필수' : '선택 입력';
+    var rcEl = $('signReasonCode'), rcs = (rcEl && o.reasonCodes) || null;   /* opt-in: o.reasonCodes 를 준 호출만 · 콤보 마크업 없는 화면은 무시 */
+    if (rcEl) { rcEl.hidden = !rcs; rcEl.value = ''; }
+    if (rcEl) rcEl.innerHTML = rcs ? '<option value="">사유 코드 선택</option>' + rcs.map(function (c) { return '<option value="' + e(c.key) + '">' + e(c.key + ' ' + c.text) + '</option>'; }).join('') : '';
+    $('signCmtLabel').textContent = rcs ? '사유' : o.reason ? '사유' : '코멘트';
+    $('signCmtLabel').classList.toggle('required', !!(o.reason || rcs));
+    $('signCmt').placeholder = rcs ? '기타(OTHER)면 필수 1–60자' : o.reason ? '1–60자 필수' : '선택 입력';
     clearErr();
     var q = (t.qualReq || []).map(function (x) { return (x.qualId || '') + (x.name ? ' ' + x.name : ''); });
     var qt = q.length ? '요구 자격: ' + q.join(' · ') : '요구 자격: 없음';
@@ -278,18 +281,19 @@ var RecSign = (function () {
   function liveStmt() {
     if (!st) return;
     var stmt = st.target.statement || '';
-    if (typeof st.o.stmt === 'function') { try { stmt = st.o.stmt(st.target, $('signCmt').value) || stmt; } catch (x) { if (window.console) console.error(x); } }
+    if (typeof st.o.stmt === 'function') { try { var rcO = st.o.reasonCodes && $('signReasonCode') ? $('signReasonCode').selectedOptions[0] : null; stmt = st.o.stmt(st.target, $('signCmt').value, rcO && rcO.value ? rcO.textContent.replace(/^\S+ /, '') : '') || stmt; } catch (x) { if (window.console) console.error(x); } }
     $('signStatementText').textContent = stmt; $('signStatement').title = stmt;
   }
   function sign() {
     if (!st || st.busy) return;
-    var a = api(); if (!a) return;
+    var a = api(); if (!a && !st.o.commit) return;
     var inp = { userId: $('signId').value.trim(), password: $('signPw').value, statement: $('signStatementText').textContent };
     var c = $('signCmt').value.trim();
-    if (st.o.reason) inp.reason = c; else if (c) inp.comment = c;
+    if (st.o.reasonCodes && $('signReasonCode')) { var rco = $('signReasonCode').selectedOptions[0]; inp.reasonCode = $('signReasonCode').value; inp.reasonCodeText = rco && rco.value ? rco.textContent.replace(/^\S+ /, '') : ''; inp.reason = c; }
+    else if (st.o.reason) inp.reason = c; else if (c) inp.comment = c;
     st.busy = true; input();
     var r;
-    try { r = a.signAndCommit(st.ticket, inp); } catch (x) { if (window.console) console.error('[EbrExecSign] signAndCommit', x); r = { ok: false, why: 'RECORD_ROLLBACK', message: '저장 중 오류 — 되돌렸습니다 (' + (x && x.message || x) + ')' }; }
+    try { r = st.o.commit ? st.o.commit(st.ticket, inp) : a.signAndCommit(st.ticket, inp); } catch (x) { if (window.console) console.error('[EbrExecSign] signAndCommit', x); r = { ok: false, why: 'RECORD_ROLLBACK', message: '저장 중 오류 — 되돌렸습니다 (' + (x && x.message || x) + ')' }; }
     st.busy = false;
     $('signPw').value = '';
     if (r && r.ok) {
@@ -306,6 +310,11 @@ var RecSign = (function () {
       var of = st.o; st.done = true; MesUI.closeDialog('dlgRecSign');   /* 닫힘에서 st 가 비워지므로 먼저 잡아 둠 */
       toast('저장 실패 — 모두 되돌렸습니다. ' + (r.message || w), 'error', 4000);
       if (of.onFail) of.onFail(r);
+      return r;
+    }
+    if (w === 'read_only' || r.closeDialog) {   /* 읽기 전용 거부 (복원 탐지 등) — 창 닫고 메시지 원문 그대로 */
+      st.done = true; MesUI.closeDialog('dlgRecSign');
+      toast(r.message || WHY[w] || w, 'error', 4000);
       return r;
     }
     if (w === 'locked' || w === 'LOCKED' || r.locked) {
@@ -325,12 +334,13 @@ var RecSign = (function () {
     var b = $('dlgRecSign'); if (!b) return;
     ['signId', 'signPw', 'signCmt'].forEach(function (id) { $(id).addEventListener('input', input); });
     $('signCmt').addEventListener('input', liveStmt);
+    if ($('signReasonCode')) $('signReasonCode').addEventListener('change', liveStmt);
     $('signPw').addEventListener('keydown', function (ev) { if (ev.key === 'Enter' && !$('btnRecSign').disabled) sign(); });
     $('btnRecSign').addEventListener('click', sign);
     b.addEventListener('dialogclose', function () {
       if (!st) return;
       var s = st; st = null;
-      if (!s.done) { var a = api(); try { if (a) a.cancel(s.ticket, { reason: 'user_cancel' }); } catch (x) { if (window.console) console.error('[EbrExecSign] cancel', x); } if (s.o.onCancel) s.o.onCancel(); }
+      if (!s.done) { var a = api(); try { if (s.o.cancel) s.o.cancel(s.ticket); else if (a) a.cancel(s.ticket, { reason: 'user_cancel' }); } catch (x) { if (window.console) console.error('[EbrExecSign] cancel', x); } if (s.o.onCancel) s.o.onCancel(); }
     });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();

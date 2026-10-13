@@ -19,7 +19,8 @@
     var br = $('#btnRestore');
     if (br) br.addEventListener('click', function () {
       MesUI.confirm('편집 내용을 버리고 샘플 데이터로 복원합니다.\n(localStorage \'' + MS.LS_KEY + '\' 삭제 — 모든 모듈 화면 공통)', function () {
-        MS.reset(); MT.rerenderAll(); MesUI.toast('샘플 데이터로 복원했습니다.', 'ok');
+        var rr = MS.reset(); if (rr && rr.ok === false) { MesUI.toast(rr.message || rr.why, 'error'); return; }   /* QA · ADMIN 만 */
+        MT.rerenderAll(); MesUI.toast('샘플 데이터로 복원했습니다.' + (rr && rr.kept ? ' (서명된 인터록 룰 세트 ' + rr.kept + '건 보존)' : ''), 'ok');
       }, { okText: '복원', cancelText: '취소' });
     });
     var cp = $('#btnCopyLink');
@@ -338,7 +339,8 @@
       d.status = 'draft';
       if ('pkg' in d) d.pkg = d.scope === 'transfer_required' ? 'wait' : 'na';
     }
-    d.upd = MS.TODAY; d.hash = MS.calcHash(d);
+    if (d.kind === 'interlock' && (d.ilrApprove || d.ilrReview)) { MesUI.alert('서명된 인터록 룰 세트는 여기서 고칠 수 없습니다 — S-48 [새 버전 작성]을 사용하세요.', 'Warning'); return; }   /* C3: 서명 행 hash 다시 쓰기 금지 */
+    d.upd = MS.TODAY; d.hashVer = 2; d.hash = MS.calcHash(d);   /* 새 저장 = hashVer 2 */
     if (F.isNew) rowsOf(cfg).push(d);
     else { var idx = rowsOf(cfg).indexOf(F.orig); rowsOf(cfg)[idx] = d; }
     MS.persist(); MesUI.closeDialog('dlgMaster');

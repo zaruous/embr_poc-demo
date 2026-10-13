@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<!--
+  S-47 정정 내역 (s-ebr-correction-ui.html) — eMBR/eBR PoC · Elephant UI 셸 1920×1080
+  - 조회 전용(설계 §7): 목록 · 상세는 읽기만, 동작은 공통 팝업(CorrUI — #dlgCorrVerify · 반려)을 여는 버튼뿐.
+  - 데이터: window.EbrCorrection(listCorrections · getCorrection) 경유 — 저장소 키 직접 읽기 없음. 없으면 fail-closed 안내.
+  - 쿼리: ?correctionId= (그 행 선택) · ?batchId=
+  - 근거: poc-correction-flow-design.md W1 · W5 · poc-correction-flow-ui-items.md CF-04 · CF-05 · J1~J3
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<link rel="icon" href="data:,">
+<title>정정 내역 — eMBR/eBR PoC</title>
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  /* 이 화면 전용 보조 스타일 — Elephant CSS 토큰만 (hex · px 리터럴 없음) */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--c-bg); }
+  .is-hidden { display: none !important; }
+  .mono { font-family: var(--font-mono); }
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: var(--title-gap); min-width: 0; white-space: nowrap; }
+  .title-bar > .user-switch + .breadcrumb { margin-left: var(--fs-grid); }
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: var(--badge-gap); min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+
+  /* 검색 1행 */
+  #srch { grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.6fr) minmax(0, 1fr) max-content; column-gap: calc(var(--search-col-gap) / 2); }   /* 기간 칸 = 날짜 2개 */
+  #srch .field.range, #srch .search-control > .input { width: 100%; }
+  #srch .field.range > .input { flex: 1 1 0; min-width: 0; }
+  #srch .search-actions .btn { min-width: var(--btn-search-w); }
+
+  /* 권한 없음 띠 */
+  #noScope { flex: 0 0 var(--form-row-h); height: var(--form-row-h); display: flex; align-items: center; gap: var(--title-gap); padding: 0 var(--grid-cell-pad);
+             background: var(--bc-alam); border-left: calc(var(--radius) * 2) solid var(--c-warn); font-weight: bold; white-space: nowrap; overflow: hidden; }
+
+  /* 목록 — 20행 고정 */
+  #gridBlock { flex: 0 0 auto; }
+  #gridWrap { flex: 0 0 auto; height: calc(var(--grid-head-h) + var(--grid-row-h) * 20 + var(--radius)); overflow: hidden; }
+  body.no-scope #gridWrap { height: calc(var(--grid-head-h) + var(--grid-row-h) * 18 + var(--radius)); }   /* 권한 없음 띠 자리만큼 목록을 줄여 본문 높이 불변 */
+  body.no-scope #grdCorr tr.empty td { height: calc(var(--grid-row-h) * 18); }
+  #grdCorr col.c-id { width: var(--col-w-240); } #grdCorr col.c-batch { width: var(--col-w-batch); } #grdCorr col.c-kind { width: var(--col-w-short); }
+  #grdCorr col.c-v { width: var(--col-w-qty); } #grdCorr col.c-st { width: var(--col-w-role); } #grdCorr col.c-sig { width: var(--col-w-240); }
+  #grdCorr td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #grdCorr tbody tr.selected td { background: var(--c-row-selected); }
+  #grdCorr tr.empty td { height: calc(var(--grid-row-h) * 20); text-align: center; white-space: normal; border-bottom: none; }
+  .paging .pg-info { margin-left: var(--fs-grid); white-space: nowrap; }
+
+  /* 상세 */
+  #detail { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--title-gap); }
+  #detail .form-grid .field .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #detail .tran-buttons { margin-top: auto; }
+  #detail .tran-buttons .lnk { margin-right: auto; }
+
+  /* 인쇄 (A4 세로 1장) — 화면에서는 숨김 */
+  #printArea { display: none; }
+  @media print {
+    @page { size: A4 portrait; margin: 14mm 10mm 12mm; }
+    html, body { height: auto !important; overflow: visible !important; }
+    .shell-scale, .dialog-backdrop, .toast-area { display: none !important; }
+    #printArea { display: block; font: 9pt var(--font); color: var(--c-text); }
+    #printArea h1 { font-size: 13pt; margin: 0 0 4pt; }
+    #printArea table { width: 100%; border-collapse: collapse; margin-top: 6pt; }
+    #printArea th, #printArea td { border: 0.5pt solid var(--c-border-03); padding: 2pt 4pt; text-align: left; vertical-align: top; }
+    #printArea .p-sec { margin-top: 8pt; font-weight: bold; }
+  }
+</style>
+</head>
+<body>
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="main-title">정정 내역</span>
+    <span class="user-switch" id="userSwitch"></span>
+    <span class="breadcrumb"><span>eMBR</span><span class="sep">&rsaquo;</span><span>eBR 실행</span><span class="sep">&rsaquo;</span><span class="current">정정 내역</span></span>
+  </div>
+  <div class="shell-body">
+    <div class="search-box" id="srch">
+      <div class="search-control"><span class="label">배치</span><input class="input mono" type="text" id="fBatch" placeholder="전체" aria-label="배치"></div>
+      <div class="search-control"><span class="label">대상</span><select class="input" id="fKind" aria-label="대상"><option value="">전체</option><option value="exec_value">실행</option><option value="weigh_record">칭량</option></select></div>
+      <div class="search-control"><span class="label">상태</span><select class="input" id="fState" aria-label="상태"><option value="">전체</option><option value="DRAFT">작성 중</option><option value="PERFORMED">QA 확인 대기</option><option value="VERIFIED">적용됨</option><option value="REJECTED">반려</option><option value="CANCELLED">취소됨</option></select></div>
+      <div class="search-control"><span class="label">기간</span><span class="field range"><input class="input" type="date" id="fFrom" aria-label="시작일"><span class="tilde">~</span><input class="input" type="date" id="fTo" aria-label="종료일"></span></div>
+      <div class="search-control"><span class="label">요청자</span><input class="input mono" type="text" id="fReq" placeholder="전체" aria-label="요청자"></div>
+      <div class="search-actions"><button class="btn search" type="button" id="btnSearch">조회</button></div>
+    </div>
+    <div id="noScope" class="is-hidden"><span>(!)</span><span id="noScopeMsg"></span></div>
+    <div class="grid-block" id="gridBlock">
+      <div class="grid-toolbar">
+        <span class="group-title">정정 목록</span><span class="total-text">Total <b id="tTotal">0</b></span><span class="vbar"></span>
+        <span class="sub-info" id="apiNote"></span><span class="spacer"></span>
+        <span class="sub-info">최신순 · 조회는 기록을 바꾸지 않습니다</span>
+      </div>
+      <div class="grid-wrap" id="gridWrap">
+        <table class="grid selectable" id="grdCorr">
+          <colgroup><col class="c-id"><col class="c-batch"><col class="c-kind"><col><col class="c-v"><col class="c-v"><col class="c-st"><col class="c-sig"></colgroup>
+          <thead><tr><th>정정 ID</th><th>배치</th><th>대상</th><th>항목</th><th>원래 값</th><th>정정 값</th><th>상태</th><th>서명</th></tr></thead>
+          <tbody id="grdCorrBody"></tbody>
+        </table>
+      </div>
+      <div class="paging" id="paging"></div>
+    </div>
+    <div id="detail">
+      <div class="grid-toolbar"><span class="group-title" id="dTitle">상세</span><span id="dState"></span><span class="sub-info">(읽기 전용)</span><span class="spacer"></span><span class="sub-info mono" id="dIntegrity"></span></div>
+      <div class="form-grid cols-2 readonly">
+        <span class="label">대상</span><span class="field"><span class="text" id="dTarget"></span></span>
+        <span class="label">원 서명</span><span class="field"><span class="text" id="dSigs"></span></span>
+        <span class="label">원래 → 정정</span><span class="field"><span class="text" id="dValues"></span></span>
+        <span class="label">사유 · 증빙</span><span class="field"><span class="text" id="dReason"></span></span>
+        <span class="label">이력</span><span class="field"><span class="text" id="dHistory"></span></span>
+        <span class="label">출하 영향</span><span class="field"><span class="text" id="dImpact"></span></span>
+      </div>
+      <div class="tran-buttons">
+        <a class="lnk" id="lnkS42" href="./s-ebr-esign-history-ui.html">S-42 서명 내역 ›</a>
+        <button class="btn search" type="button" id="btnPrint">인쇄</button>
+        <span class="tip" id="btnRejTip"><button class="btn search secondary" type="button" id="btnRej" disabled>반려</button></span>
+        <span class="tip" id="btnVerTip"><button class="btn search primary" type="button" id="btnVer" disabled>QA 확인 서명</button></span>
+      </div>
+    </div>
+  </div>
+</div></div>
+<div id="printArea" aria-hidden="true"></div>
+
+<script src="./assets/mesui.js"></script>
+<script src="./assets/ebr-user-session.js"></script>
+<script src="./assets/ebr-qual-store.js"></script>
+<script src="./assets/ebr-sign-status.js"></script>   <!-- 단계 정의 (EbrSignStatus.stepsFor — 포장 단계 이름 조회, 읽기만) -->
+<script src="./assets/ebr-correction-store.js"></script>   <!-- D1 정정 store (window.EbrCorrection) -->
+<script src="./assets/ebr-correction-ui.js"></script>     <!-- 공통 팝업 window.CorrUI -->
+<!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 배치 발행과 동일 — S-47 재사용.) ==== -->
+<script>
+/* 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+ *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
+ *   hasSodConflict(roles) · onChange(fn) → unsub
+ * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
+ * 헬퍼가 없으면(파일 미배포) 선택기는 「사용자 API 미연결」로 비활성 표시만 하고 화면 기존 동작은 그대로 둔다(게이트 미적용, 오류 없음). */
+(function (global) {
+  'use strict';
+  var WATCH_KEYS = ['ebmr.currentUser.v1', 'ebmr.userRole.v1'];   /* onChange 가 없을 때만: 다른 탭 변경 감지용 키 이름 (값은 헬퍼로만 읽음) */
+  var ROLE = { QP: ['QP', 'role-qp'], QA: ['QA', 'role-qa'], SV: ['감독자', 'ok'], OP: ['작업자', 'info'], ADMIN: ['관리자', ''] };
+  var ROLE_ORDER = ['QP', 'QA', 'SV', 'OP', 'ADMIN'];   /* 배지 우선순위 QP>QA>SV>OP>ADMIN (기획 마스터 §3.1) */
+  var GATE_SEL = '[data-p0-edit]';   /* 정정 내역: 동작 버튼은 팝업 열기뿐 — 판정은 CorrUI (규칙 allowedRoles) */
+  var GATE_TIP = '사용자를 선택하세요';
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var listeners = [], readyQ = [], isReady = false;
+
+  function api() { return global.EbrUserSession || null; }
+  function call(fn) {
+    var a = api(); if (!a || typeof a[fn] !== 'function') return undefined;
+    try { return a[fn].apply(a, Array.prototype.slice.call(arguments, 1)); } catch (e) { if (global.console) console.error('[EbrUserSession] ' + fn, e); return undefined; }
+  }
+  function sortRoles(roles) { return (roles || []).slice().sort(function (a, b) { return ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b); }); }
+  function roleBadge(code) { var r = ROLE[code] || [code, 'muted']; return '<span class="badge' + (r[1] ? ' ' + r[1] : '') + '" title="' + esc(code) + '">' + esc(r[0]) + '</span>'; }
+  function roleBadges(roles) { return sortRoles(roles).map(roleBadge).join(''); }
+  function statusBadge(st) { return st === 'locked' ? '<span class="badge error">잠김</span>' : st === 'inactive' ? '<span class="badge muted">비활성</span>' : ''; }
+  function rolesOfUser(u) { return !u ? [] : (Array.isArray(u.roles) ? u.roles : (call('rolesOf', u.userId) || [])); }
+  function users(filter) { var l = call('listUsers', filter || {}); return Array.isArray(l) ? l : []; }
+  function current() { return call('getCurrentUser') || null; }
+  function connected() { var a = api(); return !!(a && typeof a.getCurrentUser === 'function' && typeof a.listUsers === 'function'); }
+  function hasRole(u, code) { return rolesOfUser(u).indexOf(code) >= 0; }
+  function sod(roles) { var v = call('hasSodConflict', roles || []); return typeof v === 'boolean' ? v : false; }
+  function gateOn() { return connected() && !current(); }
+  function userLabel(u) { return u ? u.name + ' (' + u.userId + ')' : '—'; }
+
+  function render() {
+    var host = document.getElementById('userSwitch');
+    if (host) {
+      if (!connected()) {
+        host.innerHTML = '<span class="tip" title="사용자 · 서명 헬퍼(ebr-user-session.js)가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+      } else {
+        var cur = current(), list = users();
+        var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
+          var bad = u.status === 'locked' ? ' — 잠김' : u.status === 'inactive' ? ' — 비활성' : '';
+          return '<option value="' + esc(u.userId) + '"' + (bad ? ' disabled' : '') + (cur && cur.userId === u.userId ? ' selected' : '') + '>' + esc(userLabel(u) + bad) + '</option>';
+        }).join('');
+        host.innerHTML = '<select class="input w-200" id="userSwitchSel" aria-label="현재 사용자" title="현재 사용자 (인증 아님 — 서명 시 ID · 비밀번호 재입력)">' + opts + '</select>' +
+          '<span class="us-roles">' + (cur ? roleBadges(rolesOfUser(cur)) + statusBadge(cur.status) : '<span class="badge warn">' + GATE_TIP + '</span>') + '</span>';
+        var sel = document.getElementById('userSwitchSel');
+        sel.addEventListener('change', function () {
+          var r = call('setCurrentUser', sel.value || null);
+          if (r && r.ok === false && global.MesUI) {
+            MesUI.toast(r.message || (r.code === 'LOCKED' ? '잠긴 계정은 선택할 수 없습니다 — 관리자(ADMIN)에게 해제를 요청하세요.'
+              : r.code === 'INACTIVE' ? '비활성 계정은 선택할 수 없습니다.' : r.code === 'SAVE_ERROR' ? '감사 기록을 저장하지 못해 사용자를 전환하지 못했습니다.' : '사용자를 찾을 수 없습니다.'),
+              r.code === 'SAVE_ERROR' ? 'error' : 'warn', 2600);   /* SAVE_ERROR: 헬퍼가 변경을 되돌림 → 선택값도 아래 refresh 로 되돌림 */
+          }
+          if (!hasOnChange || (r && r.ok === false)) refresh();   /* onChange 는 성공 시 헬퍼가 발생 — 거부(LOCKED 등)면 선택 되돌림 */
+        });
+      }
+    }
+    applyGate();
+  }
+  function applyGate() {
+    var on = gateOn();
+    document.body.classList.toggle('p0-no-user', on);
+    Array.prototype.forEach.call(document.querySelectorAll(GATE_SEL), function (b) { b.classList.toggle('p0-gated', on); });
+  }
+  function refresh() { render(); listeners.forEach(function (fn) { try { fn(current()); } catch (e) { if (global.console) console.error(e); } }); }
+
+  /* 선택 없음 게이트: 편집 버튼 클릭 차단 + 툴팁 (동적으로 그려지는 T-02 버튼 포함) */
+  document.addEventListener('click', function (e) {
+    if (!gateOn()) return;
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    if (global.MesUI) MesUI.toast(GATE_TIP + ' — 상단 사용자 선택기에서 현재 사용자를 고른 뒤 다시 시도하세요.', 'warn', 2200);
+  }, true);
+  document.addEventListener('mouseover', function (e) {
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    if (gateOn()) { if (!b.hasAttribute('data-p0-tip')) b.setAttribute('data-p0-tip', b.getAttribute('title') || ''); b.setAttribute('title', GATE_TIP); b.classList.add('p0-gated'); }
+    else if (b.hasAttribute('data-p0-tip')) { b.setAttribute('title', b.getAttribute('data-p0-tip')); b.removeAttribute('data-p0-tip'); b.classList.remove('p0-gated'); }
+  }, true);
+
+  var hasOnChange = false;
+  function start() {
+    isReady = true;
+    var a = api();
+    if (a && typeof a.onChange === 'function') { hasOnChange = true; call('onChange', function () { refresh(); }); }
+    else global.addEventListener('storage', function (e) { if (WATCH_KEYS.indexOf(e.key) >= 0) refresh(); });
+    render();
+    readyQ.splice(0).forEach(function (fn) { try { fn(); } catch (e) { if (global.console) console.error(e); } });
+  }
+
+  global.P0Ui = {
+    api: api, call: call, connected: connected, users: users, current: current, hasRole: hasRole, rolesOf: rolesOfUser, sod: sod, userLabel: userLabel,
+    roleBadge: roleBadge, roleBadges: roleBadges, statusBadge: statusBadge, sortRoles: sortRoles, ROLE: ROLE, ROLE_ORDER: ROLE_ORDER,
+    gateOn: gateOn, refresh: refresh, applyGate: applyGate, esc: esc, GATE_TIP: GATE_TIP,
+    onUserChange: function (fn) { listeners.push(fn); },
+    ready: function (fn) { if (isReady) fn(); else readyQ.push(fn); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})(window);
+</script>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = CorrUI.esc, PAGE = 20;
+  var st = { rows: [], page: 1, sel: null, scope: 'none', qId: '' };
+  var VIEW_ROLES = ['OP', 'SV', 'QA', 'QP', 'ADMIN'];
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  var q = new URLSearchParams(location.search);
+  st.qId = q.get('correctionId') || '';
+  if (q.get('batchId')) $('fBatch').value = q.get('batchId');
+  (function () { var t = new Date(), f = new Date(t.getTime() - 6 * 864e5); $('fFrom').value = st.qId ? '' : ymd(f); $('fTo').value = st.qId ? '' : ymd(t); })();
+
+  function scope() {
+    var u = P0Ui.current();
+    if (!P0Ui.connected()) return { ok: false, msg: '사용자 API 미연결 — 정정 내역을 볼 수 없습니다.' };
+    if (!u) return { ok: false, msg: '정정 내역은 GMP 역할(OP · SV · QA · QP) 또는 ADMIN(읽기)만 볼 수 있습니다. 상단에서 사용자를 선택하세요.' };
+    if (u.status === 'locked') return { ok: false, msg: '잠긴 계정 — 정정 내역을 볼 수 없습니다.' };
+    var r = P0Ui.rolesOf(u);
+    if (!r.some(function (x) { return VIEW_ROLES.indexOf(x) >= 0; })) return { ok: false, msg: '정정 내역은 GMP 역할(OP · SV · QA · QP) 또는 ADMIN(읽기)만 볼 수 있습니다. (역할 없음 ' + u.userId + ')' };
+    return { ok: true };
+  }
+  function kindText(t) { return t && t.kind === 'weigh_record' ? '칭량' : '실행'; }
+  function packStepName(stepKey, batchId) {
+    var S = window.EbrSignStatus, st = null;
+    try { st = S && S.stepsFor ? S.stepsFor('pack', batchId || '').filter(function (x) { return x.stepKey === stepKey; })[0] : null; } catch (e) { st = null; }
+    return st && st.name ? String(st.name) : '';
+  }
+  function itemText(c) {
+    var t = c.target || {};
+    var lb = c.label || c.targetLabel;
+    if (t.kind === 'exec_value' && t.scope === 'pack') {   /* 포장: 단계 이름(stepName → 단계 정의) → targetLabel → stepKey (내부 키 mat 등은 마지막 폴백) */
+      var nm = t.stepName || packStepName(t.stepKey, c.batchId);
+      if (lb && !(t.stepKey && new RegExp('(^|\\s)' + String(t.stepKey).replace(/[^\w-]/g, '') + '(\\s|$)').test(lb))) return lb;   /* 라벨에 내부 키가 없으면 라벨 그대로 */
+      if (!nm && lb) return lb;
+      return (nm || t.stepKey || '') + (t.valueIndex != null ? ' 값 #' + (t.valueIndex + 1) : '') + (t.valueLabel ? ' ' + t.valueLabel : '');
+    }
+    if (lb) return lb;
+    return t.kind === 'weigh_record' ? (t.recId || '') + ' ' + (t.field || '') : (t.stepKey || '') + (t.valueIndex != null ? ' 값 #' + (t.valueIndex + 1) : '') + (t.valueLabel ? ' ' + t.valueLabel : '');   /* 내부 키(stepKey · valueKey) 표시 안 함 */
+  }
+  function sigText(c) {
+    if (c.state === 'VERIFIED') return (c.performed && c.performed.userId || '') + ' / ' + (c.verified && c.verified.userId || '');
+    if (c.state === 'REJECTED') return (c.rejected && c.rejected.userId || '') + ' 반려';
+    if (c.performed) return '수행 ' + c.performed.userId;
+    return '—';
+  }
+  function search() {
+    var sc = scope();
+    $('noScope').classList.toggle('is-hidden', sc.ok); $('noScopeMsg').textContent = sc.msg || ''; document.body.classList.toggle('no-scope', !sc.ok);
+    st.rows = []; st.sel = null; st.page = 1;
+    if (!sc.ok) { $('apiNote').textContent = ''; render(); return; }
+    var r = CorrUI.call('listCorrections', { batchId: $('fBatch').value.trim() || undefined, kind: $('fKind').value || undefined, state: $('fState').value || undefined,
+      from: $('fFrom').value || undefined, to: $('fTo').value || undefined, requesterId: $('fReq').value.trim() || undefined });
+    if (!r.ok) {
+      $('apiNote').textContent = CorrUI.whyMsg(r);
+      if (r.why === 'no_current_user' || r.why === 'role_restricted') { $('noScope').classList.remove('is-hidden'); $('noScopeMsg').textContent = CorrUI.whyMsg(r); document.body.classList.add('no-scope'); }
+    } else { $('apiNote').textContent = ''; st.rows = r.rows || []; }
+    if (st.qId) { var i = -1; st.rows.forEach(function (c, k) { if (c.correctionId === st.qId) i = k; }); if (i >= 0) { st.page = Math.floor(i / PAGE) + 1; st.sel = st.qId; } }
+    if (!st.sel && st.rows.length) st.sel = st.rows[0].correctionId;
+    render();
+  }
+  function render() {
+    var rows = st.rows, pages = Math.max(1, Math.ceil(rows.length / PAGE));
+    $('tTotal').textContent = rows.length;
+    var sl = rows.slice((st.page - 1) * PAGE, st.page * PAGE), b = $('grdCorrBody');
+    if (!sl.length) {
+      var sc = scope();
+      var msg = !sc.ok ? '권한 없음 — 목록을 표시하지 않습니다.' : $('apiNote').textContent ? $('apiNote').textContent
+        : '조회 조건에 맞는 정정이 없습니다. (기간 ' + ($('fFrom').value || '전체') + ' ~ ' + ($('fTo').value || '전체') + ' · 배치 ' + ($('fBatch').value || '전체') + ')';
+      b.innerHTML = '<tr class="empty"><td colspan="8">' + esc(msg) + '</td></tr>';
+    } else {
+      b.innerHTML = sl.map(function (c) {
+        return '<tr data-id="' + esc(c.correctionId) + '"' + (c.correctionId === st.sel ? ' class="selected"' : '') + '>' +
+          '<td class="mono" title="' + esc(c.correctionId) + '">' + esc(c.correctionId) + '</td><td class="mono">' + esc(c.batchId) + '</td><td>' + kindText(c.target) + '</td>' +
+          '<td title="' + esc(itemText(c)) + '">' + esc(itemText(c)) + '</td><td>' + esc(CorrUI.vu(c.before)) + '</td><td>' + esc(CorrUI.vu(c.after)) + '</td>' +
+          '<td>' + CorrUI.stateBadge(c.state) + '</td><td title="' + esc(sigText(c)) + '">' + esc(sigText(c)) + '</td></tr>';
+      }).join('');
+    }
+    var h = ['<button class="pg-btn pg-prev" type="button" data-pg="' + (st.page - 1) + '" title="이전"' + (st.page <= 1 ? ' disabled' : '') + '></button>',
+      '<span class="pg-info">' + st.page + ' / ' + pages + '</span>',
+      '<button class="pg-btn pg-next" type="button" data-pg="' + (st.page + 1) + '" title="다음"' + (st.page >= pages ? ' disabled' : '') + '></button>'];
+    $('paging').innerHTML = h.join('');
+    renderDetail();
+  }
+  function cur() {
+    if (!st.sel) return null;
+    var g = CorrUI.call('getCorrection', st.sel);
+    if (g.ok && g.correction) return { c: g.correction, integrity: g.integrity || null };
+    var f = null; st.rows.forEach(function (c) { if (c.correctionId === st.sel) f = c; });
+    return f ? { c: f, integrity: null } : null;
+  }
+  function set(id, v) { var e = $(id); e.textContent = v || '—'; e.title = v || ''; }
+  function renderDetail() {
+    var d = cur(), c = d && d.c;
+    $('dTitle').textContent = c ? '상세 — ' + c.correctionId : '상세';
+    $('dState').innerHTML = c ? CorrUI.stateBadge(c.state) : '';
+    $('dIntegrity').textContent = d && d.integrity ? 'recordHash ' + (d.integrity.recordHash === 'ok' ? '일치' : '불일치') + ((d.integrity.voids || []).length ? ' · 무효 기록 ' + d.integrity.voids.map(function (v) { return v.voidId + ' ' + v.state; }).join(', ') : '') : '';
+    if (!c) { ['dTarget', 'dSigs', 'dValues', 'dReason', 'dHistory', 'dImpact'].forEach(function (k) { set(k, ''); }); }
+    else {
+      var t = c.target || {};
+      set('dTarget', (t.kind === 'weigh_record' ? 'weighRecord ' : 'execRecord ') + c.batchId + ' · ' + itemText(c) + (c.critical ? ' · critical' : ''));
+      set('dSigs', (c.origSignatureIds || []).join(' / ') + (c.origPerformerId ? ' (원 수행 ' + c.origPerformerId + ')' : '') + (c.requesterId ? ' · 요청 ' + c.requesterId : ''));
+      set('dValues', CorrUI.vu(c.before) + ' → ' + CorrUI.vu(c.after) + (c.before && c.before.valuesHash ? '  (원 valueHash ' + String(c.before.valuesHash).slice(0, 8) + '… 대조 일치)' : ''));
+      set('dReason', (c.reasonCodeText || '—') + (c.reason ? ' — ' + c.reason : '') + ' · 증빙 ' + ((c.evidence || []).join(', ') || '없음'));
+      set('dHistory', (c.history || []).map(function (h) { return CorrUI.fmt(h.at).slice(11, 16) + ' ' + (h.act || h.to) + ' ' + (h.by || ''); }).join(' › ') + (c.state === 'PERFORMED' ? ' › 대기: QA 확인 (SM-VERI-CORR, 수행자 아닌 QA)' : ''));
+      set('dImpact', c.state === 'VERIFIED' ? '게이트 3: 원 서명 무효 ' + (c.voidIds || []).length + ' › 대체 서명 유효 | 게이트 1: RBE 예외 ' + (c.rbeExceptionId || '') + ' (SM-REV-RBE 검토 서명 필요)'
+        : c.state === 'PERFORMED' || c.state === 'DRAFT' ? '게이트 3: 원 서명 무효화 예정 › 대체 서명 대기 | 게이트 1: RBE 예외 생성 예정 (SM-REV-RBE)' : '출하 영향 없음 — 원래 값 유효');
+    }
+    $('lnkS42').href = './s-ebr-esign-history-ui.html' + (c ? '?batchId=' + encodeURIComponent(c.batchId) : '');
+    var qa = CorrUI.canVerify(), sc = scope(), can = !!(c && c.state === 'PERFORMED' && qa.ok && sc.ok);
+    var tip = !sc.ok ? '권한 없음' : !c ? '정정을 선택하세요' : c.state !== 'PERFORMED' ? 'QA 확인 대기 상태만 확인 · 반려할 수 있습니다' : qa.tip;
+    $('btnVer').disabled = !can; $('btnRej').disabled = !can; $('btnVerTip').title = can ? '' : tip; $('btnRejTip').title = can ? '' : tip;
+    $('btnPrint').disabled = !c;
+  }
+  function printNow() {
+    var d = cur(), c = d && d.c; if (!c) return;
+    var u = P0Ui.current(), now = CorrUI.fmt(new Date().toISOString()) || new Date().toISOString();
+    var sigRows = (c.origSignatureIds || []).map(function (s) { return '<tr><td>원 서명</td><td>' + esc(s) + '</td><td>무효화 ' + (c.state === 'VERIFIED' ? '됨' : '예정') + '</td></tr>'; }).join('') +
+      (c.performed ? '<tr><td>정정 수행</td><td>' + esc(c.performed.signatureId + ' · ' + c.performed.userId) + '</td><td>' + esc(CorrUI.fmt(c.performed.at)) + '</td></tr>' : '') +
+      (c.verified ? '<tr><td>QA 확인</td><td>' + esc(c.verified.signatureId + ' · ' + c.verified.userId) + '</td><td>' + esc(CorrUI.fmt(c.verified.at)) + '</td></tr>' : '');
+    $('printArea').innerHTML = '<h1>정정 기록 ' + esc(c.correctionId) + '</h1><div>배치 ' + esc(c.batchId) + ' · 상태 ' + esc(CorrUI.stateText(c.state)) + ' · 출력 ' + esc(now) + ' · 출력자 ' + esc(u ? u.userId : '—') + '</div>' +
+      '<table><tr><th>구분</th><th>값</th><th>근거</th></tr><tr><td>원래 값</td><td>' + esc(CorrUI.vu(c.before)) + '</td><td>valueHash ' + esc((c.before && c.before.valuesHash) || '') + '</td></tr><tr><td>정정 값</td><td>' + esc(CorrUI.vu(c.after)) + '</td><td>valueHash ' + esc((c.after && c.after.valuesHash) || '') + '</td></tr></table>' +
+      '<div class="p-sec">사유 · 증빙</div><div>' + esc(c.reasonCodeText) + ' ' + esc(c.reason || '') + ' · ' + esc((c.evidence || []).join(', ') || '증빙 없음') + '</div>' +
+      '<div class="p-sec">서명</div><table><tr><th>구분</th><th>서명</th><th>시각 · 상태</th></tr>' + (sigRows || '<tr><td colspan="3">없음</td></tr>') + '</table>' +
+      '<div class="p-sec">무효 기록 · RBE</div><div>' + esc((c.voidIds || []).join(', ') || '없음') + ' · ' + esc(c.rbeExceptionId || '없음') + '</div>' +
+      '<div class="p-sec">이력 (전체)</div><table>' + (c.history || []).map(function (h) { return '<tr><td>' + esc(CorrUI.fmt(h.at)) + '</td><td>' + esc(h.act || '') + '</td><td>' + esc((h.from || '') + ' → ' + (h.to || '')) + '</td><td>' + esc(h.by || '') + '</td></tr>'; }).join('') + '</table>';
+    window.print();
+  }
+  $('grdCorrBody').addEventListener('click', function (e) { var tr = e.target.closest('tr[data-id]'); if (!tr) return; st.sel = tr.dataset.id; render(); });
+  $('paging').addEventListener('click', function (e) { var b = e.target.closest('[data-pg]'); if (!b || b.disabled) return; st.page = +b.dataset.pg; render(); });
+  $('btnSearch').addEventListener('click', function () { st.qId = ''; search(); });
+  $('btnPrint').addEventListener('click', printNow);
+  $('btnVer').addEventListener('click', function () { if (st.sel) CorrUI.openVerify(st.sel, { screen: 'S-47', onDone: search }); });
+  $('btnRej').addEventListener('click', function () { if (st.sel) CorrUI.reject(st.sel, { screen: 'S-47', onDone: search }); });
+  P0Ui.ready(search);
+  P0Ui.onUserChange(function () { search(); });
+})();
+</script>
+</body>
+</html>

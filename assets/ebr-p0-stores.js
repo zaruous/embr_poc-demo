@@ -184,6 +184,11 @@
       matSave(o);
       return o.lots.slice();
     },
+    /* 데모 판정 서명(레거시 재확인 legacy_confirm, QA-0011)을 실제 서명 경로(EbrExecSign.seedDemoMatQc)로 만든다 — 명시 호출 전용.
+       seedIfEmpty 는 더 이상 부르지 않는다: 데모 시작 상태 = 판정 대기(레거시 LOT 은 '판정 서명' 필요, 게이트 9 차단). 출하까지 갈 데모는 EbrExecSign.seedDemoReleaseReady */
+    seedDemoSigns: function () {
+      try { var X = global.EbrExecSign; return X && typeof X.seedDemoMatQc === 'function' ? X.seedDemoMatQc() : null; } catch (e) { return null; }
+    },
     upsert: function (lot) {
       if (!lot || !lot.lotNo) throw new Error('MatQC.upsert: lotNo required');
       var o = matLoad();

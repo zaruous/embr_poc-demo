@@ -10,9 +10,9 @@
 (function (global) {
   'use strict';
 
-  var KEYS = { ESIGN: 'ebr.esign.v1', EXEC: 'ebr.execRecord.v1', RELEASE: 'ebr.release.v1', MAT: 'ebr.materialLot.v1', DEV: 'ebr.deviation.v1', ISSUED: 'ebr.batch.issued.v1', AUDIT: 'ebr.audit.v1' };
+  var KEYS = { ESIGN: 'ebr.esign.v1', EXEC: 'ebr.execRecord.v1', RELEASE: 'ebr.release.v1', MAT: 'ebr.materialLot.v1', DEV: 'ebr.deviation.v1', ISSUED: 'ebr.batch.issued.v1', AUDIT: 'ebr.audit.v1', RBE: 'ebr.rbeException.v1', CORR: 'ebr.correction.v1' };
   var GATE_NOS = [1, 3, 4, 8, 9];
-  var SIGN_STATES = ['signed', 'pending', 'invalid', 'na'];
+  var SIGN_STATES = ['signed', 'pending', 'invalid', 'na', 'replaced'];   /* replaced = 원 서명 무효 + 그 무효의 정정이 VERIFIED (대체 서명, 정정 흐름 K-6) */
   var R = { PERF: 'SM-PERF-STEP', VERI: 'SM-VERI-STEP', PKLAB: 'SM-VERI-PKLAB', PACKREV: 'SM-REV-PACK', MATQC: 'SM-APPR-MATQC', RBE: 'SM-REV-RBE', BATCH: 'SM-REV-BATCH', AUDIT: 'SM-REV-AUDIT', REL: 'SM-APPR-REL' };
 
   /* 생산 데모 OP (발행 스냅샷 phaseList 가 없을 때 — 생산 실행 화면 데모 템플릿과 같은 순서). 칭량 OP(OP1-1) · 포장 이관(OP4-1)은 OP 서명 없음 */
@@ -61,7 +61,9 @@
     }
     function rbeExceptions(batchId) {
       if (typeof opts.exceptions === 'function') return clone(opts.exceptions(batchId) || []);
-      return str(batchId) === DEMO_BATCH ? clone(DEMO_RBE) : [];
+      /* 정적 데모 행 + 저장 행(ebr.rbeException.v1 — 정정 QA 확인이 만든 RBE-COR-…) */
+      var stat = str(batchId) === DEMO_BATCH ? clone(DEMO_RBE) : [];
+      return stat.concat(readItems(KEYS.RBE).filter(function (e) { return e && str(e.batchId) === str(batchId); }).map(clone));
     }
 
     /**
@@ -120,7 +122,7 @@
       add('review', { stepKey: 'audit' }, { slot: 'audit', signRuleId: R.AUDIT, roles: ['QA', 'QP'], statementKind: 'audit_review' }, '감사추적 검토', 4, '출하 게이트 4');
       var lots = batchLots(batchId);
       (lots || []).forEach(function (l) {
-        var leg = l.status === 'released' && !l.judgeSignatureId;
+        var leg = l.status === 'released' && !judgeSidFor(l, batchId);
         add('matqc', { stepKey: l.lotNo }, { slot: 'judge', signRuleId: R.MATQC, roles: ['QA'], statementKind: leg ? 'matqc_legacy_confirm' : (l.status === 'rejected' ? 'matqc_reject' : 'matqc_release') },
             '자재 ' + l.lotNo + (leg ? ' 레거시' : '') + ' 판정', 9, leg ? '판정 서명 없음(레거시)' : '자재 QC 판정');
       });
@@ -129,6 +131,17 @@
 
     /* 서명 레코드 → 유효 여부 (ESign.validity — signatureHash + 무효화 기록 ↔ 감사 대조, 불일치는 fail-closed)
        why: 'missing' | 'void'(정상 무효화) | 'tampered:<첫 불일치>' */
+    /* 정정 (ebr.correction.v1 — 읽기만) */
+    function corrections(batchId) { return readItems(KEYS.CORR).filter(function (c) { return c && str(c.batchId) === str(batchId); }); }
+    function corrById(id) { var r = null; readItems(KEYS.CORR).forEach(function (c) { if (c && c.correctionId === id) r = c; }); return r; }
+    /* 원 서명이 정상 무효(void)이고 그 무효 기록의 correctionId 정정이 VERIFIED 이며 QA 확인 서명이 유효하면 → 대체 */
+    function replacedBy(sid) {
+      var s = S(); if (!s || !s.ESign || !s.ESign.voidOf) return null;
+      var vr = s.ESign.voidOf(sid); if (!vr || !vr.correctionId) return null;
+      var c = corrById(vr.correctionId); if (!c || c.state !== 'VERIFIED' || !c.verified) return null;
+      var vs = s.ESign.get(c.verified.signatureId); if (!vs || s.ESign.validity(vs).state !== 'valid') return null;
+      return { correctionId: c.correctionId, verifySignatureId: c.verified.signatureId, performSignatureId: c.performed ? c.performed.signatureId : null };
+    }
     function sigState(id) {
       if (!id) return { status: 'pending', sig: null };
       var s = S(), sig = s && s.ESign ? s.ESign.get(id) : null;
@@ -151,16 +164,17 @@
     function getSignStatus(q) {
       q = q || {};
       var rs = requiredSigns(q.batchId); if (!rs.ok) return rs;
-      var batchId = rs.batchId, mq = MQ(), counts = { signed: 0, pending: 0, invalid: 0, na: 0 }, signers = [], seen = {};
+      var batchId = rs.batchId, mq = MQ(), counts = { signed: 0, pending: 0, invalid: 0, na: 0, replaced: 0 }, signers = [], seen = {};
       var items = rs.items.filter(function (it) { return !q.scope || it.scope === q.scope; }).map(function (it) {
         var sid = null;
-        if (it.scope === 'matqc') { var l = mq ? mq.get(it.stepKey) : null; sid = l && l.judgeSignatureId ? l.judgeSignatureId : null; }
+        if (it.scope === 'matqc') { var l = mq ? mq.get(it.stepKey) : null; sid = judgeSidFor(l, batchId); }
         else { var r = slotRecord(batchId, it.scope, it.stepKey, it.slot); sid = r ? r.signatureId : null; }
         var st = sigState(sid), o = clone(it);
         o.status = st.status; o.signatureId = sid; o.signerId = st.sig ? st.sig.signerId : null; o.signerName = st.sig ? st.sig.signerName : null;
         o.signerRole = st.sig ? st.sig.signerRole : null; o.signedAt = st.sig ? st.sig.signedAt : null;
         if (st.why) o.invalidWhy = st.why;
-        counts[o.status]++;
+        if (o.status === 'invalid' && st.why === 'void') { var rp = replacedBy(sid); if (rp) { o.status = 'replaced'; o.replacedBy = rp; } }
+        counts[o.status] = (counts[o.status] || 0) + 1;
         if (o.signerId && o.status === 'signed' && !seen[o.signerId + '|' + o.label]) { seen[o.signerId + '|' + o.label] = 1; signers.push({ userId: o.signerId, label: o.label, scope: o.scope, slot: o.slot, signRuleId: o.signRuleId }); }
         return o;
       });
@@ -176,13 +190,20 @@
     }
 
     /** LOT 별 판정 서명 상태. sign: signed | legacy(released/rejected 인데 판정 서명 없음) | invalid | pending(testing · quarantine) */
+    /* S2: 데모 시드 판정 서명(서명 demoSeedBatch · LOT judgeDemoBatch)은 그 데모 배치에서만 판정 서명 — 다른 배치에서는 서명 없음으로 봄(LOT 공유 시 조건 9 누출 차단) */
+    function judgeSidFor(l, batchId) {
+      if (!l || !l.judgeSignatureId) return null;
+      var st = sigState(l.judgeSignatureId), mark = (st.sig && st.sig.demoSeedBatch) || l.judgeDemoBatch || '';
+      return mark && str(mark) !== str(batchId) ? null : l.judgeSignatureId;
+    }
     function matqcSignStatus(batchId, lots) {
       var ls = batchLots(batchId, lots); if (ls == null) return fail('matqc_missing', 'MatQC 미로드 — 판정 서명 상태를 알 수 없습니다.');
       return { ok: true, items: ls.map(function (l) {
         var sign = 'pending', st = null;
-        if (l.judgeSignatureId) { st = sigState(l.judgeSignatureId); sign = st.status === 'signed' ? 'signed' : 'invalid'; }
+        var jid = judgeSidFor(l, batchId);
+        if (jid) { st = sigState(jid); sign = st.status === 'signed' ? 'signed' : 'invalid'; }
         else if (l.status === 'released' || l.status === 'rejected') sign = 'legacy';
-        return { lotNo: l.lotNo, materialId: l.materialId || '', status: l.status, signatureId: l.judgeSignatureId || null, judgedBy: l.judgedBy || null, judgedAt: l.judgedAt || null, sign: sign };
+        return { lotNo: l.lotNo, materialId: l.materialId || '', status: l.status, signatureId: jid || null, judgedBy: jid ? l.judgedBy || null : null, judgedAt: jid ? l.judgedAt || null : null, sign: sign };
       }) };
     }
 
@@ -205,15 +226,23 @@
       /* 3 = 생산 · 포장 실행 슬롯 + 칭량 줄 */
       var g3 = byGate(3), w = weighSignSummary(gs.batchId);
       var p3 = g3.filter(function (i) { return i.status === 'pending'; }).length, inv3 = g3.filter(function (i) { return i.status === 'invalid'; }).length;
-      var parts = [];
+      var parts = [], rep3 = g3.filter(function (i) { return i.status === 'replaced'; });
+      var openCor = corrections(gs.batchId).filter(function (c) { return c.state === 'DRAFT' || c.state === 'PERFORMED'; });
+      if (openCor.length) parts.push('대체 대기 ' + openCor.length + ' (정정 ' + openCor.map(function (c) { return c.correctionId; }).join(', ') + ')');
       if (p3) parts.push('실행 슬롯 대기 ' + p3); if (inv3) parts.push('무효 ' + inv3); if (w.pending) parts.push('칭량 줄 미검증 ' + w.pending + '/' + w.lines); if (w.invalid) parts.push('칭량 무효 ' + w.invalid);
-      put(3, !p3 && !inv3 && !w.pending && !w.invalid, parts.length ? parts.join(' · ') : '실행 슬롯 ' + g3.length + '건 유효' + (w.noPlan ? ' · 칭량 계획 없음' : ' · 칭량 ' + w.verified + '/' + w.lines), ids(g3));
+      var repTxt = rep3.length ? ' · 대체 서명 ' + rep3.length + '건 (정정 ' + rep3.map(function (i) { return i.replacedBy.correctionId; }).filter(function (v, k, a) { return a.indexOf(v) === k; }).join(', ') + ')' : '';
+      put(3, !openCor.length && !p3 && !inv3 && !w.pending && !w.invalid, parts.length ? parts.join(' · ') : '실행 슬롯 ' + g3.length + '건 유효' + repTxt + (w.noPlan ? ' · 칭량 계획 없음' : ' · 칭량 ' + w.verified + '/' + w.lines),
+          ids(g3).concat(rep3.map(function (i) { return i.replacedBy.verifySignatureId; })));
       /* 4 = 감사추적 검토 + 규칙 효력 */
       var g4 = byGate(4)[0], s = S(), rule = s ? s.getSignRule(R.AUDIT) : null, eff = !!(rule && rule.effective && rule.allowedRoles && rule.allowedRoles.length);
       put(4, eff && g4 && g4.status === 'signed', !eff ? '규칙 SM-REV-AUDIT 효력 없음 (S-39)' : (g4.status === 'signed' ? 'SM-REV-AUDIT v' + rule.ver + ' ' + g4.signerId : (g4.status === 'invalid' ? '감사추적 검토 서명 무효' : '감사추적 검토 서명 대기')), g4 ? ids([g4]) : []);
       /* 8 = 그 밖 검토(포장 1차 · 2차) */
       var g8 = byGate(8), b8 = g8.filter(function (i) { return i.status !== 'signed'; });
-      put(8, !b8.length, b8.length ? b8.map(function (i) { return i.label + (i.status === 'invalid' ? ' 무효' : ' 대기'); }).join(' · ') : '필요 검토 서명 ' + g8.length + '건 유효', ids(g8));
+      /* P0 경고 (정정 흐름 §5.4): 2차 검토 서명 뒤 VERIFIED 된 정정이 있으면 재검토 필요 문구만 (자동 차단은 P1) */
+      var bRev = g8.filter(function (i) { return i.signRuleId === R.BATCH && i.status === 'signed'; })[0];
+      var late = bRev ? corrections(gs.batchId).filter(function (c) { return c.state === 'VERIFIED' && c.verified && Date.parse(c.verified.at) >= Date.parse(bRev.signedAt); }) : [];
+      put(8, !b8.length, (b8.length ? b8.map(function (i) { return i.label + (i.status === 'invalid' ? ' 무효' : ' 대기'); }).join(' · ') : '필요 검토 서명 ' + g8.length + '건 유효') +
+          (late.length ? ' · 경고: 2차 검토 뒤 정정 ' + late.length + '건 — 재검토 필요' : ''), ids(g8));
       /* 9 = 자재 QC (released) + 판정 서명 */
       var mq = MQ(), g9 = byGate(9), rel = mq ? mq.assertAllReleasedForBatch(gs.batchId, reservedLots(gs.batchId)) : { ok: false, reason: 'MatQC 미로드 — 출하 차단(fail-closed)' };
       var ms = matqcSignStatus(gs.batchId), msi = ms.ok ? ms.items : [], nSig = msi.filter(function (x) { return x.sign === 'signed'; }).length, nLeg = msi.filter(function (x) { return x.sign === 'legacy'; }).length;

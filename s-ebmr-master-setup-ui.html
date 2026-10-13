@@ -331,6 +331,7 @@
 </div>
 
 <script src="./assets/mesui.js"></script>
+<script src="./master-setup/assets/shared-store.js"></script>   <!-- MS.calcHash (해시 규칙 단일화) -->
 <script>
 (function () {
   'use strict';
@@ -342,19 +343,8 @@
   var USER = '김민수';
   var TODAY = MesUI.nowStamp(null, 'date');
 
-  /* ------------------------------------------------------------------ 해시 (콘텐츠 해시 흉내: FNV-1a 4회 → 32 hex) */
-  function fnv(s, seed) {
-    var h = seed >>> 0;
-    for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
-    return ('0000000' + h.toString(16)).slice(-8);
-  }
-  var HASH_SKIP = ['hash', 'status', 'upd', 'effDate', 'wu', 'online', 'beat', 'pkg'];
-  function calcHash(row) {
-    var o = {};
-    Object.keys(row).sort().forEach(function (k) { if (HASH_SKIP.indexOf(k) < 0) o[k] = row[k]; });
-    var s = JSON.stringify(o);
-    return fnv(s, 0x811c9dc5) + fnv(s, 0x01000193) + fnv(s, 0x2c59d9) + fnv(s, 0x37b284);
-  }
+  /* ------------------------------------------------------------------ 해시 — 기준정보 store 와 같은 식 (MS.calcHash: 중첩 키 정렬 · 같은 제외 필드) */
+  var calcHash = MS.calcHash;
 
   /* ================================================================== 시드 데이터 */
   function C(colKey, colName, colDesc, colType) { return { colKey: colKey, colName: colName, colDesc: colDesc, colType: colType || 'STRING' }; }
@@ -486,7 +476,11 @@
       S('SM-READ-BRIEF', 2, 'read_understood', 'briefing', 'pin_session', true, 'effective', '2026-08-20'),
       S('SM-REV-RBE', 1, 'reviewed', 'rbe_exception', 'full_factor', true, 'effective', '2026-08-10'),
       S('SM-REV-AUDIT', 1, 'reviewed', 'audit_trail', 'full_factor', true, 'review', '2026-09-30'),
-      S('SM-APPR-CC', 1, 'approved', 'cc_approval', 'biometric_opt', false, 'draft', '2026-10-03', '생체 옵션 시범')
+      S('SM-APPR-CC', 1, 'approved', 'cc_approval', 'biometric_opt', false, 'draft', '2026-10-03', '생체 옵션 시범'),
+      S('SM-REV-DOWN', 1, 'reviewed', 'downtime_review', 'full_factor', false, 'effective', '2026-10-12', '다운타임 QA 전수 검토 (출하 게이트 7) · 허용 QA · 자격 QD-REVBATCH'),
+      S('SM-REV-CHG', 1, 'reviewed', 'change_impact', 'full_factor', false, 'effective', '2026-10-12', '개정 첫 배치 변경 영향 검토 (출하 게이트 10) · 허용 QA · 자격 QD-REVBATCH'),
+      S('SM-REV-CTRL', 1, 'reviewed', 'control_eval', 'full_factor', false, 'effective', '2026-10-12', '통제 강화 후 기존 값 평가 (출하 게이트 11) · 허용 QA · 자격 QD-REVBATCH'),
+      S('SM-REV-RESTORE', 1, 'reviewed', 'integrity_ack', 'full_factor', false, 'effective', '2026-10-12', '복원 탐지 QA 확인 (출하 게이트 12) · 허용 QA · 자격 QD-REVBATCH')
     ];
     function AM(id, ver, name, auth, zone, temp, plugin, status, upd) { return { id: id, ver: ver, name: name, auth: auth, zone: zone, temp: temp, plugin: plugin, status: status, upd: upd, author: '김민수', note: '' }; }
     var auth = [
@@ -532,7 +526,7 @@
       EC('EC-PKG-01', 2, 'PTP 포장기', 'pack', ['tablet', 'capsule'], '비전 검사 · 라벨/바코드 대조 · 각인 확인', [EQ('PK-01', 'Uhlmann B 1440', 'R-260', '2026-12-12', 'ok'), EQ('PK-02', 'CAM M90', 'R-260', '2027-03-21', 'ok')], 'effective', 4, '2026-06-10')
     ];
     var all = { phase: phase, config: config, sign: sign, auth: auth, terminal: terminal, eqclass: eqclass };
-    Object.keys(all).forEach(function (k) { all[k].forEach(function (r) { r.hash = calcHash(r); }); });
+    Object.keys(all).forEach(function (k) { all[k].forEach(function (r) { if (r.kind === 'interlock') r.hashVer = 2; r.hash = calcHash(r); });   /* C3: shared-store seedAll 과 같은 규칙 */ });
     return all;
   }
   function seedAll() { var g = seedGcm(), d = seedDomain(); d.gcmTables = g.tables; d.gcmData = g.data; d.v = 1; return d; }
@@ -1149,7 +1143,8 @@
       d.status = 'draft';
       if ('pkg' in d) d.pkg = d.scope === 'transfer_required' ? 'wait' : 'na';
     }
-    d.upd = TODAY; d.hash = calcHash(d);
+    if (d.kind === 'interlock' && (d.ilrApprove || d.ilrReview)) { MesUI.alert('서명된 인터록 룰 세트는 여기서 고칠 수 없습니다 — S-48 [새 버전 작성]을 사용하세요.', 'Warning'); return; }   /* C3: 서명 행 hash 다시 쓰기 금지 */
+    d.upd = TODAY; d.hashVer = 2; d.hash = calcHash(d);   /* 새 저장 = hashVer 2 */
     if (F.isNew) rowsOf(cfg).push(d);
     else { var idx = rowsOf(cfg).indexOf(F.orig); rowsOf(cfg)[idx] = d; }
     persist(); MesUI.closeDialog('dlgMaster');

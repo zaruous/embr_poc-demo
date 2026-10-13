@@ -1,0 +1,39 @@
+/* 인터록 규칙 화면 공통 (S-48 · S-23 · 생산 · 포장) — 토큰만 (mesui.css 변수), hex · px 리터럴 없음
+   I4-10 등급 칩 4종 · 실행 배너 .il-banner 1줄(--form-row-h) — 공용 클래스(mesui.css)로 올릴지는 D1 판단 (ui-items §2) */
+
+/* ---- 등급 칩 (§6.3 · PM 확정 Controlled = --c-primary) ---- */
+.badge.il-abs    { background: var(--bc-faulty); }        .badge.il-abs::before    { background: var(--c-error); }
+.badge.il-hardqa { background: var(--bc-quality); }       .badge.il-hardqa::before { background: var(--c-sign-reviewed); }
+.badge.il-ctrl   { background: var(--c-board-normal); }   .badge.il-ctrl::before   { background: var(--c-primary); }
+.badge.il-warn   { background: var(--bc-alam); }          .badge.il-warn::before   { background: var(--c-warn); }
+
+/* ---- 실행 배너 1줄 (IR-04 — 기존 min-height 40 · gap 10 · 5 · 13 · 72 · 1.4 리터럴 → 토큰) ---- */
+.il-banner {
+  position: relative; flex: 0 0 auto; display: none; align-items: center; gap: var(--title-gap);
+  height: var(--form-row-h); padding: 0 var(--title-gap); min-width: 0;
+  border: thin solid transparent; border-left-width: var(--badge-gap);
+}
+.il-banner.open { display: flex; }
+.il-banner .il-dot { flex: 0 0 auto; width: var(--sign-dot); height: var(--sign-dot); border-radius: 50%; background: var(--c-text-disabled); }
+.il-banner .il-grade { flex: 0 0 auto; font-weight: bold; white-space: nowrap; min-width: var(--col-w-short); }
+.il-banner .il-msg { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-text); }
+.il-banner .il-rule { flex: 0 0 auto; white-space: nowrap; font-family: var(--font-mono); }
+.il-banner .il-actions { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--badge-gap); }
+.il-banner .il-actions .input { height: var(--ctrl-h-form); width: var(--col-w-240); }
+.il-banner.absolute   { background: var(--bc-faulty); border-color: var(--c-error); }
+.il-banner.absolute .il-grade { color: var(--c-text); }   /* 대비: 등급 글자는 본문색, 색은 점 · 테두리만 (Warning 과 같은 꼴) */   .il-banner.absolute .il-dot { background: var(--c-error); }
+.il-banner.hardqa     { background: var(--bc-quality); border-color: var(--c-sign-reviewed); }
+.il-banner.hardqa .il-grade { color: var(--c-text); }                          .il-banner.hardqa .il-dot { background: var(--c-sign-reviewed); }
+.il-banner.controlled { background: var(--c-board-normal); border-color: var(--c-primary); }
+.il-banner.controlled .il-grade { color: var(--c-primary); }                            .il-banner.controlled .il-dot { background: var(--c-primary); }
+.il-banner.warning    { background: var(--bc-alam); border-color: var(--c-warn); }
+.il-banner.warning .il-grade { color: var(--c-text); }                                  .il-banner.warning .il-dot { background: var(--c-warn); }
+.il-banner.passed     { background: var(--bc-gray-light); border-color: var(--c-border-03); }
+.il-banner.passed .il-dot { background: var(--c-sign-approved); }
+/* 동시 적중 펼침 목록 — 떠 있는 목록(행 --grid-row-h, 최대 6 + 외 k), 본문 높이 불변 */
+.il-hits { position: absolute; top: 100%; right: 0; z-index: 50; display: none; min-width: calc(var(--col-w-240) * 3); background: var(--c-bg); border: thin solid var(--c-border-03); box-shadow: var(--sh-dialog); }
+.il-hits.open { display: block; }
+.il-hits .ih-row { display: flex; align-items: center; gap: var(--title-gap); height: var(--grid-row-h); padding: 0 var(--title-gap); border-top: thin solid var(--c-border-05); min-width: 0; }
+.il-hits .ih-row:first-child { border-top: 0; }
+.il-hits .ih-msg { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.il-hits .ih-id { flex: 0 0 auto; font-family: var(--font-mono); }

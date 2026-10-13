@@ -225,7 +225,7 @@
   }
   function render() {
     $('#cardsAdm').innerHTML = MS.SCREENS.filter(function (s) { return s.mod === 'ADM'; }).map(card).join('');
-    $('#cardsEbr').innerHTML = MS.SCREENS.filter(function (s) { return s.mod === 'EBR'; }).map(card).join('');
+    $('#cardsEbr').innerHTML = MS.SCREENS.filter(function (s) { return s.mod === 'EBR'; }).map(card).join('');   /* S-48 카드 = MS.SCREENS 행(key ilr) */
     $('#cntRas').textContent = MS.ext.ras.length;
     $('#storeInfoHub').textContent = MS.storeText();
   }

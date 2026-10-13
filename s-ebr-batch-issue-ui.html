@@ -1390,6 +1390,9 @@ var QualSign = (function () {
       orderNo: state.orderNo || (state.order && state.order.orderNo) || '',
       bindSource: state.orderNo ? 'order' : (r.source === 'process-tree' ? 'process-tree' : 'demo'),
       reservedLots: reservedLots,
+      /* 출하 게이트 조건 7 원천 — 발행 때 비상 양식 매수 · 번호 목록 (EF-{seq}-01 … EF-{seq}-{n}) */
+      efCount: +state.ef || 0,
+      efRange: (function () { var a = []; for (var i = 1; i <= (+state.ef || 0); i++) a.push('EF-' + seq + '-' + pad(i, 2)); return a; })(),
       snapshot: batchSnapshot
     };
     if (!batchRec.orderNo && state.orderNo) batchRec.orderNo = state.orderNo;

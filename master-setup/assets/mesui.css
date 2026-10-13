@@ -184,6 +184,7 @@
   --col-w-160: 160px;
   --col-w-200: 200px;
   --col-w-240: 240px;
+  --dialog-w-700: 700px;           /* 표준 폭 700 다이얼로그 (.dialog.w700) */
 }
 
 /* ---------------------------------------------------------------------
@@ -1000,7 +1001,7 @@ table.grid.auto { table-layout: auto; }
   letter-spacing: -0.05em;
 }
 .dialog.md { --dialog-w: 900px; }
-.dialog.w700 { --dialog-w: 700px; }
+.dialog.w700 { --dialog-w: var(--dialog-w-700); }
 .dialog.sm { --dialog-w: 600px; --dialog-h: 480px; }
 .dialog.msg { --dialog-w: 420px; --dialog-h: auto; gap: 16px; }   /* (추정) 메시지 다이얼로그 */
 .dialog > .shell-body { flex: 1 1 auto; min-height: 0; }

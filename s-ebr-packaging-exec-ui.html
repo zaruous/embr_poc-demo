@@ -8,7 +8,7 @@
                  5 포장 실행·IPC · 6 수량 정산·수율 · 7 종료 라인 클리어런스 · 8 포장 기록 검토 → 출하 게이트 인계
   GMP 규칙(PoC): 단계 순서 인터록(이전 단계 서명 전 다음 단계 조작 불가) · 서명 후 단계 값 잠금(🔒 + 바인딩 해시)
                  수행자 ≠ 확인자(2인) · 라벨 첫 시료는 QA 확인 · 인쇄 자재 정산 차이 0 (차이 시 일탈 연결 필수)
-                 아트워크 버전/LOT 불일치 스캔은 Absolute 인터록(사용 불가) · 수율 98.0~100.5 % · 정제 미설명 차이 ≤ 0.5 %
+                 아트워크 버전/LOT 불일치 스캔은 Absolute 인터록(사용 불가) · 수율 = 인터록 규칙 IL-PK-YIELD(Warning) · IL-PK-YIELD-LO(Controlled) 판정 (ilr-ui-wire.js) · 정제 미설명 차이 ≤ 0.5 %
   공용 자산     : ./assets/mesui.css · mesui.js (master-setup 에서 복사, 생산 실행 PoC 와 공유)
   전자서명      : 단계 · 슬롯 정의 = EbrExecSign.stepsFor('pack') · 서명 = 공통 서명 창 #dlgRecSign(ID + 비밀번호) → beginStepSign
                  서명 상태 = EbrSignStatus.getSignStatus(scope 'pack', 실행 기록 ebr.execRecord.v1) · 화면 감사 = ebr.audit.v1(EbrUserSession.Audit)
@@ -21,6 +21,7 @@
 <title>포장 실행 기록 (eBR) — eMBR PoC</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="./assets/mesui.css">
+<link rel="stylesheet" href="./ilr-ui.css">
 <style>
   body { margin: 0; background: var(--c-bg); }
   .lnk { color: var(--c-primary); cursor: pointer; }
@@ -118,6 +119,9 @@
   .sign-bar .sb-note > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sign-bar .sb-note .issue { color: var(--c-error); }
   .sign-bar .sb-next { flex: 0 0 auto; }
+  .corr-vals { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .corr-vals td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .corr-vals col.cv-item { width: var(--col-w-240); } .corr-vals col.cv-judge { width: var(--col-w-short); } .corr-vals col.cv-btn { width: var(--col-w-qual); }
   .hash { font: 11px Consolas, monospace; color: var(--c-primary); letter-spacing: 0; }
   .mono { font-family: Consolas, monospace; letter-spacing: 0; }
 
@@ -178,6 +182,11 @@
   #grdRecSignVal .col-item { width: var(--col-w-200); }
   #dlgRecSign .form-grid .field .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   #dlgRecSign .auth-row > .input { height: var(--ctrl-h-form); }
+  #dlgRecSign #signReasonCode { flex: 1 1 auto; min-width: 0; }   /* 사유 코드 콤보(o.reasonCodes) — 자기 행, 행 폭 전체(가장 긴 항목보다 넓음) */
+  #dlgRecSign #signReasonCode[hidden], #dlgRecSign #signReasonRow:has(#signReasonCode[hidden]) { display: none; }   /* opt-in 아닐 때 행째 숨김 */
+  #dlgRecSign .auth-hint { display: flex; gap: var(--title-gap); min-width: 0; white-space: nowrap; }   /* PoC 안내 + 자격 요건 1줄 (새 사유 행 자리 확보) */
+  #dlgRecSign .auth-hint > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #dlgRecSign .auth-hint > #signPocNote { flex: 0 0 auto; }
   .user-card { border: 1px solid var(--c-border-04); border-radius: var(--radius); padding: var(--title-gap) var(--fs-grid); display: flex; align-items: baseline; gap: var(--title-gap); background: var(--c-board-normal); flex-wrap: wrap; }
   .user-card .name { font-size: var(--fs-group); font-weight: bold; }
   .user-card .badges { display: inline-flex; align-items: center; gap: var(--badge-gap); flex-wrap: wrap; align-self: center; }
@@ -299,11 +308,11 @@
           <span class="sub-info sign-rule" id="signRule"></span>
           <div class="auth-row"><span class="label required">사용자 ID</span><input class="input" type="text" id="signId" placeholder="ID 직접 입력" autocomplete="off"></div>
           <div class="auth-row"><span class="label required">비밀번호</span><input class="input" type="password" id="signPw" autocomplete="new-password"></div>
+          <div class="auth-row" id="signReasonRow"><span class="label required">사유 코드</span><select class="input" id="signReasonCode" hidden aria-label="사유 코드"></select></div>
           <div class="auth-row"><span class="label" id="signCmtLabel">코멘트</span><input class="input" type="text" id="signCmt" placeholder="선택 입력" autocomplete="off" maxlength="60"></div>
           <div class="sign-err sub-info fc-fail" id="signErr" role="alert"></div>
           <div class="qual-msg" id="signQualMsg" aria-live="polite"></div>
-          <span class="sub-info one-line" id="signPocNote">PoC 전용 — 실서비스는 LDAP(AM-IDPW)</span>
-          <span class="sub-info qual-req" id="signQualReq"></span>
+          <div class="auth-hint"><span class="sub-info one-line" id="signPocNote">PoC 전용 — 실서비스는 LDAP(AM-IDPW)</span><span class="sub-info qual-req" id="signQualReq"></span></div>
         </div>
       </div>
       <div class="sign-statement" id="signStatement"><span class="stmt" id="signStatementText"></span></div>
@@ -319,10 +328,14 @@
 <script src="./assets/mesui.js"></script>
 <script src="./assets/ebr-p0-stores.js"></script>
 <script src="./assets/ebr-user-session.js"></script>   <!-- 사용자 · 서명 헬퍼 (window.EbrUserSession) -->
+<script src="./assets/ebr-interlock.js"></script>   <!-- 인터록 store (window.EbrInterlock) -->
+<script src="./ilr-ui-wire.js"></script>   <!-- 인터록 연결 지점 (IlApi → EbrInterlock, 없으면 fail-closed) -->
 <script src="./assets/ebr-qual-store.js"></script>   <!-- 교육 · 자격 (window.EbrQual) — ⑦ 요구 자격 이름 (읽기만) -->
 <script src="./assets/ebr-exec-sign-store.js"></script>   <!-- 포장 단계 서명 래퍼 (window.EbrExecSign) -->
 <script src="./assets/ebr-sign-status.js"></script>   <!-- 포장 서명 상태 (window.EbrSignStatus) -->
 <script src="./exec-sign-ui.js"></script>
+<script src="./assets/ebr-correction-store.js"></script>   <!-- D1 정정 store (window.EbrCorrection) -->
+<script src="./assets/ebr-correction-ui.js"></script>   <!-- 정정 공통 팝업 (window.CorrUI) -->
 <script>
 (function () {
   'use strict';
@@ -574,6 +587,21 @@
     };
   }
   var S = initial();
+  /* 정산 입력 값 영속 (배치별) — 인터록 평가에 쓴 값(수율 · 차이)을 새로고침 뒤에도 같은 값으로 다시 평가. 없으면 초기값.
+     localStorage shape: { "<batchId>": { rec: S.rec, yieldPct, diffPct, at } }  key=ebr.packagingExec.rec.v1 */
+  var REC_KEY = 'ebr.packagingExec.rec.v1', RECP = { loaded: false };
+  function recAll() { try { return JSON.parse(localStorage.getItem(REC_KEY) || '{}') || {}; } catch (e) { return {}; } }
+  function recRestoreOnce() {
+    if (RECP.loaded) return; RECP.loaded = true;
+    var x = recAll()[packBatchId()];
+    if (x && x.rec && typeof x.rec.good === 'number' && x.rec.pm) S.rec = x.rec;
+  }
+  function recSave() {
+    var all = recAll(), c = recCalc();
+    all[packBatchId()] = { rec: S.rec, yieldPct: Math.round(c.yieldPct * 100) / 100, diffPct: c.diffPct, at: new Date().toISOString() };
+    try { localStorage.setItem(REC_KEY, JSON.stringify(all)); } catch (e) { if (window.console) console.error('[rec save]', e); MesUI.toast('정산 값 저장 실패 — 새로고침하면 값이 사라집니다', 'error'); }
+  }
+  function recClear() { var all = recAll(); delete all[packBatchId()]; try { localStorage.setItem(REC_KEY, JSON.stringify(all)); } catch (e) { /* 다음 저장에서 덮어씀 */ } RECP.loaded = true; }
 
   /* ---------- 서명 상태 어댑터 — 원천 EbrSignStatus.getSignStatus({batchId, scope:'pack'}) (화면 로컬 서명 없음, fail-closed) ---------- */
   var PK = { defOk: false, st: { ok: false, why: 'not_loaded', items: [] } };
@@ -612,6 +640,35 @@
   }
   function stepLabel(i) { return (i + 1) + ' ' + STEPS[i].name; }
 
+  /* ---------- 인터록: 수율 = EbrInterlock.evaluate('pack.reconcile', {yieldPct, diffPct}) (IlApi). 기준 숫자는 규칙 데이터 — 화면 상수 없음 (IR-06) ---------- */
+  function ilRec(yieldPct, diffPct) { return IlApi.evaluate('pack.reconcile', { batchId: BATCH.id || '', yieldPct: Math.round(yieldPct * 100) / 100, diffPct: diffPct }); }
+  /* 수행 서명 뒤에는 서명 값(실행 기록 사본 · valueHash 대조)으로 평가 — 저장 값과 다르면 fail-closed */
+  function recSignedVals() {
+    if (!sig('rec', 'perform')) return null;
+    var C = window.EbrCorrection, t = null;
+    try { t = C && C.targetsFor ? C.targetsFor(BATCH.id || '', { kind: 'exec_value', scope: 'pack', stepKey: 'rec' }) : null; } catch (e) { t = null; }
+    var its = t && t.ok ? (t.items || []).filter(function (x) { return x.target && x.target.valueIndex != null; }) : [];
+    if (!its.length || !its[0].origHashOk) return { ok: false };
+    function num(s) { var v = parseFloat(String(s == null ? '' : s).replace(/,/g, '')); return isFinite(v) ? v : null; }
+    var y = null, d = null;
+    its.forEach(function (x) { var lb = (its[0].values[x.target.valueIndex] || {}).label, v = x.current && x.current.value;
+      if (lb === '수율') y = num(v); if (lb === '정제 미설명 차이') { var m = /\(([-\d.,]+) %\)/.exec(String(v || '')); d = m ? num(m[1]) : null; } });
+    return y == null || d == null ? { ok: false } : { ok: true, yieldPct: y, diffPct: d };
+  }
+  function recEval() {
+    var c = recCalc(), sv = recSignedVals();
+    if (!sv) return { res: ilRec(c.yieldPct, c.diffPct), mismatch: '' };
+    if (!sv.ok) return { res: { ok: false, why: 'rec_sign_values', message: '수행 서명 값을 읽거나 대조할 수 없습니다 (fail-closed)', hits: [], open: [] }, mismatch: '수행 서명 값을 읽거나 대조할 수 없습니다 — 확인 서명 불가' };
+    var res = ilRec(sv.yieldPct, sv.diffPct), mm = Math.round(c.yieldPct * 100) !== Math.round(sv.yieldPct * 100);
+    return { res: res, signed: sv, mismatch: mm ? '정산 값 불일치 — 저장 값 수율 ' + fmt(c.yieldPct, 2) + ' % ≠ 수행 서명 값 ' + fmt(sv.yieldPct, 2) + ' % · 확인 서명 차단 (서명 값으로 평가)' : '' };
+  }
+  function ilRecNow() { return recEval().res; }
+  function ilYieldRange() {
+    var rs = IlApi.ruleSetFor({ point: 'pack.reconcile' }), r = rs && rs.ok ? (rs.rules || []).filter(function (x) { return x.cond && x.cond.type === 'range' && x.cond.field === 'yieldPct'; })[0] : null;
+    return r ? r.cond.lo + ' ~ ' + r.cond.hi + ' ' + (r.cond.unit || '') : '규칙 없음';
+  }
+  var ILP = { last: '' };
+
   /* ---------- 파생: 정산 ---------- */
   function recCalc() {
     var r = S.rec;
@@ -627,7 +684,7 @@
       return { m: m, used: v[0], rej: v[1], setup: v[2], back: v[3], diff: d, printed: printed, tol: printed ? '0 (100 % 정산)' : '± 2.0 %', ok: ok };
     });
     return { goodT: goodT, qcT: qcT, retT: retT, rejT: rejT, acc: acc, diff: diff, diffPct: diffPct, yieldPct: yieldPct,
-             yieldOk: yieldPct >= 98.0 && yieldPct <= 100.5, diffOk: Math.abs(diffPct) <= 0.5, pm: pm,
+             yieldOk: ilRec(yieldPct, diffPct).hits.length === 0, yieldRange: ilYieldRange(), diffOk: Math.abs(diffPct) <= 0.5, pm: pm,
              pmNg: pm.filter(function (p) { return !p.ok; }) };
   }
   function exeCounts() {
@@ -638,7 +695,10 @@
   }
 
   /* ---------- 단계별 사전 조건(수행 서명 전) ---------- */
-  function issues(i) {
+  /* K1: Controlled 적중(승인 전)만 남았으면 수행 서명만 허용 — 확인 · 검토 서명과 단계 완료는 승인 뒤 */
+  function ilCtrlOpen(i) { if (!STEPS[i] || STEPS[i].k !== 'rec') return []; var ir = ilRecNow(); return ir.ok ? (ir.open || []).filter(function (h) { return h.grade === 'Controlled'; }) : []; }
+  function ilPerformOnly(i) { return ilCtrlOpen(i).length > 0; }
+  function issues(i, forPerform) {
     var k = STEPS[i].k, out = [];
     if (k === 'clrS') S.clrS.forEach(function (v, j) { if (v !== '적합') out.push('클리어런스 항목 ' + (j + 1) + ' ' + (v || '미확인')); });
     if (k === 'mat') {
@@ -658,7 +718,10 @@
     if (k === 'rec') {
       var c = recCalc();
       if (c.pmNg.length && !S.rec.dev) out.push('인쇄 자재 정산 차이: ' + c.pmNg.map(function (p) { return p.m.nm + ' ' + (p.diff > 0 ? '+' : '') + p.diff; }).join(', ') + ' — 일탈 연결 필요');
-      if (!c.yieldOk) out.push('수율 ' + fmt(c.yieldPct, 2) + ' % — 기준 98.0 ~ 100.5 % 이탈');
+      var ev = recEval(), ir = ev.res;
+      if (ev.mismatch) out.push(ev.mismatch);
+      if (!ir.ok && !ev.mismatch) out.push(IlApi.whyText(ir.why || 'ilr_store_error'));
+      (ir.open || []).forEach(function (h) { if (!(forPerform && h.grade === 'Controlled')) out.push(h.ruleId + ' ' + h.grade + ' — ' + h.msg); });
       if (!c.diffOk) out.push('정제 미설명 차이 ' + fmt(c.diffPct, 3) + ' % — 기준 ≤ 0.5 %');
     }
     if (k === 'clrE') S.clrE.forEach(function (v, j) { if (v !== '적합') out.push('종료 클리어런스 항목 ' + (j + 1) + ' ' + (v || '미확인')); });
@@ -669,7 +732,7 @@
     var k = STEPS[i] && STEPS[i].k;
     if (k === 'mat') return !!S.matBad;
     if (k === 'lab') return S.lab.chal.some(function (v) { return v && v !== '리젝트'; });
-    if (k === 'rec') return recCalc().pmNg.length > 0 && !S.rec.dev;
+    if (k === 'rec') { var ev = recEval(), ir = ev.res; if (ev.mismatch) return true; return (recCalc().pmNg.length > 0 && !S.rec.dev) || !ir.ok || (ir.open || []).length > 0; }   /* 인터록 open hit(Controlled 승인 전 · Warning 사유 전) = 차단 */
     if (k === 'clrS') return S.clrS.indexOf('부적합') >= 0;
     if (k === 'clrE') return S.clrE.indexOf('부적합') >= 0;
     return false;
@@ -695,7 +758,7 @@
     }
     if (k === 'rec') {
       c = recCalc();
-      rows.push(['벌크 수령', fmt(BULK_IN) + ' T', 'ok'], ['양품 + 샘플', fmt(c.goodT + c.qcT + c.retT) + ' T', 'ok'], ['수율', fmt(c.yieldPct, 2) + ' % (98.0 ~ 100.5)', c.yieldOk ? 'ok' : 'ng'], ['정제 미설명 차이', fmt(c.diff) + ' T (' + fmt(c.diffPct, 3) + ' %)', c.diffOk ? 'ok' : 'ng']);
+      rows.push(['벌크 수령', fmt(BULK_IN) + ' T', 'ok'], ['양품 + 샘플', fmt(c.goodT + c.qcT + c.retT) + ' T', 'ok'], ['수율', fmt(c.yieldPct, 2) + ' % (' + c.yieldRange + ')', c.yieldOk ? 'ok' : 'wn'], ['정제 미설명 차이', fmt(c.diff) + ' T (' + fmt(c.diffPct, 3) + ' %)', c.diffOk ? 'ok' : 'ng']);
       c.pm.forEach(function (p) { rows.push(['정산 · ' + p.m.nm, '차이 ' + p.diff + ' ' + p.m.unit, p.ok ? 'ok' : S.rec.dev ? 'wn' : 'ng']); });
       if (S.rec.dev) rows.push(['연결 일탈', S.rec.dev + ' (초안)', 'wn']);
     }
@@ -824,7 +887,7 @@
     return '<div class="pane-head"><span class="group-title">' + (i + 1) + '. ' + esc(STEPS[i].name) + '</span>' + badge + '<span class="sub-info">' + esc(STEPS[i].desc) + '</span><span class="spacer"></span>' + (extra || '') + '</div>';
   }
   function signBar(i) {
-    var st = STEPS[i], h = '<div class="sign-bar">', is = issues(i), next = null, nextWhy = '';
+    var st = STEPS[i], h = '<div class="sign-bar">', is = issues(i, true), ctl = ilPerformOnly(i), next = null, nextWhy = '';
     if (!st.slots.length) h += '<span class="chip"><span class="badge error">확인 불가</span> 서명 정의 없음 — ' + esc(RecSign.whyMsg({ why: PK.defOk ? 'no_step' : 'no_store' })) + '</span>';
     st.slots.forEach(function (sl, j) {
       var it = sigItem(st.k, sl.id), g = sig(st.k, sl.id);
@@ -834,13 +897,13 @@
       h += '<span class="chip" data-chip="' + esc(st.k + ':' + sl.id) + '" title="' + esc(sl.m + ' · ' + (sl.rule || '') + ' · 허용 ' + sl.roles.join(' · ') + (g ? ' · ' + userNm(g.uid) + ' ' + g.at + ' · ' + g.hash : '')) + '"><span class="s-m">' + esc(sl.m) + '</span>' + cell + '</span>';
       if (!g && !next) {
         next = sl;
-        var ready = PK.st.ok && !S.handed && !waiting(i) && (j === 0 ? is.length === 0 : !!sig(st.k, st.slots[j - 1].id));
-        nextWhy = !PK.st.ok ? '서명 상태를 읽지 못했습니다 — ' + RecSign.whyMsg(PK.st) : waiting(i) ? '이전 단계 미완료' : j === 0 ? (is.length ? '사전 조건 미충족 ' + is.length + '건' : '') : (!ready ? '앞 서명 대기' : '');
+        var ready = PK.st.ok && !S.handed && !waiting(i) && (j === 0 ? is.length === 0 : !!sig(st.k, st.slots[j - 1].id) && !ctl);
+        nextWhy = !PK.st.ok ? '서명 상태를 읽지 못했습니다 — ' + RecSign.whyMsg(PK.st) : waiting(i) ? '이전 단계 미완료' : j === 0 ? (is.length ? '사전 조건 미충족 ' + is.length + '건' : '') : ctl && sig(st.k, st.slots[j - 1].id) ? 'Controlled 인터록 — 감독자 승인 후 서명' : (!ready ? '앞 서명 대기' : '');
         next.ready = ready;
       }
     });
     h += '<div class="sb-note">';
-    if (stepDone(i)) h += '<span>서명 완료 — 단계 값 잠금. 정정은 감사추적 사유 입력 + 재서명(부분 대체) 경로로만 가능합니다.</span>';
+    if (stepDone(i)) h += '<span>서명 완료 — 단계 값 잠금. 정정은 값 행 [정정] → 수행 서명 → QA 확인으로만</span>';
     else if (waiting(i)) h += '<span class="muted">대기 단계 — 조회만 가능 (순서 인터록)</span>';
     else if (locked(i)) h += '<span>수행 서명 완료 — 값 잠금. 확인자는 같은 값을 다시 확인한 뒤 서명합니다.</span>';
     else if (is.length) h += is.slice(0, 2).map(function (x) { return '<span class="issue">• ' + esc(x) + '</span>'; }).join('') + (is.length > 2 ? '<span class="issue">… 외 ' + (is.length - 2) + '건</span>' : '');
@@ -849,8 +912,65 @@
     h += '<span class="sub-info">' + esc(lq.length ? '요구 자격 LINE:PK-L02 — ' + lq.join(' · ') + ' 슬롯만' + (st.slots.some(function (x) { return x.id === 'qa'; }) ? ' (라벨 QA 확인 제외)' : '') : '라인 자격 요구 없음 — 규칙 자격만') + '</span>';
     h += '</div>';
     if (next) h += '<span class="tip sb-next" title="' + esc(nextWhy) + '"><button class="btn search primary" type="button" data-sign="' + i + ':' + next.id + '" data-p0-edit' + (next.ready ? '' : ' disabled') + '>' + esc(next.m) + ' 서명</button></span>';
+    if (stepDone(i) || corrTouched(i)) h += '<span class="tip sb-next" title="' + (stepDone(i) ? '서명 값 목록 — 값 행 끝 [정정]' : '정정 확인으로 원 서명 무효 — 서명 값 목록에서 정정됨 · 정정 대기 확인') + '"><button class="btn search secondary" type="button" data-corr-view="' + i + '">' + (CORR_VIEW[STEPS[i].k] ? '단계 화면' : '서명 값 · 정정') + '</button></span>';
     return h + '</div>';
   }
+  /* ==== 정정 (C4-3 · CF-06) — 서명 완료 단계 [정정] → 공통 팝업 #dlgCorrection (CorrUI) · '정정됨' 표지 = EbrCorrection.effectiveValues ==== */
+  /* 이 단계에 정정 기록(작성 중 · 확인 대기 · 확인됨)이 있는가 — QA 확인 뒤 원 서명이 무효가 되어 stepDone 이 풀려도 서명 값 표('정정됨')를 볼 수 있게 */
+  function corrTouched(i) {
+    if (!window.CorrUI || !CorrUI.has || !CorrUI.has('listCorrections')) return false;
+    var k = STEPS[i].k, lo = CorrUI.call('listCorrections', { batchId: corrBid(), state: ['DRAFT', 'PERFORMED', 'VERIFIED'] });
+    return !!(lo && lo.ok && (lo.rows || []).some(function (c) { return c.target && c.target.scope === 'pack' && c.target.stepKey === k; }));
+  }
+  function corrBid() { return uiCtx.batchId || (typeof BATCH !== 'undefined' && BATCH && BATCH.id) || ''; }
+  function corrGate() {
+    if (!window.CorrUI) return { ok: false, tip: '정정 팝업(ebr-correction-ui.js) 미연결' };
+    if (!CorrUI.has('targetsFor')) return { ok: false, tip: CorrUI.whyMsg({ why: 'not_connected', fn: 'targetsFor' }) };
+    var g = CorrUI.canRequest(); return { ok: g.ok, tip: g.tip };
+  }
+  /* 서명 완료 단계의 '서명 값' 표 — 값 행 끝 [정정] (secondary) · 값 칸 '정정됨' / '정정 대기'(.muted) 표지 */
+  var CORR_VIEW = {};
+  function corrPane(i) {
+    var st = STEPS[i], scr = packValuesFor('pack', st.k) || [], g = corrGate(), vals = scr, by = {}, legacy = false, stepWhy = '';
+    /* store 값 단위 항목(값 사본)이 기준. 값 사본 없는 이전 서명 = 단계 1행 values_unavailable → 화면 값으로 표시 · 팝업도 화면 값 */
+    if (g.ok) {
+      var tf = CorrUI.call('targetsFor', corrBid(), { kind: 'exec_value', scope: 'pack', stepKey: st.k }), hit = false;
+      (tf.ok ? tf.items || [] : []).forEach(function (it) {
+        var t = it.target || {}; if (t.scope !== 'pack' || t.stepKey !== st.k) return; hit = true;
+        if (t.valueIndex != null) { by[t.valueIndex] = it; vals = it.values || vals; }
+        else if (it.why === 'values_unavailable') legacy = true;
+        else stepWhy = CorrUI.whyMsg({ why: it.why });
+      });
+      if (!hit) stepWhy = CorrUI.whyMsg({ why: 'orig_unsigned' });
+    }
+    var open = {}, n = g.ok ? CorrUI.call('openCount', corrBid(), { scope: 'pack', stepKey: st.k }) || {} : {};
+    if ((n.draft || 0) + (n.performed || 0)) {
+      var lo = CorrUI.call('listCorrections', { batchId: corrBid(), state: ['DRAFT', 'PERFORMED'] });
+      (lo.ok ? lo.rows || [] : []).forEach(function (c) { if (c.target && c.target.scope === 'pack' && c.target.stepKey === st.k) open[c.target.valueIndex] = c; });
+    }
+    var effL = legacy ? CorrUI.call('effectiveValues', corrBid(), 'pack', st.k, scr) : { ok: false };
+    var rows = vals.map(function (v, j) {
+      var it = by[j], oc = open[j], mark = '', shown = v.value, e = null, no = '';
+      if (it) { var c = it.current || {}; if (c.source === 'correction') e = { value: c.value, original: v.value, correctionId: c.correctionId }; if (!it.correctable) no = CorrUI.whyMsg({ why: it.why }); }
+      else if (legacy) { var x = effL.ok ? (effL.values || [])[j] : null; if (x && x.source === 'correction') e = x; }
+      else no = stepWhy || g.tip;
+      if (oc) mark = ' <span class="badge muted" title="' + esc(oc.correctionId + ' · ' + CorrUI.stateText(oc.state)) + '">정정 대기</span>';
+      else if (e) { shown = e.value; mark = ' <span class="badge" title="' + esc('원래 값 ' + e.original + ' · ' + e.correctionId) + '">정정됨</span>'; }
+      var tip = oc ? '열린 정정 ' + oc.correctionId : !g.ok ? g.tip : no || (legacy ? CorrUI.whyMsg({ why: 'values_unavailable' }) + ' — 이 화면 값으로 엶' : '');
+      return '<tr><td class="col-no">' + (j + 1) + '</td><td title="' + esc(v.label) + '">' + esc(v.label) + '</td><td title="' + esc(e ? '원래 값 ' + v.value : v.value) + '">' + esc(shown) + mark + '</td><td>' + esc(v.judge || '') + '</td>' +
+        '<td><span class="tip" title="' + esc(tip) + '"><button class="btn inner secondary" type="button" data-corr-val="' + i + ':' + j + '" data-p0-edit' + (g.ok && !oc && !no ? '' : ' disabled') + '>정정</button></span></td></tr>';
+    }).join('');
+    return head(i) + '<div class="grid-wrap corr-vals"><table class="grid"><colgroup><col class="col-no"><col class="cv-item"><col><col class="cv-judge"><col class="cv-btn"></colgroup>' +
+      '<thead><tr><th class="col-no">#</th><th>항목</th><th>값</th><th>판정</th><th>정정</th></tr></thead><tbody>' + (rows || '<tr><td colspan="5" class="sub-info">서명 값 없음</td></tr>') + '</tbody></table></div>' + signBar(i);
+  }
+  /* 원 값 배열 = 서명 때 넘긴 것과 같은 규칙(openSign — signValues) */
+  function packValuesFor(scope, k) {
+    if (scope !== 'pack') return null;
+    var i = -1; STEPS.forEach(function (x, j) { if (x.k === k) i = j; }); if (i < 0) return null;
+    return signValues(i).map(function (r, j) { return { key: k + '.' + (j + 1), label: r[0], value: r[1], judge: ({ ok: '적합', ng: '부적합', wn: '주의', wt: '대기' })[r[2]] || r[2] }; });
+  }
+  function openCorrPack(k) { CorrUI.open({ batchId: corrBid(), scope: 'pack', stepKey: k, valuesFor: packValuesFor, screen: 'S-EBR-PACK-EXEC', onDone: renderAll }); }
+  (function () { var cs = new URLSearchParams(location.search).get('corrStep'); if (cs && window.CorrUI) window.addEventListener('load', function () { setTimeout(function () { openCorrPack(cs); }, 0); }); })();
   function dis(i, extra) { return editable(i) && (extra === undefined || extra) ? '' : ' disabled'; }
   function resSelect(i, kind, j, v) {
     return '<select class="input" data-res="' + kind + ':' + j + '"' + dis(i) + '><option value=""' + (v ? '' : ' selected') + '>— 선택</option><option' + (v === '적합' ? ' selected' : '') + '>적합</option><option' + (v === '부적합' ? ' selected' : '') + '>부적합</option></select>';
@@ -961,7 +1081,7 @@
       ['벌크 잔량 폐기 (T)', inp('bulkWaste', r.bulkWaste), fmt(r.bulkWaste), '칭량 환산']
     ].map(function (x) { return '<tr><td>' + x[0] + '</td><td class="num">' + x[1] + '</td><td class="num">' + x[2] + '</td><td class="muted">' + x[3] + '</td></tr>'; }).join('') +
       '<tr class="sum"><td>미설명 차이</td><td></td><td class="num">' + fmt(c.diff) + '</td><td>' + jcell(c.diffOk ? 'ok' : 'ng', fmt(c.diffPct, 3) + ' % (≤ 0.5 %)') + '</td></tr>' +
-      '<tr class="sum"><td>수율 (양품 + 샘플) ÷ 수령</td><td></td><td class="num">' + fmt(c.yieldPct, 2) + ' %</td><td>' + jcell(c.yieldOk ? 'ok' : 'ng', '98.0 ~ 100.5 %') + '</td></tr>';
+      '<tr class="sum"><td>수율 (양품 + 샘플) ÷ 수령</td><td></td><td class="num">' + fmt(c.yieldPct, 2) + ' %</td><td>' + jcell(c.yieldOk ? 'ok' : 'wn', c.yieldRange) + '</td></tr>';
     var pm = c.pm.map(function (p) {
       var k = p.m.code, st = p.ok ? 'ok' : S.rec.dev ? 'wn' : 'ng';
       function pi(idx, v) { return ed ? '<input class="input num" type="text" data-pm="' + k + ':' + idx + '" value="' + v + '">' : fmt(v, p.m.d); }
@@ -970,6 +1090,7 @@
     var ng = c.pmNg.length, ban;
     if (ng && !S.rec.dev) ban = '<div class="banner block"><b>차단 — 인쇄 자재 정산 불일치</b> ' + esc(c.pmNg.map(function (p) { return p.m.nm + ' 차이 ' + p.diff + ' ' + p.m.unit; }).join(', ')) + ' · 인쇄 자재는 100 % 정산 대상입니다. 다시 세어도 차이가 남으면 일탈을 등록하세요.<span class="spacer"></span><button class="btn inner" type="button" data-act="dev"' + dis(i) + '>일탈 초안</button></div>';
     else if (S.rec.dev) ban = '<div class="banner warn"><b>일탈 연결됨</b> ' + esc(S.rec.dev) + ' (초안 · QMS 조사 중) — 포장 기록 서명은 가능, 종결 전까지 출하 게이트 조건 #2에서 차단됩니다.</div>';
+    else if ((function () { var e = recEval(); return !c.yieldOk || !e.res.ok || e.res.hits.length || e.mismatch; })()) ban = '<div class="il-banner" id="ilRecBanner" role="alert"></div>';   /* 수율 인터록 1줄 (IlUi.banner — renderPane 뒤) */
     else ban = '<div class="banner ok"><b>정산 적합</b> 인쇄 자재 차이 0 · 필름/호일 ± 2.0 % 이내 · 정제 미설명 차이 ' + fmt(c.diffPct, 3) + ' % · 수율 ' + fmt(c.yieldPct, 2) + ' %</div>';
     return head(i, note('카운터 값은 실행 마감 시 자동 이관 · 수기 수정은 감사추적에 기록')) +
       '<div class="pane-body">' + ban + '<div class="split" style="grid-template-columns: 2fr 3fr; flex:1 1 auto">' +
@@ -1004,8 +1125,18 @@
       '</div></div>' + signBar(i);
   };
 
-  function renderPane() { var st = STEPS[S.sel]; $('pane').innerHTML = PANES[st.k](S.sel); if (st.k === 'lab') drawDM(); }
-  function renderAll() { loadPackSig(); renderSummary(); renderNav(); renderMini(); renderPane(); renderNotice(); }
+  function renderPane() { var st = STEPS[S.sel]; $('pane').innerHTML = CORR_VIEW[st.k] && (stepDone(S.sel) || corrTouched(S.sel)) ? corrPane(S.sel) : PANES[st.k](S.sel); if (st.k === 'lab') drawDM(); renderIlRec(); }
+  function renderIlRec() {
+    var el = $('ilRecBanner'); if (!el) return;
+    var r = ilRecNow(), rk = r.ok ? r.result + '|' + r.hits.map(function (h) { return h.ruleId + ':' + h.value + ':' + !!(h.override && h.override.done); }).join(',') : 'err';
+    IlUi.banner(el, r, { s48: './master-setup/ebr/s-ebr-interlock-rule-ui.html', batchId: BATCH.id || '', screen: 'S-EBR-PACK-EXEC', screenName: '포장 수지',
+      onChange: function () { renderAll(); } });
+    var mm = recEval().mismatch;
+    if (mm) { el.classList.add('open'); var m = document.createElement('div'); m.className = 'il-mismatch'; m.setAttribute('data-il-mismatch', '1'); m.textContent = mm; el.appendChild(m); }
+    if (r.ok && r.hits.length && rk !== ILP.last) IlApi.logHit(r, { screen: 'S-EBR-PACK-EXEC', batchId: BATCH.id || '' });   /* 결과 해시가 바뀔 때 1회 */
+    ILP.last = rk;
+  }
+  function renderAll() { recRestoreOnce(); loadPackSig(); renderSummary(); renderNav(); renderMini(); renderPane(); renderNotice(); recSave(); }
 
   /* GS1 DataMatrix 모양(장식용 결정적 패턴 — 실제 인코딩 아님) */
   function drawDM() {
@@ -1028,6 +1159,7 @@
   function openSign(i, slotId) {
     var st = STEPS[i], sl = st.slots.filter(function (x) { return x.id === slotId; })[0];
     if (!sl) { MesUI.toast('서명 슬롯 정의를 찾을 수 없습니다 (저장소 단계 정의 확인)', 'error'); return; }
+    if (st.slots[0] && sl.id !== st.slots[0].id && ilPerformOnly(i)) { MesUI.alert('Controlled 인터록 — 감독자 승인 전에는 수행 서명만 할 수 있습니다.', 'Warning'); return; }
     var bid = packBatchId();
     var values = signValues(i).map(function (r, j) { return { key: st.k + '.' + (j + 1), label: r[0], value: r[1], judge: ({ ok: '적합', ng: '부적합', wn: '주의', wt: '대기' })[r[2]] || r[2] }; });
     RecSign.open({
@@ -1075,6 +1207,11 @@
   pane.addEventListener('click', function (e) {
     var b = e.target.closest('[data-sign]');
     if (b) { var p = b.getAttribute('data-sign').split(':'); openSign(+p[0], p[1]); return; }
+    var cv = e.target.closest('[data-corr-view]');
+    if (cv) { var vk = STEPS[+cv.getAttribute('data-corr-view')].k; CORR_VIEW[vk] = !CORR_VIEW[vk]; renderPane(); return; }
+    var cb = e.target.closest('[data-corr-val]');
+    if (cb) { var pp = cb.getAttribute('data-corr-val').split(':'), sk = STEPS[+pp[0]].k;
+      CorrUI.open({ batchId: corrBid(), scope: 'pack', stepKey: sk, valueIndex: +pp[1], valuesFor: packValuesFor, screen: 'S-EBR-PACK-EXEC', onDone: renderAll }); return; }
     var c = e.target.closest('[data-chal]');
     if (c) {
       var j = +c.getAttribute('data-chal');
@@ -1152,7 +1289,7 @@
     if (b.hasAttribute('data-ff')) { ff(+b.getAttribute('data-ff')); return; }
     var d = b.getAttribute('data-demo');
     if (d === 'scanBad' || d === 'scanOk') { S.sel = 2; renderAll(); scan(d === 'scanBad' ? 'PM-2002/PI2607-02/v5' : 'PM-2002/PI2609-08/v6'); }
-    if (d === 'reset') { S = initial(); $('demoVisionFail').checked = false; $('demoDiff').checked = false; renderAll(); }
+    if (d === 'reset') { S = initial(); recClear(); $('demoVisionFail').checked = false; $('demoDiff').checked = false; renderAll(); }
   });
   $('demoVisionFail').addEventListener('change', function (e) { S.visionFail = e.target.checked; });
   $('demoDiff').addEventListener('change', function (e) {

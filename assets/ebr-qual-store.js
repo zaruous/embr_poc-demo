@@ -94,10 +94,22 @@
     ['SIGN:SM-APPR-REL', ['QD-REL'], '출하 승인'], ['SIGN:SM-REV-MBR', ['QD-REVBATCH'], 'MBR 독립 검토'], ['SIGN:SM-APPR-MBR', ['QD-REVBATCH'], 'MBR QA 승인'],
     ['SIGN:SM-READ-BRIEF', [], '변경 브리핑 (자격 불요)'], ['LINE:PK-L02', ['QD-PK-L02'], '포장 라인 PK-L02 (작업자 슬롯)']
   ];
+  /* 출하 게이트 조건 서명 4종 (출하 게이트 동적 판정 §2.3–2.6) → QD-REVBATCH */
+  var GATE_REQS = [
+    ['SIGN:SM-REV-DOWN', ['QD-REVBATCH'], '다운타임 QA 전수 검토 (게이트 7)'], ['SIGN:SM-REV-CHG', ['QD-REVBATCH'], '개정 첫 배치 변경 영향 검토 (게이트 10)'],
+    ['SIGN:SM-REV-CTRL', ['QD-REVBATCH'], '통제 강화 후 기존 값 평가 (게이트 11)'], ['SIGN:SM-REV-RESTORE', ['QD-REVBATCH'], '복원 탐지 QA 확인 (게이트 12)']
+  ];
+  /* 정정 서명 2종 (정정 흐름 C1-6): 수행 → QD-EXEC, QA 확인 → QD-REVBATCH */
+  var CORR_REQS = [['SIGN:SM-PERF-CORR', ['QD-EXEC'], '값 정정 수행'], ['SIGN:SM-VERI-CORR', ['QD-REVBATCH'], '정정 QA 확인']];
+  /* 인터록 서명 3종 (인터록 설계 §4 · K-9): 세트 검토 · 승인 → QD-REVBATCH, Controlled 감독자 승인 → QD-EXEC-VERI */
+  var ILR_REQS = [['SIGN:SM-REV-ILR', ['QD-REVBATCH'], '인터록 룰 세트 검토'], ['SIGN:SM-APPR-ILR', ['QD-REVBATCH'], '인터록 룰 세트 승인'], ['SIGN:SM-APPR-CTRL', ['QD-EXEC-VERI'], 'Controlled 인터록 감독자 승인']];
   var SEED_BACKFILLS = [
     { id: 'BF-SV0003-REWEIGH', userId: 'SV-0003', qualId: 'QD-REWEIGH', expiresOffset: 200 },
     { id: 'BF-EXEC-DEFS', defs: EXEC_QUAL_DEFS },
     { id: 'BF-EXEC-REQS', reqs: EXEC_REQS },
+    { id: 'BF-GATE-REQS', reqs: GATE_REQS },
+    { id: 'BF-CORR-REQS', reqs: CORR_REQS },
+    { id: 'BF-ILR-REQS', reqs: ILR_REQS },
     { id: 'BF-EXEC-OP0101', userId: 'OP-0101', qualId: 'QD-EXEC', expiresOffset: 200, train: true },
     { id: 'BF-EXEC-SV0003', userId: 'SV-0003', qualId: 'QD-EXEC-VERI', expiresOffset: 200, train: true },
     { id: 'BF-EXEC-OP0102', userId: 'OP-0102', qualId: 'QD-EXEC', expiresOffset: 12, train: true },
@@ -107,7 +119,10 @@
     { id: 'BF-EXEC-QA0011-REV', userId: 'QA-0011', qualId: 'QD-REVBATCH', expiresOffset: 200, train: true },
     { id: 'BF-EXEC-QA0013-REV', userId: 'QA-0013', qualId: 'QD-REVBATCH', expiresOffset: 200, train: true },
     { id: 'BF-EXEC-QP0001-REL', userId: 'QP-0001', qualId: 'QD-REL', expiresOffset: 200, train: true },
-    { id: 'BF-EXEC-QA0012-REL', userId: 'QA-0012', qualId: 'QD-REL', expiresOffset: -2, train: true }
+    { id: 'BF-EXEC-QA0012-REL', userId: 'QA-0012', qualId: 'QD-REL', expiresOffset: -2, train: true },
+    /* 정정 흐름: SV 도 정정 수행(SM-PERF-CORR → QD-EXEC) 가능하도록 부여 + 교육 기록 */
+    { id: 'BF-CORR-SV0011-EXEC', userId: 'SV-0011', qualId: 'QD-EXEC', expiresOffset: 200, train: true },
+    { id: 'BF-CORR-SV0003-EXEC', userId: 'SV-0003', qualId: 'QD-EXEC', expiresOffset: 200, train: true }
   ];
   /* 보충 본체 (메모리만). → { grants:[uq…], trainings:[tr…], changed } */
   function applyBackfills(o) {

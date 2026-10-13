@@ -82,6 +82,7 @@
               <button type="button" class="cat-btn" data-go="s-ebr-material-qc-ui.html">자재 · QC</button>
               <button type="button" class="cat-btn" data-go="s-ebr-release-gate-ui.html">출하 · 릴리스 게이트</button>
               <button type="button" class="cat-btn" data-go="s-ebr-esign-history-ui.html">서명 내역 조회</button>
+              <button type="button" class="cat-btn" data-go="s-ebr-correction-ui.html">정정 내역 (S-47)</button>
               <button type="button" class="cat-btn" data-go="s-ebr-dispense-record-ui.html">칭량 기록 조회</button>
               <button type="button" class="cat-btn" data-go="master-setup/index.html">기준정보 허브</button>
             </div>
@@ -158,6 +159,13 @@
           id: 'signature',
           label: '전자서명 설정',
           path: 'master-setup/ebr/s-ebr-signature-setup-ui.html',
+          badge: '편집',
+          badgeClass: 'badge-edit'
+        },
+        {
+          id: 'interlock-rule',
+          label: '인터록 규칙 (S-48)',
+          path: 'master-setup/ebr/s-ebr-interlock-rule-ui.html',
           badge: '편집',
           badgeClass: 'badge-edit'
         },
@@ -306,6 +314,14 @@
           badge: '조회전용',
           badgeClass: 'badge-ro',
           note: 'signHistory · 읽기 전용 · ?batchId='
+        },
+        {
+          id: 'correction',
+          label: '정정 내역 (S-47)',
+          path: 's-ebr-correction-ui.html',
+          badge: '조회전용',
+          badgeClass: 'badge-ro',
+          note: 'listCorrections · getCorrection · 정정 팝업(CorrUI) · ?correctionId='
         },
         {
           id: 'dispense-record',

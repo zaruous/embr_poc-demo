@@ -20,6 +20,7 @@
 <link rel="icon" href="data:,">
 <title>칭량 · 디스펜싱 — eMBR/eBR PoC</title>
 <link rel="stylesheet" href="./assets/mesui.css">
+<link rel="stylesheet" href="./ilr-ui.css">
 <style>
   /* 이 화면 전용 보조 스타일 — Elephant CSS 토큰만 사용 (hex · rgba · 임의 px 없음, 테두리 1–2px 제외) */
   html, body { height: 100%; margin: 0; overflow: hidden; background: var(--c-bg); }
@@ -422,6 +423,8 @@
 <script src="./assets/mesui.js"></script>
 <script src="./assets/ebr-p0-stores.js"></script>
 <script src="./assets/ebr-user-session.js"></script>   <!-- 사용자 · 서명 헬퍼 (window.EbrUserSession) -->
+<script src="./assets/ebr-interlock.js"></script>   <!-- 인터록 store (window.EbrInterlock) -->
+<script src="./ilr-ui-wire.js"></script>   <!-- 인터록 연결 지점 (IlApi) — 게이트 행 ↔ 규칙 ID · 등급 · 세트 버전 표시 -->
 <script src="./assets/ebr-balance-check-store.js"></script>   <!-- 저울 일상 점검 (window.EbrBalanceCheck) — G12 문구 · S-44 링크 -->
 <script src="./assets/ebr-dispense-store.js"></script>   <!-- 칭량 저장소 · 게이트 · 서명 연결 (window.EbrDispense) -->
 <script src="./assets/ebr-qual-store.js"></script>   <!-- 교육 · 자격 (window.EbrQual) — 서명 창 ⑦ 요구 자격 이름 표시용 (읽기만) -->
@@ -967,6 +970,13 @@ var QualSign = (function () {
     var pre = s && s.blocked ? '<span class="badge error">사용 금지</span>' + (s.deviationId ? '<span class="fc-fail">' + esc(s.deviationId) + '</span>' : '') + '<span class="g-next">다른 저울 선택 또는 SV 재점검</span>' : '';
     return pre + '<a class="btn inner" id="btnBalChk" href="' + esc(balCheckHref(bal)) + '" title="' + esc(bal ? bal + ' — ' + balDailyText(bal) : '저울 일상 점검') + '">저울 일상 점검 열기 &gt;</a>';
   }
+  /* IR-04a: 게이트 행 = 규칙(ILR weigh.gate, legacyRef G1–G16) 링크 · 등급 칩 · 메시지. 판정은 저장소 gateCheck(→ D1 I1-5 에서 evaluate 로 교체, G 키 호환) */
+  var S48 = './master-setup/ebr/s-ebr-interlock-rule-ui.html';
+  function ilGateRules() {
+    var rs = window.IlApi ? IlApi.ruleSetFor({ point: 'weigh.gate', demo: false }) : null, map = {};
+    if (rs && rs.ok) (rs.rules || []).forEach(function (r) { if (r.legacyRef) map[r.legacyRef] = r; });
+    return { ok: !!(rs && rs.ok), set: rs && rs.set, map: map, why: rs && rs.why };
+  }
   function renderGates(l) {
     var host = $('gateBlock');
     if (!l) { host.innerHTML = '<div class="gate-row head"><span>사전 게이트</span><span class="sub-info">줄을 고르면 G1–G16 을 보여 줍니다</span></div>'; return; }
@@ -975,16 +985,18 @@ var QualSign = (function () {
     var bl = rows.filter(function (g) { return !g.ok && g.grade === 'Absolute'; }), wn = rows.filter(function (g) { return !g.ok && g.grade === 'Warning'; });
     /* 차단 상위 3개만 보일 때 G12(저울 일상 점검 미완)를 맨 앞 — 다음 행동(S-44)이 먼저 보이게 */
     bl = bl.filter(function (g) { return g.code === 'WG_BAL_DAILY_CHECK'; }).concat(bl.filter(function (g) { return g.code !== 'WG_BAL_DAILY_CHECK'; }));
-    var ack = gr.ack || null, bad = bl.concat(wn), shown = bad.slice(0, 3), rest = bad.slice(3);
+    var ack = gr.ack || null, bad = bl.concat(wn), shown = bad.slice(0, 3), rest = bad.slice(3), IL = ilGateRules();
+    function ilSetText() { return IL.ok ? '<span class="sub-info" title="' + esc('평가 지점 weigh.gate · hash ' + IL.set.hash) + '">' + esc(IL.set.id + ' v' + IL.set.ver + ' (hash ' + IL.set.hash + ')') + '</span>' : '<span class="sub-info fc-fail">' + esc(IlApi.whyText(IL.why || 'ilr_store_error')) + '</span>'; }
     var head = '<div class="gate-row head" title="' + esc(rows.filter(function (g) { return g.ok; }).map(function (g) { return g.gate + ' ' + g.code; }).join(' · ')) + '">' +
       '<span>사전 게이트 통과 ' + passed + '/' + (rows.length || 16) + '</span>' +
       (bl.length ? '<span class="badge error">차단 ' + bl.length + '</span>' : '') + (wn.length ? '<span class="badge warn">경고 ' + wn.length + '</span>' : '') +
-      '<span class="spacer"></span><span class="sub-info">' + (gr.preview ? '미리보기 (평가 전)' : '평가 결과 · ' + esc(kst((l.current || {}).updatedAt))) + '</span>' +
+      '<span class="spacer"></span>' + ilSetText() + '<span class="sub-info">' + (gr.preview ? '미리보기 (평가 전)' : '평가 결과 · ' + esc(kst((l.current || {}).updatedAt))) + '</span>' +
       (rest.length ? '<span class="sub-info" title="' + esc(rest.map(function (g) { return g.gate + ' ' + g.code + ' — ' + g.reason; }).join('\n')) + '">외 ' + rest.length + '건</span>' : '') + '</div>';
     host.innerHTML = head + shown.map(function (g) {
       var isW = g.grade === 'Warning', acked = isW && ack && (ack.codes || []).indexOf(g.code) >= 0;
-      return '<div class="gate-row" title="' + esc(g.gate + ' ' + g.title + ' — ' + g.reason) + '"><span class="dot ' + (isW ? 'warn' : 'error') + '"></span>' +
-        '<span class="g-code">' + esc(g.code) + '</span><span class="g-msg">' + esc(g.reason) + '</span>' +
+      var ru = IL.map[g.gate];
+      return '<div class="gate-row" title="' + esc(g.gate + ' ' + g.code + ' ' + g.title + ' — ' + g.reason) + '">' + (ru ? IlUi.chip(ru.grade) : '<span class="dot ' + (isW ? 'warn' : 'error') + '"></span>') +
+        (ru ? '<a class="g-code" href="' + esc(S48 + '?ruleId=' + encodeURIComponent(ru.ruleId) + '&ro=1') + '" target="_blank" rel="noopener" title="' + esc(ru.ruleId + ' (' + g.gate + ' ' + g.code + ') — 규칙 보기, 새 탭') + '">' + esc(ru.ruleId) + '</a>' : '<span class="g-code">' + esc(g.code) + '</span>') + '<span class="g-msg">' + esc(g.reason) + '</span>' +
         (g.code === 'WG_BAL_DAILY_CHECK' ? g12Extra(l) :
         acked ? '<span class="badge warn" title="' + esc(ack.reason) + '">사유 입력됨</span>' : '<span class="g-next">→ ' + esc(NEXT_ACT[g.code] || '사유 해소 후 재평가') + '</span>') + '</div>';
     }).join('');

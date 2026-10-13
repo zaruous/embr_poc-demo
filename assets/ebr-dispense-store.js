@@ -203,7 +203,7 @@
     return { gate: g, code: def[1], title: def[2], ok: !!ok, grade: ok ? 'ok' : (gradeIfFail || (WARN_GATES[g] ? 'Warning' : 'Absolute')), reason: ok ? '' : reason };
   }
   function summarizeGates(rows) {
-    var blocked = rows.filter(function (r) { return !r.ok && r.grade === 'Absolute'; });
+    var blocked = rows.filter(function (r) { return !r.ok && r.grade !== 'Warning'; });   /* 인터록 규칙 등급(Hard-QA · Controlled 포함) — Warning 만 진행 */
     var warnings = rows.filter(function (r) { return !r.ok && r.grade === 'Warning'; });
     return { total: rows.length, passed: rows.filter(function (r) { return r.ok; }).length, blocked: blocked, warnings: warnings };
   }
@@ -578,7 +578,35 @@
       rows = rows.concat(judgeLot(lotNo, line, o), judgeBalance(balanceId, { today: o.today, theoQty: line.theoQty, balanceClass: line.balanceClass }), judgeRoom(roomId));
       var devs = o.batchId ? openWeighDevs(o.batchId, line) : [];
       rows.push(gateRow('G16', !devs.length, '열린 칭량 일탈 ' + devs.map(function (d) { return d.id; }).join(', ') + ' — QA 처분 대기'));
-      return rows;
+      return applyInterlock(rows, line, lotNo, balanceId, o);
+    }
+    /* 인터록 규칙 위임 (인터록 설계 §6-4 · I1-5): EbrInterlock 이 있으면 evaluate('weigh.gate') 결과로 등급 · 통과를 정한다.
+       조건 본문(사실)은 위 판정 그대로 넘기고, 규칙(legacyRef G 키)이 등급 · 파라미터(임박 일수)를 정한다. 반환 모양(G1–G16 16행)은 그대로.
+       규칙을 못 읽으면 G1 행을 ilr_store_error 로 차단(fail-closed). EbrInterlock 이 없으면 위 판정 그대로(하위 호환) */
+    function applyInterlock(rows, line, lotNo, balanceId, o) {
+      var IL = opts.interlock || global.EbrInterlock;
+      if (!IL || typeof IL.evaluate !== 'function' || o.noInterlock) return rows;
+      var t = o.today || today(), lot = matGet(str(lotNo)), bal = eqFind(eqLoad().items, str(balanceId));
+      var facts = {}; rows.forEach(function (r) { facts[r.gate] = { ok: r.ok, reason: r.reason }; });
+      var days = { retest: lot ? daysUntil(lot.retestDate, t) : null, retestDate: lot ? lot.retestDate : '', expiry: lot ? daysUntil(lot.expiryDate, t) : null, expiryDate: lot ? lot.expiryDate : '',
+                   cal: bal ? daysUntil(bal.calDue, t) : null, calDue: bal ? bal.calDue : '', balanceId: str(balanceId) };
+      if (!lot) { days.retest = null; days.expiry = null; }
+      var ev = IL.evaluate('weigh.gate', { batchId: o.batchId || '', lineId: line.lineId || '', lotNo: str(lotNo), balanceId: str(balanceId), facts: facts, days: days, today: t });
+      if (!ev.ok) {
+        var g1 = rows[0]; g1.ok = false; g1.grade = 'Absolute'; g1.reason = ev.message || '인터록 규칙을 읽을 수 없어 진행할 수 없습니다.'; g1.why = ev.why; g1.ilr = null;
+        return rows;
+      }
+      var byG = {};
+      ev.hits.forEach(function (h) { var g = /^G\d+/.exec(String(h.legacyRef || '')); if (g) byG[g[0]] = h; });
+      var ruleOf = {};
+      (IL.ruleSetFor({ batchId: o.batchId || '', point: 'weigh.gate' }).rules || []).forEach(function (r) { var g = /^G\d+/.exec(String(r.legacyRef || '')); if (g) ruleOf[g[0]] = r; });
+      return rows.map(function (r) {
+        var h = byG[r.gate], ru = ruleOf[r.gate];
+        r.ilr = { set: ev.set, ruleId: ru ? ru.ruleId : null };
+        if (!ru) { r.ok = true; r.grade = 'ok'; r.reason = ''; return r; }   /* 규칙 비활성 = 검사 안 함 (잠금 규칙은 비활성 불가) */
+        if (h) { r.ok = false; r.grade = h.grade; r.reason = h.msg; r.ilr.ruleId = h.ruleId; } else { r.ok = true; r.grade = 'ok'; r.reason = ''; }
+        return r;
+      });
     }
 
     /* ---- 기록 · 줄 보기 */

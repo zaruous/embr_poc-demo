@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<!--
+  화면 id      : s-ebr-interlock-rule-ui  (EBR 모듈 · S-48 인터록 규칙 마스터 + 검토 · 승인 서명 팝업 #dlgIlrApprove + 버전 비교 팝업 #dlgIlrDiff)
+  클래스       : CEbrSetupInterlockRuleMain (T-02 변형: 세트 바 + 목록 + 상세 폼)
+  설계         : poc-interlock-rule-design.md §5 (W1 · W2 · W3 · W5) · poc-interlock-rule-ui-items.md IR-01 · IR-02 · IR-03
+  연결         : ../../ilr-ui-wire.js — IlApi (EbrInterlock · MS.ilr* 가 없으면 fail-closed, 화면은 연결 지점 1곳만 호출)
+  본문         : 1003 = 세트 바 var(--ilr-setbar-h) + 목록(19행/페이지) + 상세 228 + gap 20 × 2
+                 세트 바 높이 94 확정 (:root --ilr-setbar-h)
+  URL          : ?ruleId=IL-…(&ro=1) 그 행 선택 + 읽기 전용 · ?set=ILR-STD&ver=8 세트 선택
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>S-48 인터록 규칙 — eMBR 기준정보 PoC</title>
+<link rel="stylesheet" href="../assets/mesui.css">
+<link rel="stylesheet" href="../assets/master-setup.css">
+<link rel="stylesheet" href="../../ilr-ui.css">
+<style>
+  /* 세트 바 높이 94 확정 (조회 행 2 × 40 + 여백 14) */
+  :root { --ilr-setbar-h: calc(var(--search-row-h) * 2 + var(--title-gap) + var(--split-gutter)); }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--c-bg); }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale { flex: 0 0 auto; }
+     - 그래도 넘치는 입력값은 한 줄 말줄임 + title(전체 값) — 스크롤 없음 */
+  #dlgMaster input.input[type=text] { text-overflow: ellipsis; }
+  /* ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 (공통 블록 — 기준정보 화면 + 배치 발행 동일) ====
+     위치: .title-bar 안 .breadcrumb 바로 앞, margin-left:auto (DESIGN §11-3 grpTitle: title │ 1fr │ 브레드크럼)
+     역할 배지 매핑: ui-items UI-04 (승인 P5) — 기존 .badge 변형 + --bc-* 토큰만, 라벨 항상 표시 */
+  .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: calc(var(--badge-gap) * 1.5); min-width: 0; white-space: nowrap; }
+  .title-bar > .user-switch .tip { display: inline-flex; }
+  .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }   /* UI-04: 24 (--title-h 29 안) — 키인 폼 컨트롤 높이 토큰 */
+  .user-switch .us-roles { display: inline-flex; align-items: center; gap: var(--badge-gap); min-width: 0; }
+  .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
+  .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  /* 선택 없음: 편집·서명 버튼 비활성 표시 (opacity = §13-1 disabled) + 툴팁 "사용자를 선택하세요" (클릭은 스크립트가 차단) */
+  body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
+
+  /* ---- S-48 본문 ---- */
+  .ilr-setbar { flex: 0 0 auto; height: var(--ilr-setbar-h); box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; padding: 0 var(--title-gap);
+                border-top: thin solid var(--c-border-01); border-bottom: thin solid var(--c-border-03); }
+  .ilr-setbar .sb-row { flex: 1 1 0; display: flex; align-items: center; gap: var(--title-gap); min-width: 0; }
+  .ilr-setbar .sb-row + .sb-row { border-top: thin solid var(--c-border-05); }
+  .ilr-setbar .label { white-space: nowrap; }
+  .ilr-setbar select.input, .ilr-setbar input.input { height: var(--ctrl-h-form); }
+  .ilr-setbar #ilrSet { width: var(--col-w-240); }
+  .ilr-setbar .sb-sel { width: var(--col-w-160); }
+  .ilr-setbar .sub-info { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .ilr-setbar .spacer { flex: 1 1 auto; }
+  #ilrGridBlock { flex: 1 1 auto; min-height: 0; }
+  #ilrGridBlock .grid-wrap { overflow: hidden; }
+  #grdIlr td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #grdIlr col.c-id { width: var(--col-w-240); } #grdIlr col.c-160 { width: var(--col-w-160); } #grdIlr col.c-200 { width: var(--col-w-200); }
+  #grdIlr tr.locked td { color: var(--c-text-sub); background: var(--bc-gray-light); }
+  #grdIlr tr.disabled-rule td { color: var(--c-text-disabled); }
+  #grdIlr td .badge + .badge { margin-left: var(--badge-gap); }
+  .ilr-pager { display: inline-flex; align-items: center; gap: var(--badge-gap); }
+  #ilrDetail { flex: 0 0 auto; height: calc(var(--toolbar-h) * 2 + var(--form-row-h) * 4 + var(--title-gap) * 3 + var(--badge-gap)); display: flex; flex-direction: column; gap: var(--title-gap); min-height: 0; }
+  #ilrDetail .grid-toolbar .group-title { white-space: nowrap; }
+  #ilrDetail .grid-toolbar #dtRuleId { width: var(--col-w-200); height: var(--ctrl-h-form); }
+  #ilrDetail .form-grid > .field { min-width: 0; }
+  #ilrDetail .form-grid > .field > .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #ilrDetail .form-grid > .field > .input.pv { flex: 1 1 0; min-width: 0; }
+  #ilrDetail .form-grid > .field > .unit { flex: 0 0 auto; color: var(--c-text-sub); }
+  #ilrDetail .form-grid > .field label.ck { display: inline-flex; align-items: center; gap: var(--badge-gap); white-space: nowrap; }
+  #ilrDetail .dt-btns { flex: 0 0 auto; height: var(--toolbar-h); display: flex; align-items: center; gap: var(--split-gutter); min-width: 0; }
+  #ilrDetail .dt-btns .msg { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #ilrDetail .dt-btns .sign-err { min-height: 0; }
+  /* ---- #dlgIlrApprove (공통 #dlgRecSign 틀 1100 × 700) ---- */
+  #dlgIlrApprove .shell-body, #dlgIlrDiff .shell-body { gap: var(--title-gap); min-height: 0; }
+  #dlgIlrApprove .popup-title .text { display: inline-flex; align-items: center; gap: var(--title-gap); min-width: 0; }
+  #dlgIlrApprove .form-grid .field .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #iaEff { flex: 0 0 auto; display: flex; align-items: center; min-height: var(--form-row-h); padding: 0 var(--title-gap); background: var(--bc-gray-light); border: thin solid var(--c-border-05); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #dlgIlrApprove .split.sign-split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--split-gutter); flex: 1 1 auto; min-height: 0; }
+  #dlgIlrApprove .split.sign-split > .grid-block { min-height: 0; min-width: 0; }
+  #dlgIlrApprove .grid-wrap, #dlgIlrDiff .grid-wrap { overflow: hidden; }
+  #dlgIlrDiff .grid-wrap.scroll { overflow-y: auto; }
+  #grdIaChg td, #grdIlrDiff td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #grdIaChg col.c-id, #grdIlrDiff col.c-id { width: var(--col-w-200); } #grdIaChg col.c-k, #grdIlrDiff col.c-k { width: var(--col-w-name); }
+  #grdIaChg col.c-f, #grdIlrDiff col.c-f { width: var(--col-w-short); } #grdIlrDiff col.c-a { width: var(--col-w-240); }
+  #grdIlrDiff tr.same td { color: var(--c-text-disabled); }
+  #dlgIlrApprove .auth-row > .input { height: var(--ctrl-h-form); }
+  #dlgIlrApprove .auth-panel .sign-rule, #dlgIlrApprove .auth-panel .one-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #dlgIlrApprove .user-card { border: thin solid var(--c-border-04); border-radius: var(--radius); padding: var(--title-gap) var(--fs-grid); display: flex; align-items: baseline; gap: var(--title-gap); background: var(--c-board-normal); flex-wrap: wrap; }
+  #dlgIlrApprove .user-card .name { font-size: var(--fs-group); font-weight: bold; }
+  #dlgIlrApprove .dialog-footer .sign-note { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body data-root="../">
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="main-title"><span class="mod-tag">EBR</span>인터록 규칙</span>
+    <span class="user-switch" id="userSwitch"></span>
+    <span class="breadcrumb">
+      <span>eMBR</span><span class="sep">&rsaquo;</span><a href="../index.html">기준정보</a><span class="sep">&rsaquo;</span><span>MBR 관리</span><span class="sep">&rsaquo;</span><span class="current">S-48 인터록 규칙</span>
+      <button class="copy" type="button" id="btnCopyLink" title="링크 복사"></button>
+    </span>
+  </div>
+  <div class="shell-body" id="ilrBody">
+    <div class="ilr-setbar" id="ilrSetbar">
+      <div class="sb-row">
+        <span class="label">룰 세트</span><select class="input" id="ilrSet" aria-label="룰 세트"></select>
+        <span id="ilrSetStatus"></span><span class="sub-info" id="ilrSetEff"></span><span id="ilrDemoBadge"></span>
+        <span class="spacer"></span><span class="sub-info" id="ilrSrc"></span>
+        <button class="btn search secondary" type="button" id="btnIlrNewVer" data-ilr-edit>새 버전</button>
+        <button class="btn search secondary" type="button" id="btnIlrDiff">비교</button>
+      </div>
+      <div class="sb-row">
+        <span class="label">평가 지점</span><select class="input sb-sel" id="fltPoint" aria-label="평가 지점"></select>
+        <span class="label">등급</span><select class="input sb-sel" id="fltGrade" aria-label="등급"></select>
+        <span class="label">출처</span><input class="input sb-sel" type="text" id="fltSrc" placeholder="G6 · recCalc …" aria-label="출처">
+        <label class="checkbox"><input type="checkbox" id="fltInactive"> 비활성 포함</label>
+        <span class="spacer"></span>
+        <button class="btn search primary" type="button" id="btnIlrSearch">조회</button>
+      </div>
+    </div>
+    <div class="grid-block" id="ilrGridBlock">
+      <div class="grid-toolbar"><span class="group-title">규칙</span><span class="total-text" id="ilrTotal"></span><span class="spacer"></span>
+        <span class="sub-info">잠금 행 = 회색 · 편집 칸 readonly · 삭제 · 비활성 · 등급 하향 불가</span>
+        <span class="ilr-pager"><button class="pg-btn pg-prev" type="button" id="pgPrev" title="이전"></button><span class="total-text" id="pgText">1 / 1</span><button class="pg-btn pg-next" type="button" id="pgNext" title="다음"></button></span>
+      </div>
+      <div class="grid-wrap">
+        <table class="grid selectable" id="grdIlr">
+          <colgroup><col class="c-id"><col class="c-160"><col class="c-160"><col class="c-160"><col class="c-200"><col class="c-160"><col></colgroup>
+          <thead><tr><th>규칙 ID</th><th>평가 지점</th><th>등급</th><th>조건 유형</th><th>파라미터</th><th>출처</th><th>상태</th></tr></thead>
+          <tbody id="grdIlrBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="dpane" id="ilrDetail">
+      <div class="grid-toolbar"><span class="group-title" id="dtTitle">상세</span><input class="input" type="text" id="dtRuleId" hidden aria-label="규칙 ID"><span class="spacer"></span><span class="sub-info fc-fail" id="dtRole"></span><span id="dtGradeChip"></span></div>
+      <div class="form-grid cols-2" id="dtForm"></div>
+      <div class="dt-btns">
+        <span class="sub-info msg" id="dtMsg"></span>
+        <button class="btn search secondary" type="button" id="btnIlrAdd" data-ilr-edit>행 추가</button>
+        <button class="btn search secondary" type="button" id="btnIlrSave" data-ilr-edit>저장 (draft)</button>
+        <button class="btn search secondary" type="button" id="btnIlrReview" data-ilr-edit>검토 요청</button>
+        <span class="tip" id="btnIlrSignWrap"><button class="btn search primary" type="button" id="btnIlrSign">승인 서명 ›</button></span>
+      </div>
+    </div>
+  </div>
+</div></div> <!-- #shellScale -->
+
+<!-- ==== #dlgIlrApprove 검토 · 승인 서명 (IR-02, 공통 #dlgRecSign 틀 1100 × 700) ==== -->
+<div class="dialog-backdrop" id="dlgIlrApprove">
+  <div class="dialog" role="dialog" aria-labelledby="iaTitle">
+    <div class="popup-title"><span class="text"><span class="sign-meaning approved" id="iaDot"></span><span id="iaTitle">전자서명 — 인터록 룰 세트 승인 (Approved by)</span></span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+    <div class="shell-body">
+      <div class="form-grid cols-2 readonly">
+        <span class="label">룰 세트</span><span class="field"><span class="text" id="iaF1"></span></span>
+        <span class="label">작성 · 검토</span><span class="field"><span class="text" id="iaF2"></span></span>
+        <span class="label">규칙</span><span class="field"><span class="text" id="iaF3"></span></span>
+        <span class="label">서명자 (현재 사용자)</span><span class="field"><span class="text" id="iaF4"></span></span>
+      </div>
+      <div class="sub-info" id="iaEff"></div>
+      <div class="split sign-split">
+        <div class="grid-block">
+          <div class="grid-toolbar"><span class="group-title" id="iaChgTitle">변경 요약</span><span class="spacer"></span><span class="sub-info" id="iaChgNote"></span></div>
+          <div class="grid-wrap">
+            <table class="grid" id="grdIaChg"><colgroup><col class="c-id"><col class="c-k"><col class="c-f"><col><col></colgroup>
+              <thead><tr><th>규칙 / 등급</th><th>구분</th><th>필드</th><th id="iaThA">이전</th><th id="iaThB">이번</th></tr></thead><tbody id="grdIaChgBody"></tbody></table>
+          </div>
+        </div>
+        <div class="auth-panel">
+          <div class="user-card" id="iaUser"></div>
+          <span class="sub-info sign-rule" id="iaRule"></span>
+          <div class="auth-row"><span class="label required">사용자 ID</span><input class="input" type="text" id="iaId" autocomplete="off"></div>
+          <div class="auth-row"><span class="label required">비밀번호</span><input class="input" type="password" id="iaPw" autocomplete="new-password"></div>
+          <div class="sign-err sub-info fc-fail" id="iaErr" role="alert"></div>
+          <span class="sub-info one-line">PoC 전용 — 실서비스는 LDAP(AM-IDPW)</span>
+          <span class="sub-info one-line" id="iaQual"></span>
+        </div>
+      </div>
+      <div class="sign-statement"><span class="stmt" id="iaStmt"></span></div>
+    </div>
+    <div class="dialog-footer">
+      <span class="sub-info sign-note" id="iaNote"></span>
+      <button class="btn search secondary" type="button" data-dialog-close>취소</button>
+      <button class="btn search primary" type="button" id="btnIaSign" disabled>승인 서명</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==== #dlgIlrDiff 버전 비교 (IR-03, 1100 × 700, 서명 없음) ==== -->
+<div class="dialog-backdrop" id="dlgIlrDiff">
+  <div class="dialog" role="dialog" aria-labelledby="idTitle">
+    <div class="popup-title"><span class="text" id="idTitle">버전 비교</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+    <div class="shell-body">
+      <div class="grid-block">
+        <div class="grid-toolbar"><span class="group-title">규칙 변경</span><span class="total-text" id="idTotal"></span><span class="spacer"></span><label class="checkbox"><input type="checkbox" id="idSame"> 같음 펼치기</label></div>
+        <div class="grid-wrap" id="idWrap">
+          <table class="grid" id="grdIlrDiff"><colgroup><col class="c-k"><col class="c-id"><col class="c-f"><col class="c-a"><col></colgroup>
+            <thead><tr><th>구분</th><th>규칙 / 등급</th><th>필드</th><th id="idThA">이전</th><th id="idThB">이번</th></tr></thead><tbody id="grdIlrDiffBody"></tbody></table>
+        </div>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <span class="spacer"></span>
+      <button class="btn search secondary" type="button" data-dialog-close>닫기</button>
+      <button class="btn search" type="button" id="btnIdPrint">인쇄</button>
+    </div>
+  </div>
+</div>
+
+<script src="../assets/mesui.js"></script>
+<script src="../assets/shared-store.js"></script>
+<script src="../assets/ebr-user-session.js"></script>   <!-- UI-09 헬퍼 (window.EbrUserSession) -->
+<script src="../../assets/ebr-qual-store.js"></script>   <!-- 교육 · 자격 (서명 판정 ⑦ — 없으면 qual_store_error 로 서명 차단) -->
+<script src="../../assets/ebr-interlock.js"></script>   <!-- 인터록 store (window.EbrInterlock) -->
+<script src="../../ilr-ui-wire.js"></script>   <!-- 인터록 연결 지점 (IlApi) -->
+<!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 + 배치 발행 동일) ==== -->
+<script>
+/* 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
+ *   listUsers({q,role,status}) · getCurrentUser() · setCurrentUser(id|null) → {ok,user}|{ok:false,code} · rolesOf(id)
+ *   hasSodConflict(roles) · onChange(fn) → unsub
+ * 헬퍼는 마크업을 만들지 않는다 → 선택기 · 배지는 이 블록이 그린다 (ui-items UI-04).
+ * 헬퍼가 없으면(파일 미배포) 선택기는 「사용자 API 미연결」로 비활성 표시만 하고 화면 기존 동작은 그대로 둔다(게이트 미적용, 오류 없음). */
+(function (global) {
+  'use strict';
+  var WATCH_KEYS = ['ebmr.currentUser.v1', 'ebmr.userRole.v1'];   /* onChange 가 없을 때만: 다른 탭 변경 감지용 키 이름 (값은 헬퍼로만 읽음) */
+  var ROLE = { QP: ['QP', 'role-qp'], QA: ['QA', 'role-qa'], SV: ['감독자', 'ok'], OP: ['작업자', 'info'], ADMIN: ['관리자', ''] };
+  var ROLE_ORDER = ['QP', 'QA', 'SV', 'OP', 'ADMIN'];   /* 배지 우선순위 QP>QA>SV>OP>ADMIN (기획 마스터 §3.1) */
+  var GATE_SEL = '[data-p0-edit],[data-act="new"],[data-act="delete"],[data-act="submit"],[data-act="approve"],[data-act="activate"],[data-act="reject"],[data-act="retire"],#dmSave,#dmNewVer';
+  var GATE_TIP = '사용자를 선택하세요';
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  var listeners = [], readyQ = [], isReady = false;
+
+  function api() { return global.EbrUserSession || null; }
+  function call(fn) {
+    var a = api(); if (!a || typeof a[fn] !== 'function') return undefined;
+    try { return a[fn].apply(a, Array.prototype.slice.call(arguments, 1)); } catch (e) { if (global.console) console.error('[EbrUserSession] ' + fn, e); return undefined; }
+  }
+  function sortRoles(roles) { return (roles || []).slice().sort(function (a, b) { return ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b); }); }
+  function roleBadge(code) { var r = ROLE[code] || [code, 'muted']; return '<span class="badge' + (r[1] ? ' ' + r[1] : '') + '" title="' + esc(code) + '">' + esc(r[0]) + '</span>'; }
+  function roleBadges(roles) { return sortRoles(roles).map(roleBadge).join(''); }
+  function statusBadge(st) { return st === 'locked' ? '<span class="badge error">잠김</span>' : st === 'inactive' ? '<span class="badge muted">비활성</span>' : ''; }
+  function rolesOfUser(u) { return !u ? [] : (Array.isArray(u.roles) ? u.roles : (call('rolesOf', u.userId) || [])); }
+  function users(filter) { var l = call('listUsers', filter || {}); return Array.isArray(l) ? l : []; }
+  function current() { return call('getCurrentUser') || null; }
+  function connected() { var a = api(); return !!(a && typeof a.getCurrentUser === 'function' && typeof a.listUsers === 'function'); }
+  function hasRole(u, code) { return rolesOfUser(u).indexOf(code) >= 0; }
+  function sod(roles) { var v = call('hasSodConflict', roles || []); return typeof v === 'boolean' ? v : false; }
+  function gateOn() { return connected() && !current(); }
+  function userLabel(u) { return u ? u.name + ' (' + u.userId + ')' : '—'; }
+
+  function render() {
+    var host = document.getElementById('userSwitch');
+    if (host) {
+      if (!connected()) {
+        host.innerHTML = '<span class="tip" title="사용자 · 서명 헬퍼(ebr-user-session.js)가 로드되면 선택할 수 있습니다"><select class="input w-200" disabled aria-label="현재 사용자"><option>사용자 API 미연결</option></select></span>';
+      } else {
+        var cur = current(), list = users();
+        var opts = '<option value="">사용자 선택</option>' + list.map(function (u) {
+          var bad = u.status === 'locked' ? ' — 잠김' : u.status === 'inactive' ? ' — 비활성' : '';
+          return '<option value="' + esc(u.userId) + '"' + (bad ? ' disabled' : '') + (cur && cur.userId === u.userId ? ' selected' : '') + '>' + esc(userLabel(u) + bad) + '</option>';
+        }).join('');
+        host.innerHTML = '<select class="input w-200" id="userSwitchSel" aria-label="현재 사용자" title="현재 사용자 (인증 아님 — 서명 시 ID · 비밀번호 재입력)">' + opts + '</select>' +
+          '<span class="us-roles">' + (cur ? roleBadges(rolesOfUser(cur)) + statusBadge(cur.status) : '<span class="badge warn">' + GATE_TIP + '</span>') + '</span>';
+        var sel = document.getElementById('userSwitchSel');
+        sel.addEventListener('change', function () {
+          var r = call('setCurrentUser', sel.value || null);
+          if (r && r.ok === false && global.MesUI) {
+            MesUI.toast(r.message || (r.code === 'LOCKED' ? '잠긴 계정은 선택할 수 없습니다 — 관리자(ADMIN)에게 해제를 요청하세요.'
+              : r.code === 'INACTIVE' ? '비활성 계정은 선택할 수 없습니다.' : r.code === 'SAVE_ERROR' ? '감사 기록을 저장하지 못해 사용자를 전환하지 못했습니다.' : '사용자를 찾을 수 없습니다.'),
+              r.code === 'SAVE_ERROR' ? 'error' : 'warn', 2600);   /* SAVE_ERROR: 헬퍼가 변경을 되돌림 → 선택값도 아래 refresh 로 되돌림 */
+          }
+          if (!hasOnChange || (r && r.ok === false)) refresh();   /* onChange 는 성공 시 헬퍼가 발생 — 거부(LOCKED 등)면 선택 되돌림 */
+        });
+      }
+    }
+    applyGate();
+  }
+  function applyGate() {
+    var on = gateOn();
+    document.body.classList.toggle('p0-no-user', on);
+    Array.prototype.forEach.call(document.querySelectorAll(GATE_SEL), function (b) { b.classList.toggle('p0-gated', on); });
+  }
+  function refresh() { render(); listeners.forEach(function (fn) { try { fn(current()); } catch (e) { if (global.console) console.error(e); } }); }
+
+  /* 선택 없음 게이트: 편집 버튼 클릭 차단 + 툴팁 (동적으로 그려지는 T-02 버튼 포함) */
+  document.addEventListener('click', function (e) {
+    if (!gateOn()) return;
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+    if (global.MesUI) MesUI.toast(GATE_TIP + ' — 상단 사용자 선택기에서 현재 사용자를 고른 뒤 다시 시도하세요.', 'warn', 2200);
+  }, true);
+  document.addEventListener('mouseover', function (e) {
+    var b = e.target.closest && e.target.closest(GATE_SEL);
+    if (!b) return;
+    if (gateOn()) { if (!b.hasAttribute('data-p0-tip')) b.setAttribute('data-p0-tip', b.getAttribute('title') || ''); b.setAttribute('title', GATE_TIP); b.classList.add('p0-gated'); }
+    else if (b.hasAttribute('data-p0-tip')) { b.setAttribute('title', b.getAttribute('data-p0-tip')); b.removeAttribute('data-p0-tip'); b.classList.remove('p0-gated'); }
+  }, true);
+
+  var hasOnChange = false;
+  function start() {
+    isReady = true;
+    var a = api();
+    if (a && typeof a.onChange === 'function') { hasOnChange = true; call('onChange', function () { refresh(); }); }
+    else global.addEventListener('storage', function (e) { if (WATCH_KEYS.indexOf(e.key) >= 0) refresh(); });
+    render();
+    readyQ.splice(0).forEach(function (fn) { try { fn(); } catch (e) { if (global.console) console.error(e); } });
+  }
+
+  global.P0Ui = {
+    api: api, call: call, connected: connected, users: users, current: current, hasRole: hasRole, rolesOf: rolesOfUser, sod: sod, userLabel: userLabel,
+    roleBadge: roleBadge, roleBadges: roleBadges, statusBadge: statusBadge, sortRoles: sortRoles, ROLE: ROLE, ROLE_ORDER: ROLE_ORDER,
+    gateOn: gateOn, refresh: refresh, applyGate: applyGate, esc: esc, GATE_TIP: GATE_TIP,
+    onUserChange: function (fn) { listeners.push(fn); },
+    ready: function (fn) { if (isReady) fn(); else readyQ.push(fn); }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+})(window);
+</script>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = P0Ui.esc, ROWS = 19;   /* 19행/페이지 (목록 641: 툴바 28 + 헤더 28 + 30 × 19) */
+  var q = new URLSearchParams(location.search), RO_LINK = q.get('ro') === '1' || !!q.get('ruleId');
+  var st = { setKey: '', set: null, eff: null, rules: [], page: 0, sel: null, dirty: false, list: [] };
+  function toast(m, k) { MesUI.toast(m, k || 'info', 2600); }
+  function roles() { var u = P0Ui.current(); return u ? P0Ui.rolesOf(u) : []; }
+  function can(act) {   /* 역할 표(설계 §4 · PM 결정(2)): 편집 = QA, 검토 = SV · QA, 승인 = QA */
+    var r = roles(); if (RO_LINK) return false;
+    if (act === 'edit') return r.indexOf('QA') >= 0;
+    if (act === 'review') return r.indexOf('SV') >= 0 || r.indexOf('QA') >= 0;
+    if (act === 'approve') { var rl = window.EbrUserSession && EbrUserSession.getSignRule ? EbrUserSession.getSignRule('SM-APPR-ILR') : null; var al = (rl && rl.allowedRoles) || IlApi.SIGN_RULES['SM-APPR-ILR'].roles; return al.some(function (x) { return r.indexOf(x) >= 0; }); }
+    return false;
+  }
+  function lcBadge(s) { var m = { effective: ['효력', 'ok'], draft: ['작성 중', ''], review: ['검토 요청', 'warn'], superseded: ['대체됨', ''], retired: ['폐기', ''] }[s] || [s, '']; return '<span class="badge ' + m[1] + '">' + esc(m[0]) + '</span>'; }
+  function setKey(s) { return s.id + '@' + s.ver; }
+
+  /* ---------------- 세트 바 ---------------- */
+  function loadSets(keepKey) {
+    var sets = IlApi.sets();
+    $('ilrSet').innerHTML = sets.map(function (s) { return '<option value="' + esc(setKey(s)) + '">' + esc(s.id + ' v' + s.ver + ' (' + s.status + ')' + (s.scope === 'demo' ? ' · 데모' : '')) + '</option>'; }).join('');
+    var want = keepKey;
+    if (!want && q.get('set')) want = q.get('set') + '@' + (q.get('ver') || '');
+    if (!want && q.get('ruleId')) { var rid = q.get('ruleId'); var hit = sets.filter(function (s) { return s.status === 'effective' && s.rules.some(function (r) { return r.ruleId === rid; }); })[0]; if (hit) want = setKey(hit); }
+    var opt = sets.filter(function (s) { return setKey(s) === want; })[0] || (want && want.slice(-1) === '@' ? sets.filter(function (s) { return s.id + '@' === want; }).pop() : null)
+      || sets.filter(function (s) { return s.id === 'ILR-STD' && (s.status === 'draft' || s.status === 'review'); })[0] || sets.filter(function (s) { return s.status === 'effective'; })[0];
+    if (opt) $('ilrSet').value = setKey(opt);
+    pickSet();
+  }
+  function pickSet() {
+    var k = $('ilrSet').value.split('@'), s = IlApi.getSet(k[0], +k[1]);
+    st.set = s; st.setKey = $('ilrSet').value; st.dirty = false; st.page = 0;
+    st.eff = s ? IlApi.sets().filter(function (x) { return x.id === s.id && x.status === 'effective'; })[0] || null : null;
+    st.rules = s ? JSON.parse(JSON.stringify(s.rules)) : [];
+    $('ilrSetStatus').innerHTML = s ? lcBadge(s.status) : '';
+    $('ilrSetEff').textContent = s ? (s.status === 'effective' ? '효력 v' + s.ver + ' ' + (s.effDate || '') : st.eff ? '효력 v' + st.eff.ver + ' ' + (st.eff.effDate || '') : '효력 세트 없음') + ' · hash ' + (s.contentHash || s.hash) + ' · 범위 ' + s.scope + (s.author ? ' · 작성 ' + s.author : '') + (s.reviewer ? ' · 검토 ' + s.reviewer : '') : '';
+    $('ilrDemoBadge').innerHTML = s && s.scope === 'demo' ? '<span class="badge warn" title="데모 모드에서만 병합되는 세트">데모</span>' : '';
+    var prev = diffBase();
+    $('btnIlrDiff').textContent = prev ? '비교 v' + prev.ver + ' › v' + s.ver : '비교';
+    $('btnIlrDiff').disabled = !prev;
+    $('ilrSrc').textContent = IlApi.src() === 'none' ? '인터록 store 미연결 — 보기 · 저장 · 서명 불가' : '';
+    var want = q.get('ruleId'); st.sel = null;
+    if (want) st.rules.forEach(function (r, i) { if (r.ruleId === want) { st.sel = i; st.page = Math.floor(i / ROWS); } });
+    renderList(); renderDetail();
+  }
+  function diffBase() { var s = st.set; if (!s) return null; if (s.status !== 'effective' && st.eff) return st.eff; return IlApi.sets().filter(function (x) { return x.id === s.id && x.ver < s.ver; }).pop() || null; }
+  function filterOpts() {
+    $('fltPoint').innerHTML = '<option value="">전체</option>' + IlApi.POINTS.map(function (p) { return '<option>' + esc(p) + '</option>'; }).join('');
+    $('fltGrade').innerHTML = '<option value="">전체</option>' + IlApi.GRADES.map(function (g) { return '<option>' + esc(g) + '</option>'; }).join('');
+  }
+
+  /* ---------------- 목록 ---------------- */
+  function effRule(id) { return st.eff ? st.eff.rules.filter(function (r) { return r.ruleId === id; })[0] : null; }
+  function stateBadges(r) {
+    var h = r.locked ? '<span class="badge" title="제품 하한 Absolute — 삭제 · 비활성 · 등급 하향 불가">잠금</span>' : r.enabled ? '<span class="badge ok">사용</span>' : '<span class="badge">비활성</span>';
+    if (st.set && st.set.status !== 'effective' && st.eff) { var e = effRule(r.ruleId); if (!e) h += '<span class="badge ok">추가</span>'; else if (JSON.stringify([e.grade, e.cond, e.msg, e.sopRef, e.enabled]) !== JSON.stringify([r.grade, r.cond, r.msg, r.sopRef, r.enabled])) h += '<span class="badge warn">변경</span>'; }
+    return h;
+  }
+  function renderList() {
+    var fp = $('fltPoint').value, fg = $('fltGrade').value, fs = $('fltSrc').value.trim().toLowerCase(), fi = $('fltInactive').checked;
+    st.list = st.rules.map(function (r, i) { return i; }).filter(function (i) { var r = st.rules[i]; return (!fp || r.point === fp) && (!fg || r.grade === fg) && (!fs || String(r.legacyRef || '').toLowerCase().indexOf(fs) >= 0) && (fi || r.enabled); });
+    var pages = Math.max(1, Math.ceil(st.list.length / ROWS)); if (st.page >= pages) st.page = pages - 1;
+    var rows = st.list.slice(st.page * ROWS, st.page * ROWS + ROWS);
+    var u = P0Ui.current();
+    if (!u) { $('grdIlrBody').innerHTML = '<tr><td colspan="7" class="sub-info">사용자를 선택하세요 — 사용자가 없으면 목록을 보여 주지 않습니다.</td></tr>'; $('ilrTotal').innerHTML = 'Total <b>0</b>'; $('pgText').textContent = '0 / 0'; return; }
+    $('grdIlrBody').innerHTML = rows.length ? rows.map(function (i) {
+      var r = st.rules[i], ct = IlApi.condTypes()[r.cond.type];
+      return '<tr data-i="' + i + '" class="' + (r.locked ? 'locked' : '') + (r.enabled ? '' : ' disabled-rule') + (i === st.sel ? ' selected' : '') + '">' +
+        '<td title="' + esc(r.ruleId + ' · ' + r.name) + '">' + esc(r.ruleId) + '</td><td>' + esc(r.point) + '</td><td>' + IlUi.chip(r.grade) + '</td>' +
+        '<td title="' + esc(ct ? ct.label : '') + '">' + esc(r.cond.type) + '</td><td title="' + esc(IlApi.condText(r.cond)) + '">' + esc(IlApi.paramText(r.cond)) + '</td>' +
+        '<td title="' + esc(r.legacyRef || '') + '">' + esc(r.legacyRef || '—') + '</td><td>' + stateBadges(r) + '</td></tr>';
+    }).join('') : '<tr><td colspan="7" class="sub-info">조건에 맞는 규칙이 없습니다. (평가 지점 ' + esc(fp || '전체') + ' · 등급 ' + esc(fg || '전체') + ')</td></tr>';
+    $('ilrTotal').innerHTML = 'Total <b>' + st.list.length + '</b>';
+    $('pgText').textContent = (st.page + 1) + ' / ' + pages;
+    $('pgPrev').disabled = st.page <= 0; $('pgNext').disabled = st.page >= pages - 1;
+  }
+
+  /* ---------------- 상세 폼 (COND_TYPES.params 로 칸 생성 — 유형 분기 하드코딩 없음) ---------------- */
+  function editable() { return !!(st.set && st.set.status === 'draft' && can('edit')); }
+  function gradeDef(gr) { return { Absolute: '멈춤 · override 없음 · 대체 경로만', 'Hard-QA': 'QA 서명 · full_factor · 일탈 생성 (P1)', Controlled: '감독자 · full_factor · RBE 자동', Warning: '본인 · 사유 입력 후 진행' }[gr] || '—'; }
+  function paramHtml(r, ro) {
+    var ct = IlApi.condTypes()[r.cond.type]; if (!ct) return '<span class="text fc-fail">' + esc(IlApi.whyText('unknown_cond')) + '</span>';
+    if (!ct.params.length) return '<span class="text">—</span>';
+    return ct.params.map(function (p) {
+      var v = r.cond[p.key], dis = ro ? ' readonly' : '';
+      if (p.type === 'enum[]') return (p.options || []).map(function (o) { return '<label class="ck"><input type="checkbox" data-pk="' + p.key + '" value="' + o + '"' + ((v || []).indexOf(o) >= 0 ? ' checked' : '') + (ro ? ' disabled' : '') + '>' + o + '</label>'; }).join('');
+      var val = Array.isArray(v) ? v.join(', ') : v == null ? '' : v;
+      return '<input class="input pv" type="text" data-pk="' + p.key + '" data-pt="' + p.type + '" value="' + esc(val) + '" title="' + esc(p.label + (p.unit ? ' (' + p.unit + ')' : '') + (p.min != null ? ' ' + p.min + '–' + p.max : '')) + '" placeholder="' + esc(p.label) + '"' + dis + '>' + (p.unit ? '<span class="unit">' + esc(p.unit) + '</span>' : '');
+    }).join('');
+  }
+  function renderDetail() {
+    var r = st.sel == null ? null : st.rules[st.sel], ed = editable(), isNew = r && !effRule(r.ruleId) && ed;
+    $('dtTitle').textContent = r ? '상세 — ' + (isNew ? '' : r.ruleId) + ' (' + (st.set ? 'v' + st.set.ver + ' ' + st.set.status : '') + (ed ? ' · 편집 중' : ' · 읽기 전용') + ')' : '상세 — 행을 선택하세요';
+    $('dtRuleId').hidden = !isNew; if (isNew) $('dtRuleId').value = r.ruleId;
+    $('dtGradeChip').innerHTML = r ? IlUi.chip(r.grade) : '';
+    var rs = roles(), u = P0Ui.current();
+    $('dtRole').textContent = RO_LINK ? '읽기 전용 (링크로 열림)' : !u ? '' : !rs.length ? '역할 없음 (no_role) — 보기만 가능, 편집 · 검토 · 승인 불가. 편집은 QA 만' : !can('edit') && !can('review') ? '인터록 규칙 마스터는 보기만 가능합니다. 편집 = QA, 검토 = SV · QA, 승인 = QA.' : '';
+    if (!r) { $('dtForm').innerHTML = '<span class="label">평가 지점</span><span class="field"><span class="text">—</span></span><span class="label">조건 유형</span><span class="field"><span class="text">—</span></span><span class="label">파라미터</span><span class="field"></span><span class="label">등급</span><span class="field"></span><span class="label">메시지</span><span class="field"></span><span class="label">sopRef</span><span class="field"></span><span class="label">제품 하한</span><span class="field"></span><span class="label">조치</span><span class="field"></span>'; buttons(); return; }
+    var lockRo = !ed, ct = IlApi.condTypes();
+    var gopts = IlApi.GRADES.map(function (g) { var below = r.floor && IlApi.GRADES.indexOf(g) > IlApi.GRADES.indexOf(r.floor); return '<option' + (g === r.grade ? ' selected' : '') + (below ? ' disabled' : '') + '>' + esc(g) + '</option>'; }).join('');
+    $('dtForm').innerHTML =
+      '<span class="label">평가 지점</span><span class="field">' + (isNew ? '<select class="input" data-f="point">' + IlApi.POINTS.map(function (p) { return '<option' + (p === r.point ? ' selected' : '') + '>' + p + '</option>'; }).join('') + '</select>' : '<span class="text">' + esc(r.point) + '</span>') + '</span>' +
+      '<span class="label">조건 유형</span><span class="field">' + (isNew ? '<select class="input" data-f="type">' + Object.keys(ct).sort().map(function (t) { return '<option value="' + t + '"' + (t === r.cond.type ? ' selected' : '') + '>' + t + ' · ' + esc(ct[t].label) + '</option>'; }).join('') + '</select>' : '<span class="text" title="' + esc(IlApi.condText(r.cond)) + '">' + esc(r.cond.type + (ct[r.cond.type] ? ' · ' + ct[r.cond.type].label : '')) + '</span>') + '</span>' +
+      '<span class="label' + (ed ? ' required' : '') + '">파라미터</span><span class="field">' + paramHtml(r, lockRo) + '</span>' +
+      '<span class="label' + (ed ? ' required' : '') + '">등급</span><span class="field"><select class="input" data-f="grade"' + (lockRo || r.locked ? ' disabled' : '') + ' title="' + (r.locked ? '제품 하한 Absolute — 등급 하향 불가' : '') + '">' + gopts + '</select></span>' +
+      '<span class="label' + (ed ? ' required' : '') + '">메시지</span><span class="field"><input class="input" type="text" data-f="msg" value="' + esc(r.msg) + '" title="' + esc(r.msg) + '"' + (lockRo ? ' readonly' : '') + '></span>' +
+      '<span class="label">sopRef</span><span class="field"><input class="input" type="text" data-f="sopRef" value="' + esc(r.sopRef || '') + '"' + (lockRo || r.locked ? ' readonly' : '') + '></span>' +
+      '<span class="label">제품 하한</span><span class="field"><span class="text">' + esc(r.floor ? r.floor + ' (잠금 행 — 삭제 · 비활성 · 등급 하향 불가)' : '없음 (잠금 아님)') + '</span>' + (r.locked || !ed ? '' : '<label class="ck"><input type="checkbox" data-f="enabled"' + (r.enabled ? ' checked' : '') + '>사용</label>') + '</span>' +
+      '<span class="label">조치</span><span class="field"><span class="text" title="등급 정의 (S-07/S-08)">' + esc(gradeDef(r.grade)) + '</span></span>';
+    buttons();
+  }
+  function collect() {
+    var r = st.sel == null ? null : st.rules[st.sel]; if (!r || !editable()) return;
+    var f = function (k) { return document.querySelector('#dtForm [data-f="' + k + '"]'); };
+    if (f('point')) r.point = f('point').value;
+    if (f('type') && f('type').value !== r.cond.type) { r.cond = { type: f('type').value }; (IlApi.condTypes()[r.cond.type].params || []).forEach(function (p) { if (p.def != null) r.cond[p.key] = p.def; }); }
+    else {
+      (IlApi.condTypes()[r.cond.type] || { params: [] }).params.forEach(function (p) {
+        if (p.type === 'enum[]') { r.cond[p.key] = Array.prototype.filter.call(document.querySelectorAll('#dtForm [data-pk="' + p.key + '"]'), function (x) { return x.checked; }).map(function (x) { return x.value; }); return; }
+        var el = document.querySelector('#dtForm [data-pk="' + p.key + '"]'); if (!el) return; var v = el.value.trim();
+        r.cond[p.key] = p.type === 'int' || p.type === 'number' ? (v === '' ? '' : +v) : p.type === 'string[]' ? v.split(',').map(function (x) { return x.trim(); }).filter(Boolean) : v;
+      });
+    }
+    if (f('grade') && !f('grade').disabled) r.grade = f('grade').value;
+    if (f('msg')) r.msg = f('msg').value;
+    if (f('sopRef') && !f('sopRef').readOnly) r.sopRef = f('sopRef').value;
+    if (f('enabled')) r.enabled = f('enabled').checked;
+    if (!$('dtRuleId').hidden) r.ruleId = $('dtRuleId').value.trim().toUpperCase();
+    st.dirty = true;
+  }
+  function showErr(r) { var m = r && r.why ? (r.ruleId ? r.ruleId + ' — ' : '') + IlApi.whyText(r.why, r.vars) : ''; $('dtMsg').className = 'sub-info msg' + (m ? ' sign-err fc-fail' : ''); $('dtMsg').textContent = m || hint(); $('dtMsg').title = $('dtMsg').textContent; }
+  function hint() { return '조건 유형별 폼: range = lo · hi · unit / below = lo · unit / dateNear · calDueSoon = days / hold.exceeded = min / eq.qualified = opIds / 해당 없음 = \'—\''; }
+  function buttons() {
+    var s = st.set, ed = editable(), rv = s && s.status === 'review';
+    ['btnIlrAdd', 'btnIlrSave'].forEach(function (id) { $(id).disabled = !ed; });
+    $('btnIlrReview').disabled = !ed;
+    $('btnIlrNewVer').disabled = !can('edit') || !s || s.scope === 'demo' || IlApi.sets().some(function (x) { return x.id === s.id && (x.status === 'draft' || x.status === 'review'); });
+    var kind = rv && !s.reviewer ? 'review' : 'approve', ok = rv && (kind === 'review' ? can('review') : can('approve'));
+    $('btnIlrSign').textContent = kind === 'review' ? '검토 서명 ›' : '승인 서명 ›'; $('btnIlrSign').dataset.kind = kind; $('btnIlrSign').disabled = !ok;
+    $('btnIlrSignWrap').title = ok ? '' : RO_LINK ? '읽기 전용 (링크로 열림)' : !rv ? '검토 요청 상태에서 서명합니다' : kind === 'review' ? '검토 = SV · QA' : '승인 = QA';
+    if (!$('dtMsg').classList.contains('sign-err')) showErr(null);
+  }
+
+  /* ---------------- 이벤트 ---------------- */
+  $('ilrSet').addEventListener('change', pickSet);
+  $('btnIlrSearch').addEventListener('click', function () { st.page = 0; renderList(); });
+  ['fltPoint', 'fltGrade', 'fltInactive'].forEach(function (id) { $(id).addEventListener('change', function () { st.page = 0; renderList(); }); });
+  $('pgPrev').addEventListener('click', function () { st.page--; renderList(); });
+  $('pgNext').addEventListener('click', function () { st.page++; renderList(); });
+  $('grdIlrBody').addEventListener('click', function (e) { var tr = e.target.closest('tr[data-i]'); if (!tr) return; collect(); st.sel = +tr.dataset.i; showErr(null); renderList(); renderDetail(); });
+  $('dtForm').addEventListener('change', function (e) { collect(); if (e.target.dataset.f === 'type' || e.target.dataset.f === 'grade') renderDetail(); renderList(); });
+  $('dtRuleId').addEventListener('change', function () { collect(); renderList(); });
+  $('btnIlrAdd').addEventListener('click', function () {
+    collect(); var n = 1; while (st.rules.some(function (r) { return r.ruleId === 'IL-NEW-' + n; })) n++;
+    st.rules.push({ ruleId: 'IL-NEW-' + n, name: '새 규칙', point: 'pack.reconcile', cond: { type: 'range', field: 'yieldPct', lo: '', hi: '', unit: '%' }, grade: 'Warning', msg: '', actions: [], sopRef: '', floor: null, locked: false, enabled: true, legacyRef: '' });
+    st.sel = st.rules.length - 1; st.page = Math.floor(st.sel / ROWS); st.dirty = true; renderList(); renderDetail();
+  });
+  $('btnIlrSave').addEventListener('click', function () {
+    collect(); var r = IlApi.saveDraft(st.set.id, st.set.ver, st.rules);
+    if (!r || !r.ok) { showErr(r); return; }
+    var k = st.setKey, sel = st.sel; loadSets(k); st.sel = sel; renderList(); renderDetail(); showErr(null); toast('저장 (draft) — hash ' + r.hash, 'ok');
+  });
+  $('btnIlrReview').addEventListener('click', function () {
+    collect(); if (st.dirty) { var sv = IlApi.saveDraft(st.set.id, st.set.ver, st.rules); if (!sv || !sv.ok) { showErr(sv); return; } }
+    var r = IlApi.requestReview(st.set.id, st.set.ver); if (!r || !r.ok) { showErr(r); return; }
+    loadSets(st.setKey); toast('검토 요청 — ' + st.set.id + ' v' + st.set.ver, 'ok');
+  });
+  $('btnIlrNewVer').addEventListener('click', function () {
+    var r = IlApi.newVersion(st.set.id); if (!r || !r.ok) { showErr(r); return; }
+    loadSets(setKey(r.set)); toast('새 버전 v' + r.set.ver + ' (draft) — 효력 v' + (r.set.ver - 1) + ' 복제', 'ok');
+  });
+  $('btnIlrDiff').addEventListener('click', openDiff);
+  $('btnIlrSign').addEventListener('click', function () { openSign(this.dataset.kind); });
+
+  /* ---------------- IR-03 버전 비교 ---------------- */
+  function openDiff() {
+    var a = diffBase(), b = st.set; if (!a || !b) return;
+    var d = IlApi.diff({ id: a.id, ver: a.ver }, { id: b.id, ver: b.ver });
+    $('idTitle').textContent = '버전 비교 — ' + b.id + ' v' + a.ver + ' › v' + b.ver; $('idThA').textContent = 'v' + a.ver; $('idThB').textContent = 'v' + b.ver;
+    var c = { add: 0, chg: 0, same: 0, del: 0 }; d.forEach(function (x) { c[x.kind]++; });
+    $('idTotal').textContent = '추가 ' + c.add + ' · 변경 ' + c.chg + ' · 같음 ' + c.same + (c.del ? ' · 삭제 ' + c.del : '');
+    function draw() {
+      var all = $('idSame').checked, ch = d.filter(function (x) { return x.kind !== 'same'; }), same = d.filter(function (x) { return x.kind === 'same'; });
+      var K = { add: ['추가', 'ok'], chg: ['변경', 'warn'], del: ['삭제', 'error'], same: ['같음', ''] };
+      var row = function (x) { return '<tr class="' + (x.kind === 'same' ? 'same' : '') + '"><td><span class="badge ' + K[x.kind][1] + '">' + K[x.kind][0] + '</span></td><td title="' + esc(x.ruleId + ' · ' + x.grade) + '">' + esc(x.ruleId) + ' · ' + esc(x.grade) + '</td><td>' + esc(x.field) + '</td><td title="' + esc(x.a) + '">' + esc(x.a) + '</td><td title="' + esc(x.b) + '">' + esc(x.b) + '</td></tr>'; };
+      $('grdIlrDiffBody').innerHTML = ch.map(row).join('') + (all ? same.map(row).join('') : same.length ? '<tr class="same"><td><span class="badge">같음</span></td><td colspan="4" class="sub-info">(나머지 규칙 ' + same.length + '건 — 접힘)</td></tr>' : '');
+      $('idWrap').classList.toggle('scroll', all);
+    }
+    $('idSame').checked = false; $('idSame').onchange = draw; draw();
+    MesUI.openDialog('dlgIlrDiff');
+  }
+  $('btnIdPrint').addEventListener('click', function () { window.print(); });
+
+  /* ---------------- IR-02 검토 · 승인 서명 (#dlgRecSign 틀) ---------------- */
+  var sg = null;
+  function openSign(kind) {
+    var s = st.set; if (!s) return;
+    var r = IlApi.beginSetSign({ setId: s.id, ver: s.ver, kind: kind });
+    if (!r || !r.ok) { showErr(r); toast(r && r.message || IlApi.whyText((r && r.why) || 'ilr_store_error'), 'error'); return; }
+    var t = r.target, ap = kind === 'approve', u = P0Ui.current(), ch = t.changes || [];
+    sg = { ticket: r.ticket, kind: kind, done: false };
+    $('iaDot').className = 'sign-meaning ' + (ap ? 'approved' : 'reviewed');
+    $('iaTitle').textContent = '전자서명 — 인터록 룰 세트 ' + (ap ? '승인 (Approved by)' : '검토 (Reviewed by)');
+    $('iaF1').textContent = s.id + (t.from ? ' v' + t.from + ' › v' + s.ver : ' v' + s.ver) + ' · hash ' + t.hash; $('iaF1').title = $('iaF1').textContent;
+    $('iaF2').textContent = '작성 ' + (t.author || '—') + ' · 검토 ' + (t.reviewer || (ap ? '—' : '이번 서명'));
+    $('iaF3').textContent = t.rule.id + ' v' + t.rule.ver + ' · 허용 ' + t.rule.roles.join(' · ');
+    $('iaF4').textContent = u ? u.name + ' (' + u.userId + ')' : '—';
+    $('iaEff').textContent = ap ? '승인 후 효력일 ' + effDate() + ' 00:00 (KST)부터 신규 발행 배치에 적용. 이미 발행된 배치는 발행 때 고정한 v' + (t.from || '—') + ' 을 계속 씁니다.' : '검토 서명 후 QA 승인 서명이 있어야 효력이 생깁니다. 효력 전에는 발행 배치에 적용되지 않습니다.';
+    $('iaThA').textContent = t.from ? 'v' + t.from : '이전'; $('iaThB').textContent = 'v' + s.ver;
+    var K = { add: ['추가', 'ok'], chg: ['변경', 'warn'], del: ['삭제', 'error'] };
+    var shown = ch.length > 9 ? ch.slice(0, 8) : ch;
+    $('grdIaChgBody').innerHTML = shown.map(function (x) { return '<tr><td title="' + esc(x.ruleId) + '">' + esc(x.ruleId) + ' · ' + esc(x.grade) + '</td><td><span class="badge ' + K[x.kind][1] + '">' + K[x.kind][0] + '</span></td><td>' + esc(x.field) + '</td><td title="' + esc(x.a) + '">' + esc(x.a) + '</td><td title="' + esc(x.b) + '">' + esc(x.b) + '</td></tr>'; }).join('') +
+      (ch.length > 9 ? '<tr><td colspan="5" class="sub-info">… 외 ' + (ch.length - 8) + '건 — 비교 창</td></tr>' : '') + (ch.length ? '' : '<tr><td colspan="5" class="sub-info">변경 없음</td></tr>');
+    $('iaChgTitle').textContent = '변경 요약 (v' + (t.from || '—') + ' 대비)';
+    $('iaChgNote').textContent = '변경 ' + ch.length + ' · 하한 위반 0';
+    $('iaUser').innerHTML = u ? '<span class="name">' + esc(u.name) + '</span><span class="sub-info">' + esc(u.userId) + '</span><span class="badges">' + P0Ui.roleBadges(P0Ui.rolesOf(u)) + '</span>' : '<span class="sub-info">현재 사용자 없음</span>';
+    $('iaRule').textContent = t.rule.id + ' v' + t.rule.ver + ' · ' + (ap ? '승인' : '검토') + ' · 허용 ' + t.rule.roles.join(' · ') + ' · 동일인 차단: 작성자' + (ap ? ' · 검토자' : '');
+    $('iaRule').title = $('iaRule').textContent;
+    $('iaQual').textContent = '요구 자격: ' + (IlApi.SIGN_RULES[t.rule.id] ? IlApi.SIGN_RULES[t.rule.id].qual : '—');
+    $('iaStmt').textContent = t.statement;
+    $('iaNote').textContent = 'kind ' + t.statementKind + ' · recType ' + t.recordType;
+    $('iaId').value = u ? u.userId : ''; $('iaPw').value = ''; $('iaErr').textContent = '';
+    $('btnIaSign').textContent = ap ? '승인 서명' : '검토 서명'; inp();
+    MesUI.openDialog('dlgIlrApprove'); setTimeout(function () { $('iaPw').focus(); }, 0);
+  }
+  function effDate() { var d = new Date(); d.setDate(d.getDate() + 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function inp() { $('btnIaSign').disabled = !($('iaId').value.trim() && $('iaPw').value); }
+  ['iaId', 'iaPw'].forEach(function (id) { $(id).addEventListener('input', inp); });
+  $('iaPw').addEventListener('keydown', function (e) { if (e.key === 'Enter' && !$('btnIaSign').disabled) doSign(); });
+  $('btnIaSign').addEventListener('click', doSign);
+  function doSign() {
+    if (!sg) return;
+    var r = IlApi.commitSetSign(sg.ticket, { userId: $('iaId').value.trim(), password: $('iaPw').value, statement: $('iaStmt').textContent });
+    $('iaPw').value = ''; inp();
+    if (!r || !r.ok) { $('iaErr').textContent = (r && r.message) || IlApi.whyText((r && r.why) || 'unknown'); $('iaErr').title = $('iaErr').textContent; return; }
+    sg.done = true; var k = sg.kind; MesUI.closeDialog('dlgIlrApprove');
+    toast((k === 'approve' ? '승인 서명 완료 — 효력일 ' + effDate() : '검토 서명 완료') + ' · ' + (r.signatureId || ''), 'ok');
+    loadSets(st.setKey);
+  }
+  $('dlgIlrApprove').addEventListener('dialogclose', function () { if (sg && !sg.done) IlApi.cancelSign(sg.ticket); sg = null; });
+
+  /* ---------------- 시작 ---------------- */
+  MS.load(); if (window.MT && MT.shell) MT.shell('ilr');
+  $('btnCopyLink').addEventListener('click', function () { if (navigator.clipboard) navigator.clipboard.writeText(location.href); toast('화면 링크를 복사했습니다.', 'ok'); });
+  filterOpts();
+  P0Ui.ready(function () { loadSets(); P0Ui.onUserChange(function () { renderList(); renderDetail(); }); });
+  window.__ilr = { st: st, reload: function () { loadSets(st.setKey); } };
+})();
+
+  /* ---- viewport fit (catalog iframe + <1920 window) ---- */
+  function fitShellToViewport() {
+    var wrap = document.getElementById('shellScale');
+    if (!wrap) return;
+    var sw = 1920, sh = 1080;
+    var w = window.innerWidth || sw;
+    var h = window.innerHeight || sh;
+    try {
+      if (window.frameElement) {
+        var fr = window.frameElement.getBoundingClientRect();
+        if (fr.width > 40) w = fr.width;
+        if (fr.height > 40) h = fr.height;
+      }
+    } catch (err) { /* cross-origin: keep innerWidth */ }
+    if (window.visualViewport) {
+      if (window.visualViewport.width > 40) w = Math.min(w, window.visualViewport.width);
+      if (window.visualViewport.height > 40) h = Math.min(h, window.visualViewport.height);
+    }
+    var s = Math.min(w / sw, h / sh, 1);
+    if (!(s > 0) || !isFinite(s)) s = 1;
+    wrap.style.setProperty('--scale', String(s));
+    wrap.style.width = (sw * s) + 'px';
+    wrap.style.height = (sh * s) + 'px';
+    document.body.classList.add('fit-host');
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+  }
+  window.addEventListener('resize', fitShellToViewport);
+  window.addEventListener('load', fitShellToViewport);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitShellToViewport);
+  }
+  fitShellToViewport();
+  setTimeout(fitShellToViewport, 0);
+  setTimeout(fitShellToViewport, 120);
+</script>
+</body>
+</html>

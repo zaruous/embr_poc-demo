@@ -59,6 +59,7 @@
 <script src="../assets/mesui.js"></script>
 <script src="../assets/shared-store.js"></script>
 <script src="../assets/ebr-user-session.js"></script>   <!-- UI-09 헬퍼 (window.EbrUserSession) -->
+<script src="../../assets/ebr-interlock.js"></script>   <!-- 인터록 store (window.EbrInterlock) -->
 <!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 기준정보 화면 + 배치 발행 동일) ==== -->
 <script>
 /* 공개 API (UI-09 ebr-user-session.js, window.EbrUserSession) — 화면 → 헬퍼 호출은 이 블록 + 화면별 어댑터 구역만.
@@ -209,10 +210,10 @@
   }
   function ilrCollect(host, prev) {
     var absolute = (prev && prev.absolute) || ABS_FIXED.slice();
-    return { absolute: absolute, grades: $$('#grdIlr tbody tr', host).map(function (tr) {
+    return Object.assign({}, prev, { absolute: absolute, grades: $$('#grdIlr tbody tr', host).map(function (tr) {   /* prev 의 rules[] 등 다른 필드 유지 */
       var v = function (m) { return $('[data-m=' + m + ']', tr); };
       return { grade: tr.dataset.g, override: v('override').checked, role: v('role').value, auth: v('auth').value, dev: v('dev').checked, block: v('block').value, scope: v('scope').value, limit: v('limit').value, locked: tr.dataset.locked === '1' };
-    }) };
+    }) });
   }
   function ilrValidate(body) {
     if (!body || !body.grades) return;
@@ -239,7 +240,8 @@
       { t: 'select', label: '저작 범위', k: 'scope', src: 'gcm:EBR_AUTHORING_SCOPE' }, { t: 'select', label: '이관 패키지 대조', k: 'pkg', src: O.PKG }],
     cols: [{ h: 'kind', k: 'kind', w: 120, src: 'gcm:EBR_CONFIG_KIND' }, { h: '객체 ID', k: 'id', w: 120 }, { h: '버전', k: 'ver', w: 56 }, { h: '명칭', k: 'name' }, { h: '상태', k: 'status', w: 96, cls: 'center' },
       { h: '저작 범위', k: 'scope', w: 90, src: 'gcm:EBR_AUTHORING_SCOPE' }, { h: '콘텐츠 해시', k: 'hash', w: 100 }, { h: '이관 패키지 대조', k: 'pkg', w: 120, src: O.PKG, badge: true, cls: 'center' },
-      { h: '적용 범위', k: 'apply', w: 96, src: O.APPLY }, { h: '독립 검토자', k: 'reviewer', w: 90 }, { h: '효력일', k: 'effDate', w: 96 }, { h: '수정일', k: 'upd', w: 96 }, { h: '작성자', k: 'author', w: 70 }],
+      { h: '적용 범위', k: 'apply', w: 96, src: O.APPLY }, { h: '독립 검토자', k: 'reviewer', w: 90 }, { h: '효력일', k: 'effDate', w: 96 }, { h: '수정일', k: 'upd', w: 96 }, { h: '작성자', k: 'author', w: 70 },
+      { h: '규칙', k: 'ilrLink', r: function (r) { return r.kind === 'interlock' ? '<a href="' + esc(ilrHref(r, true)) + '" title="S-48 인터록 규칙 (읽기 전용)">규칙 보기 ›</a>' : '<span class="muted">—</span>'; } }],   /* IR-07 (J1-a): interlock 행 끝 링크 열 */
     form: [{ k: 'kind', label: 'kind', type: 'select', src: 'gcm:EBR_CONFIG_KIND', req: true, lockOnEdit: true }, { k: 'id', label: '객체 ID', type: 'text', req: true, lockOnEdit: true },
       { k: 'scope', label: '저작 범위', type: 'select', src: 'gcm:EBR_AUTHORING_SCOPE', req: true }, { k: 'name', label: '명칭', type: 'text', req: true },
       { k: 'apply', label: '적용 범위', type: 'select', src: O.APPLY, req: true }, { k: 'reviewer', label: '독립 검토자', type: 'select', src: O.REVIEWER }],
@@ -273,7 +275,20 @@
     extra: { render: function (d, ro) { return d.kind === 'interlock' ? ilrRender(d, ro) : bodyRender(d, ro); },
              collect: function (host, d) { if (d.kind === 'interlock') d.body = ilrCollect(host, d.body); else { var t = $('[data-body]', host); if (t) d.body = t.value; } } }
   };
+  /* IR-07 S-07 · S-08 → S-48 진입 (J1-a 권고안: 목록 행 끝 [규칙 보기 ›] · 팝업 footer 왼쪽 [규칙 편집 ›]) */
+  function ilrHref(r, ro) { return './s-ebr-interlock-rule-ui.html?set=' + encodeURIComponent(r.id) + '&ver=' + encodeURIComponent(r.ver) + (ro ? '&ro=1' : ''); }
+  function ilrFooterLink(d) {
+    var nv = $('#dmNewVer'); if (!nv) return;
+    var a = $('#dmIlrLink');
+    if (!a) { nv.insertAdjacentHTML('afterend', '<a class="btn search secondary" id="dmIlrLink" href="#">규칙 편집 ›</a>'); a = $('#dmIlrLink'); }
+    var on = d && d.kind === 'interlock' && d.id;
+    a.classList.toggle('hidden', !on);
+    if (on) { a.href = ilrHref(d, false); a.title = 'S-48 인터록 규칙 — ' + d.id + ' v' + d.ver; }
+  }
+  var extraRender = CFG.extra.render;
+  CFG.extra.render = function (d, ro) { setTimeout(function () { ilrFooterLink(d); }, 0); return extraRender(d, ro); };
   MT.mountT02(CFG, $('#view-config'));
+  (function () { var cg = $('#view-config table.grid colgroup'); if (cg && cg.lastElementChild) cg.lastElementChild.style.width = 'var(--col-w-name)'; })();   /* 규칙 링크 열 폭 = 토큰 */
   /* 팝업 입력값이 칸보다 길면 title 에 전체 값 (말줄임 보완). master-t02 가 다시 그려도 위임이라 유지 */
   function fitTitle(e) {
     var el = e.target;

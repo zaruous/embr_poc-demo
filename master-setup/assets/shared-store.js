@@ -37,12 +37,16 @@
   /* 콘텐츠 해시 흉내 (FNV-1a 4회 → 32 hex). 운영 · 표시 전용 필드는 제외 */
   function fnv(s, seed) { var h = seed >>> 0; for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return ('0000000' + h.toString(16)).slice(-8); }
   var HASH_SKIP = ['hash', 'status', 'upd', 'effDate', 'wu', 'online', 'beat', 'pkg', 'frozen', 'members', 'eqRefHashNow'];
+  function canon(v) { if (Array.isArray(v)) return v.map(canon); if (v && typeof v === 'object') { var o = {}; Object.keys(v).sort().forEach(function (k) { o[k] = canon(v[k]); }); return o; } return v; }
   MS.calcHash = function (row) {
     var o = {};
     Object.keys(row).sort().forEach(function (k) { if (HASH_SKIP.indexOf(k) < 0) o[k] = row[k]; });
+    /* 인터록 룰 세트 행: status · effDate 도 행 무결성 범위 (EbrInterlock.calcHash 와 같은 식 — 서명 없이 상태만 바꾸는 변조 탐지) */
+    if (row.kind === 'interlock') { if (row.status != null) o.__status = row.status; if (row.effDate != null) o.__effDate = row.effDate; }
     /* 장비 클래스: 적격 설비는 '개체 ID 목록'만 해시 대상 (이름 · 작업실 · 교정은 RAS/CMMS 런타임 값이라 제외) */
     if (row.members) o.memberIds = row.members.map(function (m) { return m.equipId; }).sort();
-    var s = JSON.stringify(o);
+    /* C3: 행별 hashVer — 없음 · 1 = 옛 식(최상위 키만 정렬, 6f3accb), 2 = 중첩 키 정렬(S1). 서명된 행은 서명 당시 형식 그대로 검증 · 다시 쓰지 않음 */
+    var s = JSON.stringify(Number(row.hashVer) === 2 ? canon(o) : o);
     return fnv(s, 0x811c9dc5) + fnv(s, 0x01000193) + fnv(s, 0x2c59d9) + fnv(s, 0x37b284);
   };
 
@@ -182,6 +186,12 @@
       { tableName: 'EBR_EVIDENCE_TYPE', tableDesc: '증거 유형 (항목 속성 ⑤)', cols: [KEY, C('data1', 'ORIGIN', '출처 origin'), C('data2', 'PHOTO_POPUP', '사진 팝업', 'CHECKBOX'), C('data3', 'RULE_TEXT', '설명')],
         use: { phase: '증거 유형 기본값', etc: 'S-17 출처 플래그 · S-22 사진 증거' },
         rows: [R('auto', '연동', ['AUTO', false, '설비 · 계측 직접 연동']), R('scan', '스캔', ['MANUAL+SCAN', false, '바코드 · 라벨 스캔']), R('photo', '사진', ['MANUAL+PHOTO', true, '앱 내 카메라 · 해시 · 서버 시각 (S-22)']), R('none', '없음', ['MANUAL', false, '수기 입력 — 확인 서명으로 보증'])] },
+      { tableName: 'EBR_CORR_REASON', tableDesc: '정정 사유 코드', cols: [KEY, C('data1', 'FREE_REQUIRED', '자유 사유 필수', 'CHECKBOX'), C('data2', 'EVIDENCE_REQUIRED', '증빙 필수', 'CHECKBOX')],
+        use: { etc: 'S-47 정정 요청 · 사유 코드 (정정 흐름 K-11)' },
+        rows: [R('TRANSCRIPTION', '전기 오류', [false, true]), R('MEASURE_ERR', '측정 오류', [false, false]), R('UNIT', '단위 오류', [false, false]), R('OTHER', '기타', [true, false])] },
+      { tableName: 'EBR_OVR_REASON', tableDesc: '인터록 승인 사유 코드 (PoC 4종 — 실적용 전 QA 확정 필요)', cols: [KEY, C('data1', 'FREE_REQUIRED', '자유 사유 필수', 'CHECKBOX')],
+        use: { etc: 'Controlled 감독자 승인 사유 콤보 (인터록 설계 §4)' },
+        rows: [R('LOSS_CONFIRMED', '공정 손실 확인', [false]), R('SAMPLING', '시료 채취', [false]), R('EQUIP_ADJUST', '설비 조정', [false]), R('OTHER', '기타', [true])] },
       { tableName: 'EBR_PHASE_KIND', tableDesc: 'Phase 유형', cols: [KEY, C('data1', 'DEFAULT_EC_PREFIX', '기본 장비 클래스 접두 (제안)'), C('data2', 'DOSAGE_FORMS', '적용 제형'), C('data3', 'OI_TEMPLATE', 'OI 템플릿')],
         use: { phase: 'Phase 유형', eqclass: '적용 Phase 유형', etc: 'S-02 디자이너 라이브러리 패널' },
         rows: [R('weigh', '칭량', ['EC-BAL', 'tablet,capsule,liquid', 'T-07']), R('granulate', '과립 · 건조', ['EC-GRN', 'tablet,capsule', 'T-06']), R('mix', '혼합', ['EC-MIX', 'tablet,capsule,liquid', 'T-06']),
@@ -272,8 +282,14 @@
       G('Controlled', true, 'supervisor', 'full_factor', false, 'rbe', 'site', 'RBE 예외 자동 생성', false),
       G('Warning', true, 'self', 'pin_session', false, 'none', 'site', '사유 입력 후 진행', false)
     ], absolute: ['칭량 원료 ID · LOT 불일치', '설비 교정 만료 · 미적격 설비 (장비 클래스 적격 목록 밖)', '자격 미보유 수행자 서명', '유효기간 경과 · 부적합 판정 LOT 투입'] };
+    /* 인터록 규칙 행 (인터록 설계 §2 · M1 · I1-2): 화면별 고정 인터록을 규칙 데이터로 — 현재 숫자 그대로, legacyRef = 이관 출처.
+       assets/ebr-interlock.js BUILTIN_SETS 와 같은 내용(시험이 대조). ILR-DEMO v1 = 생산 데모 토글 대체 데모 시드 규칙(§6.1, scope demo) */
+    var ILR_RULES_STD = [{"ruleId":"IL-WG-SNAPSHOT","name":"발행 스냅샷 · 칭량 계획","point":"weigh.gate","cond":{"type":"snapshot.present"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"G1"},{"ruleId":"IL-WG-LOT-RESV","name":"예약 LOT","point":"weigh.gate","cond":{"type":"lot.reserved"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"G2"},{"ruleId":"IL-WG-MAT-MATCH","name":"자재 일치","point":"weigh.gate","cond":{"type":"lot.matMatch"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":"Absolute","floorRef":0,"locked":true,"enabled":true,"legacyRef":"G3"},{"ruleId":"IL-WG-LOT-REL","name":"LOT 적합","point":"weigh.gate","cond":{"type":"lot.released"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":"Absolute","floorRef":3,"locked":true,"enabled":true,"legacyRef":"G4"},{"ruleId":"IL-WG-LOT-RETEST","name":"재시험일","point":"weigh.gate","cond":{"type":"lot.retestPassed"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":"Absolute","floorRef":3,"locked":true,"enabled":true,"legacyRef":"G5"},{"ruleId":"IL-WG-LOT-EXP","name":"유효기간","point":"weigh.gate","cond":{"type":"lot.expired"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":"Absolute","floorRef":3,"locked":true,"enabled":true,"legacyRef":"G6"},{"ruleId":"IL-WG-LOT-NEAR","name":"날짜 임박","point":"weigh.gate","cond":{"type":"lot.dateNear","days":30},"grade":"Warning","msg":"{reason}","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"G7 (NEAR_LOT_DAYS 30)"},{"ruleId":"IL-WG-LOT-SHORT","name":"LOT 잔량","point":"weigh.gate","cond":{"type":"lot.short"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"G8"},{"ruleId":"IL-WG-BAL-STATE","name":"저울 상태","point":"weigh.gate","cond":{"type":"bal.state"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"G9"},{"ruleId":"IL-WG-BAL-CAL","name":"저울 교정","point":"weigh.gate","cond":{"type":"bal.calExpired"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":"Absolute","floorRef":1,"locked":true,"enabled":true,"legacyRef":"G10"},{"ruleId":"IL-WG-BAL-CALDUE","name":"교정 임박","point":"weigh.gate","cond":{"type":"bal.calDueSoon","days":7},"grade":"Warning","msg":"{reason}","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"G11 (NEAR_CAL_DAYS 7)"},{"ruleId":"IL-WG-BAL-DAILY","name":"일상 점검","point":"weigh.gate","cond":{"type":"bal.dailyCheck"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"G12"},{"ruleId":"IL-WG-BAL-RANGE","name":"저울 용량","point":"weigh.gate","cond":{"type":"bal.range"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"G13"},{"ruleId":"IL-WG-BAL-QUAL","name":"저울 적격","point":"weigh.gate","cond":{"type":"bal.qualified"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":"Absolute","floorRef":1,"locked":true,"enabled":true,"legacyRef":"G14"},{"ruleId":"IL-WG-ROOM","name":"칭량실","point":"weigh.gate","cond":{"type":"room.clean"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"G15"},{"ruleId":"IL-WG-DEV","name":"열린 칭량 일탈","point":"weigh.gate","cond":{"type":"dev.openWeigh"},"grade":"Absolute","msg":"{reason}","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"G16"},{"ruleId":"IL-WG-TOL","name":"칭량 허용오차 반복 이탈","point":"weigh.tolerance","cond":{"type":"tol.outOfRange","maxAttempts":2},"grade":"Hard-QA","msg":"{attempt}회째 허용오차 이탈 ({net}, 기준 {lo} ~ {hi}) — 일탈 · QA 호출","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"MAX_ATTEMPTS 2 · DISPENSE_DEVIATION"},{"ruleId":"IL-EX-SEQ","name":"실행 순서","point":"exec.step","cond":{"type":"step.sequence"},"grade":"Absolute","msg":"순서 인터록: 선행 단계 완료 전 시작할 수 없습니다.","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"stepStatus · completeCurrentOp"},{"ruleId":"IL-EX-LOT-EXP","name":"투입 LOT 유효기간","point":"exec.step","cond":{"type":"lot.expired"},"grade":"Absolute","msg":"LOT {lotNo}: 유효기간 경과 ({expiryDate}) — 투입 불가","actions":[],"sopRef":"","floor":"Absolute","floorRef":3,"locked":true,"enabled":true,"legacyRef":"MatQC.assertWeighable"},{"ruleId":"IL-EX-SIGN-ABS","name":"활성 Absolute 서명 차단","point":"exec.sign","cond":{"type":"il.activeAbsolute"},"grade":"Absolute","msg":"인터록 활성 — 서명할 수 없습니다.","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"openSign"},{"ruleId":"IL-EX-SIGN-QUAL","name":"자격 미보유 수행자 서명","point":"exec.sign","cond":{"type":"sign.qualified"},"grade":"Absolute","msg":"{userId}: 자격 미보유 — 서명할 수 없습니다.","actions":[],"sopRef":"","floor":"Absolute","floorRef":2,"locked":true,"enabled":true,"legacyRef":"교육 · 자격 ⑦"},{"ruleId":"IL-PK-SCAN","name":"포장 자재 스캔 대조","point":"pack.scan","cond":{"type":"scan.match","fields":["code","lot","ver","qc","exp"]},"grade":"Absolute","msg":"Absolute 인터록 — 사용 불가 ({fields} 불일치)","actions":[],"sopRef":"","floor":"Absolute","floorRef":0,"locked":true,"enabled":true,"legacyRef":"scan(val)"},{"ruleId":"IL-PK-YIELD","name":"포장 수율 범위","point":"pack.reconcile","cond":{"type":"range","field":"yieldPct","lo":98,"hi":100.5,"unit":"%"},"grade":"Warning","msg":"수율 {yieldPct} % - 기준 {lo} ~ {hi} % 이탈 (사유 입력 후 진행)","actions":[{"t":"사유 입력"}],"sopRef":"SOP-PK-010 v4","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"recCalc yieldOk"},{"ruleId":"IL-PK-YIELD-LO","name":"포장 수율 하한 미만","point":"pack.reconcile","cond":{"type":"below","field":"yieldPct","lo":98,"unit":"%"},"grade":"Controlled","msg":"수율 {yieldPct} % - 하한 {lo} % 미만, 감독자 승인 필요","actions":[{"t":"감독자 호출"}],"sopRef":"SOP-PK-010 v4","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"recCalc yieldOk (하한 쪽)"},{"ruleId":"IL-PK-DIFF","name":"포장 미설명 차이","point":"pack.reconcile","cond":{"type":"range","field":"diffPct","lo":-0.5,"hi":0.5,"unit":"%"},"grade":"Warning","msg":"미설명 차이 {diffPct} % - 기준 ±0.5 % 이탈 (사유 입력 후 진행)","actions":[{"t":"사유 입력"}],"sopRef":"SOP-PK-010 v4","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"recCalc diffOk"},{"ruleId":"IL-PK-CW-CALDUE","name":"체크웨이어 교정 임박","point":"pack.equipment","cond":{"type":"eq.calDueSoon","days":14},"grade":"Warning","msg":"{eqId} 교정 D-{n} — 실행 허용(Warning). 만료되면 Absolute","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"clrPane 배너"},{"ruleId":"IL-PK-CW-CAL","name":"체크웨이어 교정 만료","point":"pack.equipment","cond":{"type":"eq.calExpired"},"grade":"Absolute","msg":"{eqId} 교정 만료 ({calDue}) — 사용 불가","actions":[],"sopRef":"","floor":"Absolute","floorRef":1,"locked":true,"enabled":true,"legacyRef":"clrPane 배너"},{"ruleId":"IL-PK-SEQ","name":"포장 순서","point":"pack.step","cond":{"type":"step.sequence"},"grade":"Absolute","msg":"순서 인터록: 이전 단계 서명 전 다음 단계 입력 불가","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"포장 단계 패널"}];
+    var ILR_RULES_DEMO = [{"ruleId":"IL-DEMO-LOT-RETEST","name":"데모 재시험일 경과 LOT","point":"exec.step","cond":{"type":"lot.retestPassed"},"grade":"Absolute","msg":"{lotNo}: 재시험일 경과 자재 — override 불가, 대체 경로만","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":true,"enabled":true,"legacyRef":"#demoIlAbs"},{"ruleId":"IL-DEMO-IPC-HARDNESS","name":"데모 IPC 경도","point":"exec.step","cond":{"type":"range","field":"ipc.hardness","lo":60,"hi":120,"unit":"N"},"grade":"Hard-QA","msg":"경도 {hardness} N — 규격 {lo}~{hi} N 이탈, QA 호출","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"#demoIlHard"},{"ruleId":"IL-DEMO-HOLD-TIME","name":"데모 과립 보류 시간","point":"exec.step","cond":{"type":"hold.exceeded","min":240},"grade":"Controlled","msg":"과립 보류 {holdMin}분 — 기준 {min}분 초과, 감독자 승인","actions":[{"t":"감독자 호출"}],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"#demoIlCtrl"},{"ruleId":"IL-DEMO-EQ-CALDUE","name":"데모 설비 교정 임박","point":"exec.step","cond":{"type":"eq.calDueSoon","days":14},"grade":"Warning","msg":"{eqId} 교정 D-{n} — 사유 입력 후 진행","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":false,"enabled":true,"legacyRef":"#demoIlWarn"},{"ruleId":"IL-DEMO-EQ-QUAL","name":"데모 장비 적격","point":"exec.step","cond":{"type":"eq.qualified","opIds":["OP2-1","OP2-2"]},"grade":"Absolute","msg":"장비 적격 실패(교정 만료) — {eqId}","actions":[],"sopRef":"","floor":null,"floorRef":null,"locked":true,"enabled":true,"legacyRef":"#demoEqFail · state.eqFail"}];
+    ILR_BODY.rules = ILR_RULES_STD;
     var ILR_V8 = clone(ILR_BODY); ILR_V8.grades[3].auth = 'full_factor'; ILR_V8.grades[3].limit = '사유 입력 + 전 요소 (CC-2026-041 검토 중)';
-    var ILR_WEIGH = clone(ILR_BODY); ILR_WEIGH.grades[2].scope = 'line'; ILR_WEIGH.grades[2].limit = '칭량 허용오차 ±0.5 % 초과 시';
+    var ILR_WEIGH = clone(ILR_BODY); ILR_WEIGH.grades[2].scope = 'line'; ILR_WEIGH.grades[2].limit = '칭량 허용오차 ±0.5 % 초과 시'; ILR_WEIGH.rules = [];   /* 라인 세트: 추가 규칙 없음 (사이트 세트와 병합) */
+    var ILR_DEMO = { grades: clone(ILR_BODY.grades), absolute: [], rules: ILR_RULES_DEMO, demo: true };
     var BODY = {
       criticality: 'category: critical\n  - weigh.actual_qty        # 칭량 실측량\n  - weigh.lot_id            # 원료 LOT\n  - compress.hardness_mean  # 타정 경도 평균\n  - coat.weight_gain_pct    # 코팅 증량률\nextension (고객):\n  - mix.blend_time_min\naudit_filter: critical_only',
       rbe: 'rule_set: RBE-STD\ncategories:\n  UNSIGNED            -> 미서명 값 (출하 차단)\n  OVERRIDE_HARDQA     -> Hard-QA override (일탈 링크 필수)\n  OVERRIDE_CONTROLLED -> 감독자 승인 진행\n  WARNING_ACK         -> 경고 확인 진행\n  RECON_DIFF          -> 물질수지 대사 차이\n  BASELINE_VIOLATION  -> 히스토리안 기준선 이탈\n  DOWNTIME            -> 다운타임 구간 전수 검토',
@@ -288,6 +304,7 @@
       CO('interlock', 'ILR-STD', 7, '표준 인터록 룰 세트', 'effective', 'runtime_ok', 'na', 'site', '이수진', '2026-07-15', '2026-07-10', clone(ILR_BODY)),
       CO('interlock', 'ILR-STD', 8, '표준 인터록 룰 세트 (Warning 전 요소)', 'draft', 'runtime_ok', 'na', 'site', '', '', '2026-10-03', ILR_V8, '김민수'),
       CO('interlock', 'ILR-WEIGH', 3, '칭량 인터록 룰 (L-01/L-02)', 'effective', 'runtime_ok', 'na', 'line', '박정훈', '2026-06-20', '2026-06-14', ILR_WEIGH),
+      CO('interlock', 'ILR-DEMO', 1, '데모 시드 인터록 룰 (생산 데모 프리셋 — 데모 모드 전용)', 'effective', 'runtime_ok', 'na', 'demo', '이수진', '2026-10-12', '2026-10-12', ILR_DEMO),
       CO('criticality', 'CD-CORE', 12, '중요도 사전 (제품 고정 + 고객 확장)', 'effective', 'runtime_ok', 'na', 'site', '정다은', '2026-09-01', '2026-08-25', BODY.criticality),
       CO('criticality', 'CD-CORE', 13, '중요도 사전 (코팅 증량률 추가)', 'review', 'runtime_ok', 'na', 'site', '이수진', '', '2026-09-30', BODY.criticality + '\n  - coat.spray_rate'),
       CO('rbe', 'RBE-STD', 5, 'RBE 규칙 세트 · 표준 예외 카테고리', 'effective', 'transfer_required', 'match', 'site', '박정훈', '2026-08-10', '2026-08-01', BODY.rbe),
@@ -307,7 +324,9 @@
       'SM-PERF-STEP': ['OP', 'SV'], 'SM-PERF-WEIGH': ['OP', 'SV'], 'SM-VERI-STEP': ['OP', 'SV', 'QA'], 'SM-VERI-WEIGH': ['OP', 'SV', 'QA'],
       'SM-VERI-CORR': ['SV', 'QA'], 'SM-APPR-MBR': ['QA'], 'SM-APPR-REL': ['QP', 'QA'], 'SM-APPR-OVR': ['QA'], 'SM-APPR-EQC': ['QA'],
       'SM-APPR-ISSUE': ['SV', 'QA'], 'SM-APPR-REWEIGH': ['SV', 'QA'], 'SM-PERF-BALCHK': ['OP', 'SV'], 'SM-PERF-BALRECHK': ['SV'], 'SM-READ-BRIEF': ['OP', 'SV', 'QA', 'QP'], 'SM-REV-RBE': ['QA', 'QP'], 'SM-REV-AUDIT': ['QA', 'QP'],
-      'SM-VERI-PKLAB': ['QA'], 'SM-REV-PACK': ['SV'], 'SM-APPR-MATQC': ['QA'], 'SM-REV-BATCH': ['QA'], 'SM-REV-MBR': ['QA', 'SV']
+      'SM-VERI-PKLAB': ['QA'], 'SM-REV-PACK': ['SV'], 'SM-APPR-MATQC': ['QA'], 'SM-REV-BATCH': ['QA'], 'SM-REV-MBR': ['QA', 'SV'],
+      'SM-REV-DOWN': ['QA'], 'SM-REV-CHG': ['QA'], 'SM-REV-CTRL': ['QA'], 'SM-REV-RESTORE': ['QA'],
+      'SM-PERF-CORR': ['OP', 'SV'], 'SM-REV-ILR': ['SV', 'QA'], 'SM-APPR-ILR': ['QA'], 'SM-APPR-CTRL': ['SV']
     };
     function S(id, ver, meaning, rec, auth, batch, status, upd, note) { return { id: id, ver: ver, meaning: meaning, recType: rec, auth: auth, batch: batch, samePerson: meaning !== 'performed' && meaning !== 'read_understood', status: status, upd: upd, note: note || '', author: '이수진', allowedRoles: (SIGN_ALLOWED[id] || []).slice() }; }
     var sign = [
@@ -316,9 +335,14 @@
       S('SM-VERI-STEP', 3, 'verified', 'step_value', 'full_factor', false, 'effective', '2026-07-01', '동일인 차단 · 랜덤 키패드'),
       S('SM-VERI-WEIGH', 2, 'verified', 'weigh_value', 'full_factor', false, 'effective', '2026-07-01'),
       S('SM-VERI-CORR', 1, 'verified', 'correction', 'full_factor', false, 'effective', '2026-08-12', '정정자 ≠ 확인자'),
+      Object.assign(S('SM-VERI-CORR', 2, 'verified', 'correction', 'full_factor', false, 'effective', '2026-10-12', '정정 QA 확인 (정정 수행자 ≠ 확인자)'), { allowedRoles: ['QA'] }),   /* v2 QA 한정 (정정 흐름 K-2), v1 이력 보존 */
+      S('SM-PERF-CORR', 1, 'performed', 'correction', 'full_factor', false, 'effective', '2026-10-12', '값 정정 수행 (원 수행자 제한 없음 · 작업자/감독자)'),
       S('SM-APPR-MBR', 2, 'approved', 'mbr_approval', 'full_factor', false, 'effective', '2026-06-05'),
       S('SM-APPR-REL', 2, 'approved', 'release', 'full_factor', false, 'effective', '2026-06-05', '개별 · 일괄 불가'),
       S('SM-APPR-OVR', 1, 'approved', 'interlock_override', 'full_factor', false, 'effective', '2026-07-15', 'Hard-QA override'),
+      S('SM-APPR-CTRL', 1, 'approved', 'interlock_override', 'full_factor', false, 'effective', '2026-10-12', 'Controlled 인터록 감독자 승인 (적중 시 수행자 ≠ 승인자)'),
+      S('SM-REV-ILR', 1, 'reviewed', 'interlock_rule', 'full_factor', false, 'effective', '2026-10-12', '인터록 룰 세트 검토 (작성자 ≠ 검토자)'),
+      S('SM-APPR-ILR', 1, 'approved', 'interlock_rule', 'full_factor', false, 'effective', '2026-10-12', '인터록 룰 세트 승인 (작성자 · 검토자 ≠ 승인자)'),
       S('SM-APPR-EQC', 1, 'approved', 'eqclass_approval', 'full_factor', false, 'effective', '2026-07-02', '장비 클래스 승인 · 적격 목록 스냅샷 고정'),
       S('SM-APPR-ISSUE', 1, 'approved', 'batch_issue', 'full_factor', false, 'effective', '2026-10-09', '배치 발행 승인 (P0 1인 · 감독자/QA)'),
       S('SM-APPR-REWEIGH', 1, 'approved', 'weigh_reweigh', 'full_factor', false, 'effective', '2026-10-09', '재칭량 승인 (허용오차 이탈 1회차 · 감독자/QA)'),
@@ -333,6 +357,10 @@
       S('SM-APPR-MATQC', 1, 'approved', 'material_qc', 'full_factor', false, 'effective', '2026-10-12', '자재 QC 판정 (적합 해제 · 부적합 · QA)'),
       S('SM-REV-BATCH', 1, 'reviewed', 'batch_review', 'full_factor', false, 'effective', '2026-10-12', '배치 기록 2차 검토 (critical 전수 · QA)'),
       S('SM-REV-MBR', 1, 'reviewed', 'mbr_approval', 'full_factor', false, 'effective', '2026-10-12', 'MBR 독립 검토 (작성자와 다른 사람)'),
+      S('SM-REV-DOWN', 1, 'reviewed', 'downtime_review', 'full_factor', false, 'effective', '2026-10-12', '다운타임 QA 전수 검토 (출하 게이트 7)'),
+      S('SM-REV-CHG', 1, 'reviewed', 'change_impact', 'full_factor', false, 'effective', '2026-10-12', '개정 첫 배치 변경 영향 검토 (출하 게이트 10)'),
+      S('SM-REV-CTRL', 1, 'reviewed', 'control_eval', 'full_factor', false, 'effective', '2026-10-12', '통제 강화 후 기존 값 평가 (출하 게이트 11)'),
+      S('SM-REV-RESTORE', 1, 'reviewed', 'integrity_ack', 'full_factor', false, 'effective', '2026-10-12', '복원 탐지 QA 확인 (출하 게이트 12)'),
       S('SM-APPR-CC', 1, 'approved', 'cc_approval', 'biometric_opt', false, 'draft', '2026-10-03', '생체 옵션 시범')
     ];
     function AM(id, ver, name, auth, zone, temp, plugin, status, upd) { return { id: id, ver: ver, name: name, auth: auth, zone: zone, temp: temp, plugin: plugin, status: status, upd: upd, author: '김민수', note: '' }; }
@@ -364,17 +392,18 @@
       TM('T-CART-02', 'cart', 'Panasonic FZ-G2 카트', '', '', 'offline', 3, 15, 10, 'RFID-CART02', 'AM-RFID-BAND', 'draft', '—')
     ];
     var all = { phase: phase, config: config, sign: sign, auth: auth, terminal: terminal, eqclass: eqclass };
-    ['phase', 'config', 'sign', 'auth', 'terminal'].forEach(function (k) { all[k].forEach(function (r) { r.hash = MS.calcHash(r); }); });
+    ['phase', 'config', 'sign', 'auth', 'terminal'].forEach(function (k) { all[k].forEach(function (r) { if (r.kind === 'interlock') r.hashVer = 2; r.hash = MS.calcHash(r); });   /* C3: 인터록 시드 = hashVer 2 · 다른 시드는 공유 store 비교용 원형 유지(hashVer 없음 = 옛 식) */ });
     return all;
   }
-  function seedAll() { var g = seedGcm(), d = seedDomain(); d.gcmTables = g.tables; d.gcmData = g.data; d.v = VERSION; d.signMigrations = ['MIG-SM-REV-AUDIT-V2']; return d; }   /* 새 시드는 이관 내용 포함 */
+  function seedAll() { var g = seedGcm(), d = seedDomain(); d.gcmTables = g.tables; d.gcmData = g.data; d.v = VERSION; d.signMigrations = ['MIG-SM-REV-AUDIT-V2', 'MIG-SM-VERI-CORR-V2']; return d; }   /* 새 시드는 이관 내용 포함 */
   MS.seedAll = seedAll;
 
   /* ================================================================== 저장소 (메모리 + localStorage, 화면 간 공유) */
   MS.DB = null; MS.persisted = false;
   /* 시드 보충 (병합만): 저장된 S-39 sign 에 해당 id 행이 하나도 없을 때만 시드 행을 추가한다.
      기존 행(사용자 편집 포함)은 읽기만 하고 고치지 않는다 — 예: allowedRoles 를 비운 행은 그대로 둔다(서명은 fail-closed) */
-  var BACKFILL_SIGN_IDS = ['SM-APPR-ISSUE', 'SM-APPR-REWEIGH', 'SM-PERF-BALCHK', 'SM-PERF-BALRECHK', 'SM-VERI-PKLAB', 'SM-REV-PACK', 'SM-APPR-MATQC', 'SM-REV-BATCH', 'SM-REV-MBR'];
+  var BACKFILL_SIGN_IDS = ['SM-APPR-ISSUE', 'SM-APPR-REWEIGH', 'SM-PERF-BALCHK', 'SM-PERF-BALRECHK', 'SM-VERI-PKLAB', 'SM-REV-PACK', 'SM-APPR-MATQC', 'SM-REV-BATCH', 'SM-REV-MBR',
+    'SM-REV-DOWN', 'SM-REV-CHG', 'SM-REV-CTRL', 'SM-REV-RESTORE', 'SM-PERF-CORR', 'SM-APPR-CTRL', 'SM-REV-ILR', 'SM-APPR-ILR'];
   MS.backfillSign = function (db) {
     if (!db || !Array.isArray(db.sign)) return 0;
     var seedSign = null, n = 0;
@@ -389,7 +418,175 @@
      SM-REV-AUDIT v1(status review) 은 효력이 없다 → effective 행이 하나도 없을 때만 시드 v2 행을 추가(v1 보존 · getSignRule 은 effective 최고 버전).
      표지 db.signMigrations 에 id 를 남겨, 사용자가 뒤에 v2 를 폐기해도 다시 넣지 않는다. 추가했으면 변경 감사 MASTER_MIGRATE(uid SYSTEM) — 감사 헬퍼가 없으면 감사 없이 표지만.
      → 추가한 행 수 */
-  var SIGN_MIGRATIONS = [{ id: 'MIG-SM-REV-AUDIT-V2', ruleId: 'SM-REV-AUDIT', ver: 2 }];
+  /* addIfVerMissing: effective 행이 있어도 그 버전 행이 없으면 추가 (SM-VERI-CORR v1 effective → v2 QA 한정 추가, 정정 흐름 K-2) */
+  var SIGN_MIGRATIONS = [{ id: 'MIG-SM-REV-AUDIT-V2', ruleId: 'SM-REV-AUDIT', ver: 2 }, { id: 'MIG-SM-VERI-CORR-V2', ruleId: 'SM-VERI-CORR', ver: 2, addIfVerMissing: true }];
+  /* GCM 표 보충 (병합만): 저장된 마스터에 표가 없을 때만 시드 표 · 행 추가 (기존 표는 읽기만) → 추가한 표 수 */
+  var BACKFILL_GCM_TABLES = ['EBR_CORR_REASON', 'EBR_OVR_REASON'];
+  MS.backfillGcm = function (db) {
+    if (!db || !Array.isArray(db.gcmTables) || !db.gcmData) return 0;
+    var g = null, n = 0;
+    BACKFILL_GCM_TABLES.forEach(function (name) {
+      if (db.gcmTables.some(function (t) { return t && t.tableName === name; })) return;
+      if (!g) g = seedGcm();
+      var t = g.tables.filter(function (x) { return x.tableName === name; })[0]; if (!t) return;
+      db.gcmTables.push(clone(t)); db.gcmData[name] = clone(g.data[name] || []); n++;
+    });
+    return n;
+  };
+  MS.seedGcm = function () { return seedGcm(); };
+  /* ================================================================== 인터록 룰 세트 수명주기 (인터록 설계 §4 · I1-4)
+     draft →(검토 요청) review →(검토 서명 SM-REV-ILR) review+reviewed →(승인 서명 SM-APPR-ILR) effective(효력일 ≤ 오늘) | approved(효력일 미래), 이전 effective → superseded.
+     서명은 EbrUserSession.beginRecordSign · signAndCommitRecord (공통 서명 창). 검증은 EbrInterlock.validateRules (없으면 fail-closed). */
+  var ILR_MSG = { not_found: '인터록 룰 세트를 찾을 수 없습니다.', not_draft: '작성 중(draft) 버전만 검토 요청할 수 있습니다.', not_review: '검토 단계 버전이 아닙니다.',
+    review_missing: '검토 서명이 없어 승인할 수 없습니다.', same_person: '작성자 · 검토자 · 승인자는 서로 달라야 합니다.', validator_unavailable: '인터록 규칙 검증 모듈을 찾을 수 없습니다 — 진행 불가.',
+    invalid: '인터록 규칙 검증에 실패했습니다.', no_session: '사용자 세션 모듈을 찾을 수 없습니다.', no_current_user: '현재 사용자를 선택하세요.', bad_kind: 'kind 는 review 또는 approve 입니다.' };
+  ILR_MSG.review_stale = '검토 서명 뒤 내용이 바뀌었습니다 — 다시 검토 요청 후 검토 서명을 받으세요.'; ILR_MSG.reset_denied = '샘플 복원은 QA · 관리자만 할 수 있습니다.';
+  function ilrFail(why, extra) { var r = { ok: false, why: why, message: ILR_MSG[why] || why }; if (extra) Object.keys(extra).forEach(function (k) { r[k] = extra[k]; }); return r; }
+  function ilrRow(setId, ver) { if (!MS.DB) MS.load(); return MS.DB.config.filter(function (r) { return r.kind === 'interlock' && r.id === setId && Number(r.ver) === Number(ver); })[0] || null; }
+  MS.ilrValidate = function (body) {
+    var IL = global.EbrInterlock; if (!IL || typeof IL.validateRules !== 'function') return ilrFail('validator_unavailable', { errors: [] });
+    return IL.validateRules(body);
+  };
+  /* 서명 대상 내용 hash — 행 hash(MS.calcHash, 무결성 검증용 · 변경 없음)에서 서명 기록(ilrReview · ilrApprove · reviewer)만 뺀 것.
+     검토 · 승인 서명 문장 · 서명 필드 · 효력 후 화면이 모두 이 값을 쓴다 → 서명한 hash == 효력 세트의 내용 hash (승인 기록이 붙어 행 hash 가 바뀌어도 내용은 같음) */
+  function ilrContentHash(row) { var c = Object.assign({}, row); ['ilrReview', 'ilrApprove', 'reviewer', 'status', 'effDate'].forEach(function (k) { delete c[k]; }); return MS.calcHash(c); }   /* 상태 · 효력일은 행 hash 로 따로 묶음 */
+  function ilrAudit(a) { var S = global.EbrUserSession; try { if (S && S.Audit) S.Audit.append(a); } catch (e) { /* 감사 실패는 결과를 바꾸지 않음 */ } }
+  /* W6: 거부된 룰 세트 서명 시도 감사 */
+  function ilrReject(r, o, kind) { ilrAudit({ act: 'ILR_SIGN_REJECTED', tgt: (o.setId || '') + ' v' + (o.ver == null ? '' : o.ver), val: (kind || '') + ' · ' + r.why, why: r.message || r.why, screen: o.screen || '' }); return r; }
+  MS.ilrContentHash = function (row) { return ilrContentHash(row); };
+  function ilrChangeN(row) {
+    var prev = MS.DB.config.filter(function (r) { return r.kind === 'interlock' && r.id === row.id && r.status === 'effective'; })[0], a = prev && prev.body && prev.body.rules || [], b = row.body && row.body.rules || [], n = 0, ka = {};
+    a.forEach(function (x) { ka[x.ruleId] = JSON.stringify(x); }); b.forEach(function (x) { if (ka[x.ruleId] !== JSON.stringify(x)) n++; delete ka[x.ruleId]; }); return n + Object.keys(ka).length;
+  }
+  MS.ilrRequestReview = function (o) {
+    o = o || {}; var S = global.EbrUserSession; if (!S) return ilrFail('no_session');
+    var u = S.getCurrentUser && S.getCurrentUser(); if (!u) return ilrFail('no_current_user');
+    var q0 = ilrQaOnly(); if (q0) return q0;
+    var row = ilrRow(o.setId, o.ver); if (!row) return ilrFail('not_found'); if (row.status !== 'draft') return ilrFail('not_draft');
+    var v = MS.ilrValidate(row.body); if (!v.ok) return ilrFail(v.why === 'validator_unavailable' ? 'validator_unavailable' : 'invalid', { errors: v.errors || [] });
+    var h0 = row.hash; row.status = 'review'; row.authorId = row.authorId || u.userId; row.ilrReview = null; row.hashVer = 2; row.hash = MS.calcHash(row); MS.persist();
+    if (S.Audit) S.Audit.append({ act: 'ILR_REVIEW_REQUESTED', tgt: row.id + ' v' + row.ver, val: '변경 ' + ilrChangeN(row) + '건', screen: o.screen || '',
+      before: { status: 'draft', hash: h0 }, after: { status: 'review', hash: row.hash, contentHash: ilrContentHash(row) } });
+    return { ok: true, row: clone(row) };
+  };
+  MS.ilrBeginSign = function (o) {
+    o = o || {}; var r = ilrBeginSign0(o);
+    return r && r.ok === false && r.why !== 'no_session' ? ilrReject(r, o, o.kind) : r;
+  };
+  function ilrBeginSign0(o) {
+    var S = global.EbrUserSession; if (!S) return ilrFail('no_session');
+    if (o.kind !== 'review' && o.kind !== 'approve') return ilrFail('bad_kind');
+    var row = ilrRow(o.setId, o.ver); if (!row) return ilrFail('not_found'); if (row.status !== 'review') return ilrFail('not_review');
+    if (o.kind === 'approve' && !(row.ilrReview && row.ilrReview.signatureId)) return ilrFail('review_missing');
+    if (o.kind === 'approve' && ilrContentHash(row) !== row.ilrReview.contentHash) return ilrFail('review_stale');   /* B1: 검토한 내용 그대로만 승인 */
+    var v = MS.ilrValidate(row.body); if (!v.ok) return ilrFail(v.why === 'validator_unavailable' ? 'validator_unavailable' : 'invalid', { errors: v.errors || [] });
+    var u = S.getCurrentUser && S.getCurrentUser();
+    var distinct = [];
+    if (row.authorId) distinct.push({ userId: row.authorId, label: '작성자' });
+    if (o.kind === 'approve') distinct.push({ userId: row.ilrReview.userId, label: '검토자' });
+    if (u && distinct.some(function (d) { return d.userId === u.userId; })) return ilrFail('same_person');
+    var ruleId = o.kind === 'review' ? 'SM-REV-ILR' : 'SM-APPR-ILR', h0 = ilrContentHash(row), n = ilrChangeN(row), setId = row.id, ver = row.ver;
+    var effDate = o.effDate || MS.TODAY, eff0 = ilrEff(setId), changes = diffRules(eff0 && eff0 !== row ? eff0.body.rules : [], row.body.rules).filter(function (d) { return d.kind !== 'same'; });
+    var res = S.beginRecordSign({
+      signRuleId: ruleId, recordType: 'interlock_rule', tgt: setId + ' v' + ver, val: (o.kind === 'review' ? '검토' : '승인') + ' · 변경 ' + n + '건', screen: o.screen,
+      statementKind: o.kind === 'review' ? 'interlock_rule_review' : 'interlock_rule_approve', statementCtx: { setId: setId, ver: ver, hash8: h0.slice(0, 8), n: n },
+      openAct: 'ILR_SIGN_OPEN', qualTargets: [], keys: [LS_KEY], fields: { setId: setId, ver: ver, hash: h0, effDate: o.kind === 'review' ? null : effDate, statementKind: o.kind === 'review' ? 'interlock_rule_review' : 'interlock_rule_approve' },
+      distinctFrom: distinct,
+      precheck: function () { MS.load(); var r = ilrRow(setId, ver); if (!r || r.status !== 'review' || ilrContentHash(r) !== h0) return { detail: 'changed', message: '룰 세트가 바뀌었습니다 — 다시 여세요.' };
+        if (o.kind === 'approve' && (!r.ilrReview || r.ilrReview.contentHash !== h0)) return { detail: 'review_stale', message: ILR_MSG.review_stale }; return null; },
+      apply: function (sig, actx) {
+        var r = ilrRow(setId, ver), audits;
+        if (o.kind === 'review') {
+          r.ilrReview = { signatureId: sig.signatureId, userId: sig.signerId, at: actx.at, contentHash: h0 }; r.reviewer = sig.signerName || sig.signerId;
+          audits = [{ act: 'ILR_REVIEWED', tgt: setId + ' v' + ver, val: sig.signatureId + ' · 변경 ' + n + '건', signRuleId: ruleId, recordType: 'interlock_rule', before: { status: 'review', reviewed: false }, after: { status: 'review', reviewed: true, contentHash: h0 } }];
+        } else {
+          var t = MS.TODAY, now = effDate <= t;
+          if (!r.ilrReview || r.ilrReview.contentHash !== h0) throw new Error('ilr_review_stale');   /* B1 */
+          var hb = r.hash; r.ilrApprove = { signatureId: sig.signatureId, userId: sig.signerId, at: actx.at, contentHash: h0, effDate: effDate }; r.effDate = effDate; r.status = now ? 'effective' : 'approved';
+          audits = [];
+          if (now) MS.DB.config.forEach(function (x) { if (x !== r && x.kind === 'interlock' && x.id === setId && x.status === 'effective') {
+            var xh = x.hash; x.status = 'superseded'; if (!x.ilrApprove) x.hash = MS.calcHash(x);   /* C3: 서명 행 hash 는 다시 쓰지 않음(검증은 서명 당시 상태로) · 서명 없는 시드 행만 다시 계산 */
+            audits.push({ act: 'ILR_SUPERSEDED', tgt: setId + ' v' + x.ver, val: 'v' + ver + ' 승인으로 대체', recordType: 'interlock_rule', before: { status: 'effective', hash: xh }, after: { status: 'superseded', hash: x.hash } }); } });
+          audits.unshift({ act: 'ILR_APPROVED', tgt: setId + ' v' + ver, val: sig.signatureId + ' · ' + r.status + ' · 효력 ' + effDate, signRuleId: ruleId, recordType: 'interlock_rule',
+            before: { status: 'review', hash: hb }, after: { status: r.status, effDate: effDate, contentHash: h0 } });
+        }
+        if (ilrContentHash(r) !== h0) throw new Error('ilr_signed_content_mismatch');   /* 서명한 내용 그대로만 효력 */
+        r.hash = MS.calcHash(r);
+        localStorage.setItem(LS_KEY, JSON.stringify(MS.DB)); MS.persisted = true;
+        return { result: { row: clone(r) }, audits: audits };
+      }
+    });
+    if (res && res.ok) res.target = Object.assign({}, res.target, { changes: changes, author: row.authorId || row.author || '', reviewer: row.ilrReview ? row.ilrReview.userId : '', hash: h0, from: eff0 ? eff0.ver : null,
+      rule: Object.assign({}, res.target.rule || {}, { roles: res.target.rule ? res.target.rule.allowedRoles : [] }) });
+    return res;
+  }
+  /* ---- S-48 화면 연결 (ilr-ui-wire.js 가 기대하는 모양) */
+  function ilrUserOf(name) { return name || ''; }
+  /* W2: 검토자 · 승인자 표시는 서명 원장(ebr.esign.v1) 기록에서 — 행의 ilrReview.userId 는 내용 hash 밖이라 믿지 않음 */
+  function ilrSigner(rec) { if (!rec || !rec.signatureId) return ''; try { var l = JSON.parse(localStorage.getItem('ebr.esign.v1') || '[]'); var a = Array.isArray(l) ? l : (l.items || []); var g = a.filter(function (x) { return x && x.signatureId === rec.signatureId && x.status === 'valid'; })[0]; return g ? g.signerId : ''; } catch (e) { return ''; } }
+  function ilrSetView(r) {
+    return { id: r.id, ver: r.ver, name: r.name, status: r.status, scope: r.apply || 'site', effDate: r.effDate || '', author: r.authorId || ilrUserOf(r.author), reviewer: r.ilrReview ? ilrSigner(r.ilrReview) : ilrUserOf(r.reviewer),
+             approver: r.ilrApprove ? ilrSigner(r.ilrApprove) : '', upd: r.upd || '', rules: clone((r.body && r.body.rules) || []), hash: r.hash || MS.calcHash(r), contentHash: ilrContentHash(r), signedHash: r.ilrApprove ? r.ilrApprove.contentHash || null : null, demo: r.apply === 'demo' };
+  }
+  MS.ilrSets = function () { if (!MS.DB) MS.load(); return MS.DB.config.filter(function (r) { return r.kind === 'interlock'; }).map(ilrSetView).sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : a.ver - b.ver; }); };
+  MS.ilrGet = function (id, ver) {
+    if (!MS.DB) MS.load();
+    var rows = MS.DB.config.filter(function (r) { return r.kind === 'interlock' && r.id === id && (ver == null || Number(r.ver) === Number(ver)); }).sort(function (a, b) { return b.ver - a.ver; });
+    return rows[0] ? ilrSetView(rows[0]) : null;
+  };
+  function ilrEff(id) { return MS.DB.config.filter(function (r) { return r.kind === 'interlock' && r.id === id && r.status === 'effective'; }).sort(function (a, b) { return b.ver - a.ver; })[0] || null; }
+  /* 검증: 통과 null, 실패 { ok:false, why, ruleId, vars:{key, range, item}, message, errors } (첫 오류) — prev = 효력 버전 규칙(잠금 규칙 삭제 · 하향 금지) */
+  MS.ilrValidateRules = function (rules, prev, absolute) {
+    var IL = global.EbrInterlock; if (!IL || typeof IL.validateRules !== 'function') return ilrFail('validator_unavailable', { errors: [] });
+    var v = IL.validateRules({ rules: rules || [], absolute: absolute || [] }, prev || null);
+    if (v.ok) return null;
+    var e = v.errors[0];
+    return { ok: false, why: e.why, ruleId: e.ruleId, vars: { key: e.key || '', range: e.range || '', item: e.item || '' }, message: e.message, errors: v.errors };
+  };
+  function ilrQaOnly() {
+    var S = global.EbrUserSession, u = S && S.getCurrentUser && S.getCurrentUser();
+    if (!u) return ilrFail('no_current_user');
+    return (S.rolesOf(u.userId) || []).indexOf('QA') >= 0 ? null : ilrFail('author_only_qa');
+  }
+  ILR_MSG.author_only_qa = '편집 · 저장 · 검토 요청은 QA 만 할 수 있습니다.'; ILR_MSG.draft_exists = '진행 중인 draft · 검토 버전이 이미 있습니다.'; ILR_MSG.no_effective_set = '효력 중인 인터록 룰 세트가 없습니다 — 진행할 수 없습니다.';
+  MS.ilrNewVersion = function (id) {
+    if (!MS.DB) MS.load(); var q = ilrQaOnly(); if (q) return q;
+    if (MS.DB.config.some(function (r) { return r.kind === 'interlock' && r.id === id && (r.status === 'draft' || r.status === 'review'); })) return ilrFail('draft_exists');
+    var e = ilrEff(id); if (!e) return ilrFail('no_effective_set');
+    var u = global.EbrUserSession.getCurrentUser(), n = clone(e);
+    n.ver = Math.max.apply(null, MS.DB.config.filter(function (r) { return r.kind === 'interlock' && r.id === id; }).map(function (r) { return r.ver; })) + 1;
+    n.status = 'draft'; n.effDate = ''; n.reviewer = ''; n.author = u.name || u.userId; n.authorId = u.userId; n.upd = MS.TODAY; delete n.ilrReview; delete n.ilrApprove; n.hashVer = 2; n.hash = MS.calcHash(n);
+    MS.DB.config.push(n); MS.persist();
+    if (global.EbrUserSession.Audit) global.EbrUserSession.Audit.append({ act: 'CONFIG_SAVE', tgt: id + ' v' + n.ver, val: '새 버전 (v' + e.ver + ' 복제)', before: { ver: e.ver, contentHash: ilrContentHash(e) }, after: { status: 'draft', hash: n.hash } });
+    return { ok: true, set: ilrSetView(n) };
+  };
+  MS.ilrSaveDraft = function (id, ver, rules) {
+    if (!MS.DB) MS.load(); var q = ilrQaOnly(); if (q) return q;
+    var r = ilrRow(id, ver); if (!r || r.status !== 'draft') return ilrFail('not_draft');
+    var e = ilrEff(id), v = MS.ilrValidateRules(rules, e && e.body ? e.body.rules : null, r.body && r.body.absolute); if (v) return v;
+    var u = global.EbrUserSession.getCurrentUser(), hb = r.hash;
+    r.body = Object.assign({}, r.body || {}, { rules: clone(rules) }); r.upd = MS.TODAY; r.authorId = u.userId; r.author = u.name || u.userId; r.hashVer = 2; r.hash = MS.calcHash(r); MS.persist();
+    if (global.EbrUserSession.Audit) global.EbrUserSession.Audit.append({ act: 'CONFIG_SAVE', tgt: id + ' v' + ver, val: '규칙 ' + rules.length + '행 저장 · hash ' + r.hash.slice(0, 8), before: { hash: hb }, after: { hash: r.hash } });
+    return { ok: true, hash: r.hash };
+  };
+  var DIFF_F = ['grade', 'point', 'cond', 'msg', 'sopRef', 'enabled'];
+  function condTxt(c) { if (!c || !c.type) return '—'; var ks = Object.keys(c).filter(function (k) { return k !== 'type'; }); return ks.length ? c.type + ' (' + ks.map(function (k) { var v = c[k]; return k + ' ' + (Array.isArray(v) ? v.join(',') : v); }).join(' · ') + ')' : c.type; }
+  function showV(v) { return v == null ? '—' : typeof v === 'object' ? condTxt(v) : String(v); }
+  function diffRules(a, b) {
+    var am = {}, out = []; (a || []).forEach(function (r) { am[r.ruleId] = r; });
+    (b || []).forEach(function (r) {
+      var o = am[r.ruleId];
+      if (!o) { out.push({ kind: 'add', ruleId: r.ruleId, grade: r.grade, field: '규칙', a: '—', b: r.name + ' · ' + condTxt(r.cond) }); return; }
+      var ch = DIFF_F.filter(function (f) { return JSON.stringify(o[f]) !== JSON.stringify(r[f]); });
+      if (!ch.length) out.push({ kind: 'same', ruleId: r.ruleId, grade: r.grade, field: '—', a: '', b: '' });
+      ch.forEach(function (f) { out.push({ kind: 'chg', ruleId: r.ruleId, grade: r.grade, field: f, a: showV(o[f]), b: showV(r[f]) }); });
+      delete am[r.ruleId];
+    });
+    Object.keys(am).forEach(function (k) { out.push({ kind: 'del', ruleId: k, grade: am[k].grade, field: '규칙', a: am[k].name, b: '—' }); });
+    return out;
+  }
+  MS.ilrDiff = function (a, b) { var A = MS.ilrGet(a.id, a.ver), B = MS.ilrGet(b.id, b.ver); return diffRules(A ? A.rules : [], B ? B.rules : []); };
+  MS.ilrSignAndCommit = function (ticket, input) { var S = global.EbrUserSession; if (!S) return ilrFail('no_session'); var r = S.signAndCommitRecord(ticket, input || {}); if (r && r.ok) { MS.load(); MS.emit(); } else { MS.load(); } return r; };
   MS.migrateSign = function (db) {
     if (!db || !Array.isArray(db.sign)) return 0;
     if (!Array.isArray(db.signMigrations)) db.signMigrations = [];
@@ -397,7 +594,7 @@
     SIGN_MIGRATIONS.forEach(function (m) {
       if (db.signMigrations.indexOf(m.id) >= 0) return;
       var rows = db.sign.filter(function (r) { return r && r.id === m.ruleId; });
-      if (!rows.some(function (r) { return r.status === 'effective'; })) {
+      if (m.addIfVerMissing || !rows.some(function (r) { return r.status === 'effective'; })) {
         if (!seedSign) seedSign = seedDomain().sign;
         var row = seedSign.filter(function (r) { return r.id === m.ruleId && r.ver === m.ver; })[0];
         if (row && !rows.some(function (r) { return r.ver === m.ver; })) {
@@ -420,7 +617,7 @@
         if (o && o.v === VERSION && o.gcmTables) {
           MS.DB = o; MS.persisted = true;
           var mk0 = Array.isArray(o.signMigrations) ? o.signMigrations.length : -1;
-          if (MS.backfillSign(o) + MS.migrateSign(o) || mk0 !== o.signMigrations.length) { try { localStorage.setItem(LS_KEY, JSON.stringify(o)); } catch (e1) { MS.persisted = false; } }
+          if (MS.backfillSign(o) + MS.migrateSign(o) + MS.backfillGcm(o) || mk0 !== o.signMigrations.length) { try { localStorage.setItem(LS_KEY, JSON.stringify(o)); } catch (e1) { MS.persisted = false; } }
           return MS.DB;
         }
       }
@@ -433,9 +630,25 @@
     MS.lastSaved = new Date();
     MS.emit();
   };
+  /* W7: 샘플 복원 — QA · ADMIN 만, 감사, 서명된 인터록 룰 세트 이력(ilrReview · ilrApprove 행)은 보존 */
   MS.reset = function () {
+    var S = global.EbrUserSession; if (!S) return ilrFail('no_session');   /* N4: 세션 모듈 없으면 거부 (게이트 · 감사 우회 금지) */
+    var u = S.getCurrentUser && S.getCurrentUser(), roles = u && S.rolesOf ? (S.rolesOf(u.userId) || []) : [];
+    if (!(roles.indexOf('QA') >= 0 || roles.indexOf('ADMIN') >= 0)) { ilrAudit({ act: 'MASTER_RESET_REJECTED', tgt: LS_KEY, val: 'reset_denied', why: ILR_MSG.reset_denied }); return ilrFail('reset_denied'); }
+    if (!MS.DB) MS.load();
+    var keep = (MS.DB && MS.DB.config || []).filter(function (r) { return r.kind === 'interlock' && (r.ilrReview || r.ilrApprove); }).map(clone);
     try { localStorage.removeItem(LS_KEY); } catch (e) { /* noop */ }
-    MS.DB = seedAll(); MS.persisted = false; MS.emit();
+    MS.DB = seedAll();
+    if (keep.length) {
+      keep.forEach(function (k) {
+        MS.DB.config = MS.DB.config.filter(function (r) { return !(r.kind === 'interlock' && r.id === k.id && Number(r.ver) === Number(k.ver)); });
+        if (k.status === 'effective') MS.DB.config.forEach(function (x) { if (x.kind === 'interlock' && x.id === k.id && x.status === 'effective' && Number(x.ver) < Number(k.ver)) { x.status = 'superseded'; if (!x.ilrApprove) x.hash = MS.calcHash(x); } });
+        MS.DB.config.push(k);
+      });
+      try { localStorage.setItem(LS_KEY, JSON.stringify(MS.DB)); MS.persisted = true; } catch (e) { MS.persisted = false; }
+    } else MS.persisted = false;
+    ilrAudit({ act: 'MASTER_RESET', tgt: LS_KEY, val: '샘플 복원 · 서명된 룰 세트 ' + keep.length + '건 보존', before: { kept: keep.map(function (k) { return k.id + ' v' + k.ver; }) }, after: { seeded: true } });
+    MS.emit(); return { ok: true, kept: keep.length };
   };
   var listeners = [];
   MS.on = function (fn) { listeners.push(fn); };
@@ -460,6 +673,8 @@
       purpose: 'Phase 블록 수명주기 · 해시. 장비 클래스를 (ID · 버전 · 해시)로 참조.' },
     { key: 'config', mod: 'EBR', file: 'ebr/s-ebr-config-object-ui.html', nm: '설정 객체', sid: 'S-07 · S-08 편집 팝업', stores: ['config'],
       purpose: '인터록 · 중요도 · RBE · 계산식 · 파서 · 히스토리안 6종. S-08 인터록 등급 동작 정의표.' },
+    { key: 'ilr', mod: 'EBR', file: 'ebr/s-ebr-interlock-rule-ui.html', nm: '인터록 규칙', sid: 'S-48 · CEbrSetupInterlockRuleMain', stores: ['config'],
+      purpose: '인터록 룰 세트(설정 객체 interlock 본문 rules[]) — 규칙 행 편집 · 검토(SM-REV-ILR) · 승인(SM-APPR-ILR) 서명 · 버전 비교. 실행 화면은 EbrInterlock.evaluate 로 판정.' },
     { key: 'sign', mod: 'EBR', file: 'ebr/s-ebr-signature-setup-ui.html', nm: '서명 의미 · 인증 수단', sid: 'S-39 · CEbrSetupSignatureMeaningMain', stores: ['sign', 'auth'],
       purpose: '서명 의미 × 레코드 타입 · 요구 인증 강도, 인증 수단 플러그인.' },
     { key: 'terminal', mod: 'EBR', file: 'ebr/s-ebr-terminal-registry-ui.html', nm: '단말 레지스트리', sid: 'S-40 · CEbrSetupTerminalMain', stores: ['terminal'],
@@ -512,7 +727,8 @@
       { v: 'interlock_override', t: '인터록 override' }, { v: 'eqclass_approval', t: '장비 클래스 승인' }, { v: 'briefing', t: '변경점 브리핑' }, { v: 'rbe_exception', t: 'RBE 예외 검토' },
       { v: 'audit_trail', t: '감사추적 검토' }, { v: 'cc_approval', t: 'CC 승인' }, { v: 'batch_issue', t: '배치 발행' },
       { v: 'weigh_reweigh', t: '재칭량 승인' }, { v: 'balance_check', t: '저울 일일점검' },
-      { v: 'material_qc', t: '자재 QC 판정' }, { v: 'batch_review', t: '배치 기록 검토' }],
+      { v: 'material_qc', t: '자재 QC 판정' }, { v: 'batch_review', t: '배치 기록 검토' },
+      { v: 'downtime_review', t: '다운타임 검토' }, { v: 'change_impact', t: '변경 영향 검토' }, { v: 'control_eval', t: '통제 강화 평가' }, { v: 'integrity_ack', t: '복원 탐지 확인' }],
     LINE: [{ v: 'L-01', t: 'L-01 정제 1라인' }, { v: 'L-02', t: 'L-02 정제 2라인' }, { v: 'L-03', t: 'L-03 캡슐 라인' }, { v: 'L-04', t: 'L-04 액제 라인' }],
     ONLINE: [{ v: 'online', t: '온라인', b: 'ok' }, { v: 'offline', t: '오프라인', b: 'error' }, { v: 'maint', t: '점검', b: 'warn' }],
     ROLE: [{ v: 'none', t: '— 없음' }, { v: 'self', t: '작업자 본인' }, { v: 'supervisor', t: '감독자' }, { v: 'qa', t: 'QA' }],

@@ -22,7 +22,8 @@
     CURRENT_USER: 'ebmr.currentUser.v1',
     ESIGN: 'ebr.esign.v1',
     AUDIT: 'ebr.audit.v1',
-    ESIGN_VOID: 'ebr.esignVoid.v1',   /* 서명 무효화 기록 (추가 전용 · 해시 사슬) — ESIGN_INVALIDATED 감사와 대조 */
+    ESIGN_VOID: 'ebr.esignVoid.v1',
+    INTEGRITY: 'ebr.integrity.v1',    /* 되돌림 탐지 워터마크 (출하 게이트 동적 판정 조건 12) — appendAudit 성공 때 갱신 */   /* 서명 무효화 기록 (추가 전용 · 해시 사슬) — ESIGN_INVALIDATED 감사와 대조 */
     MASTER: 'ebmr.masterSetup.v2',
     ISSUED: 'ebr.batch.issued.v1',
     ORDER: 'ebr.order.v1',
@@ -87,6 +88,23 @@
   BUILTIN_RULES['SM-APPR-MATQC'] = seedRuleB('SM-APPR-MATQC', 1, 'approved', 'material_qc', 'full_factor', false, '2026-10-12', '자재 QC 판정 (적합 해제 · 부적합 · QA)', ['QA']);
   BUILTIN_RULES['SM-REV-BATCH'] = seedRuleB('SM-REV-BATCH', 1, 'reviewed', 'batch_review', 'full_factor', false, '2026-10-12', '배치 기록 2차 검토 (critical 전수 · QA)', ['QA']);
   BUILTIN_RULES['SM-REV-MBR'] = seedRuleB('SM-REV-MBR', 1, 'reviewed', 'mbr_approval', 'full_factor', false, '2026-10-12', 'MBR 독립 검토 (작성자와 다른 사람)', ['QA', 'SV']);
+  /* 출하 게이트 조건 서명 4종 (출하 게이트 동적 판정 설계 개정 1 §2.3–2.6 · 결정 D-O6: 허용 역할 QA만) */
+  var GATE_RULES = { DOWNTIME: 'SM-REV-DOWN', CHANGE: 'SM-REV-CHG', CONTROL: 'SM-REV-CTRL', RESTORE: 'SM-REV-RESTORE' };
+  BUILTIN_RULES['SM-REV-DOWN'] = seedRuleB('SM-REV-DOWN', 1, 'reviewed', 'downtime_review', 'full_factor', false, '2026-10-12', '다운타임 QA 전수 검토 (출하 게이트 7)', ['QA']);
+  BUILTIN_RULES['SM-REV-CHG'] = seedRuleB('SM-REV-CHG', 1, 'reviewed', 'change_impact', 'full_factor', false, '2026-10-12', '개정 첫 배치 변경 영향 검토 (출하 게이트 10)', ['QA']);
+  BUILTIN_RULES['SM-REV-CTRL'] = seedRuleB('SM-REV-CTRL', 1, 'reviewed', 'control_eval', 'full_factor', false, '2026-10-12', '통제 강화 후 기존 값 평가 (출하 게이트 11)', ['QA']);
+  BUILTIN_RULES['SM-REV-RESTORE'] = seedRuleB('SM-REV-RESTORE', 1, 'reviewed', 'integrity_ack', 'full_factor', false, '2026-10-12', '복원 탐지 QA 확인 (출하 게이트 12)', ['QA']);
+  /* 정정(부분 대체) 서명 2종 (정정 흐름 설계 §5.3 · K-1 · K-2): 수행 SM-PERF-CORR 신규(OP · SV), 확인 SM-VERI-CORR v2(QA 한정 — v1 SV · QA 는 S-39 이력으로 보존) */
+  var CORR_RULES = { PERFORM: 'SM-PERF-CORR', VERIFY: 'SM-VERI-CORR' };
+  BUILTIN_RULES['SM-PERF-CORR'] = seedRuleB('SM-PERF-CORR', 1, 'performed', 'correction', 'full_factor', false, '2026-10-12', '값 정정 수행 (원 수행자 제한 없음 · 작업자/감독자)', ['OP', 'SV']);
+  BUILTIN_RULES['SM-VERI-CORR'] = seedRuleB('SM-VERI-CORR', 2, 'verified', 'correction', 'full_factor', false, '2026-10-12', '정정 QA 확인 (정정 수행자 ≠ 확인자)', ['QA']);
+  /* 저장된 S-39 에 이 버전 이상 행이 없으면 내장본(backfill)으로 판정 — 기준정보 화면 이관(migrateSign) 전에도 강화된 규칙이 먼저 적용되도록 */
+  var BUILTIN_MIN_VER = { 'SM-VERI-CORR': 2 };
+  /* 인터록 규칙 (인터록 설계 §4 · I1-3 · I1-8): 규칙 세트 검토 · 승인(SV · QA / QA), Controlled 감독자 승인 SM-APPR-CTRL(SV) — 출하 게이트 11 의 SM-REV-CTRL 과 다른 규칙 */
+  var ILR_RULES = { REVIEW: 'SM-REV-ILR', APPROVE: 'SM-APPR-ILR', CTRL: 'SM-APPR-CTRL' };
+  BUILTIN_RULES['SM-REV-ILR'] = seedRuleB('SM-REV-ILR', 1, 'reviewed', 'interlock_rule', 'full_factor', false, '2026-10-12', '인터록 룰 세트 검토 (작성자 ≠ 검토자)', ['SV', 'QA']);
+  BUILTIN_RULES['SM-APPR-ILR'] = seedRuleB('SM-APPR-ILR', 1, 'approved', 'interlock_rule', 'full_factor', false, '2026-10-12', '인터록 룰 세트 승인 (작성자 · 검토자 ≠ 승인자)', ['QA']);
+  BUILTIN_RULES['SM-APPR-CTRL'] = seedRuleB('SM-APPR-CTRL', 1, 'approved', 'interlock_override', 'full_factor', false, '2026-10-12', 'Controlled 인터록 감독자 승인 (적중 시 수행자 ≠ 승인자)', ['SV']);
 
   var ROLE_DEFS = [
     { code: 'OP', name: '작업자', gmpSign: true }, { code: 'SV', name: '감독자', gmpSign: true },
@@ -117,6 +135,7 @@
   ];
 
   var MSG = {
+    read_only: '복원 탐지로 읽기 전용입니다 — QA 복원 확인 서명 필요(데모 초기화는 QA·관리자만)',
     no_current_user: '사용자를 선택하세요 — 상단 사용자 선택기에서 현재 사용자를 고른 뒤 다시 시도하세요.',
     not_current_user: '현재 사용자와 다른 ID로는 서명할 수 없습니다 — 상단에서 사용자를 전환한 뒤 다시 서명하세요.',
     locked: '계정이 잠겼습니다 — 관리자(ADMIN)에게 해제를 요청하세요.',
@@ -298,9 +317,137 @@
     if (st) ['batchId', 'signRuleId', 'recordType', 'lineId', 'dispenseId'].forEach(function (k) { if (st[k] != null && st[k] !== '' && e[k] == null) e[k] = st[k]; });
     return e;
   }
+  /* ------------------------------------------------------------------ 되돌림 탐지 워터마크 ebr.integrity.v1 (출하 게이트 조건 12)
+     { v:1, auditCount, lastAuditId, lastAuditHash, esignCount, voidSeq, at, ackSignatureId?, ackedAt?, detectedAt? } — 감사 저장 성공 때 현재 값으로 갱신.
+     현재 개수가 워터마크보다 작거나 워터마크 당시 마지막 감사 항목(lastAuditId · lastAuditHash)이 없거나 바뀌었으면 '복원 탐지' → 워터마크를 고정(갱신 안 함)하고 QA 확인(SM-REV-RESTORE) 때만 다시 맞춘다.
+     한계: 워터마크도 localStorage — 저장소 전체를 통째로 되돌리면 함께 되돌아가 탐지 못 함 */
+  function integrityCurrent() {
+    var a = readArr(KEYS.AUDIT), vr = readJson(KEYS.ESIGN_VOID, null);
+    var last = a.length ? a[a.length - 1] : null;
+    return { auditCount: a.length, lastAuditId: last ? (last.auditId || '') : '', lastAuditHash: last ? sha256Hex(stableStringify(last)) : '', esignCount: readArr(KEYS.ESIGN).length,
+             voidSeq: vr && Array.isArray(vr.items) ? vr.items.length : 0 };
+  }
+  /* 서명을 가리키는 참조 수 — 서명 · 무효 · 감사 · 워터마크를 뺀 ebr.* 키에서 signatureId 류 값이 비어 있지 않은 것 (서명 원장만 지운 경우를 '새 저장소'로 보지 않기 위함) */
+  /* 범위: ebr.* · ebmr.* 키, 필드명이 …SignatureId · …SignatureIds (대소문자 S 무관) — 문자열 값과 배열 안 문자열 모두. JSON 이 아니면 정규식으로 셈, 읽기 실패는 참조 있음(fail-closed) */
+  var SIG_FIELD_RE = /[sS]ignatureIds?$/, SIG_REF_RE = /"[A-Za-z]*[sS]ignatureIds?"\s*:\s*("[^"]+"|\[[^\]]*"[^"]+"[^\]]*\])/g;
+  function countSigRefs(v, n) {
+    if (Array.isArray(v)) { v.forEach(function (x) { n = countSigRefs(x, n); }); return n; }
+    if (v && typeof v === 'object') Object.keys(v).forEach(function (f) {
+      var x = v[f];
+      if (SIG_FIELD_RE.test(f)) { if (typeof x === 'string' && x) n++; else if (Array.isArray(x)) x.forEach(function (y) { if (typeof y === 'string' && y) n++; else n = countSigRefs(y, n); }); else n = countSigRefs(x, n); }
+      else n = countSigRefs(x, n);
+    });
+    return n;
+  }
+  function sigRefs() {
+    var out = [], skip = [KEYS.ESIGN, KEYS.ESIGN_VOID, KEYS.AUDIT, KEYS.INTEGRITY];
+    try {
+      var st = ls();
+      for (var i = 0; i < st.length; i++) {
+        var k = st.key(i); if (!k || (k.indexOf('ebr.') !== 0 && k.indexOf('ebmr.') !== 0) || skip.indexOf(k) >= 0) continue;
+        var raw = String(st.getItem(k) || ''), n = 0;
+        try { n = countSigRefs(JSON.parse(raw), 0); } catch (e1) { var m = raw.match(SIG_REF_RE); n = m ? m.length : 0; }
+        if (n) out.push({ key: k, n: n });
+      }
+    } catch (e) { return [{ key: '(읽기 실패)', n: 1 }]; }   /* 못 읽으면 참조 있음으로 (fail-closed) */
+    return out;
+  }
+  function sigRefCount() { return sigRefs().reduce(function (a, x) { return a + x.n; }, 0); }
+  function freshStore(c) { return !!(c && c.auditCount === 0 && c.esignCount === 0 && c.voidSeq === 0 && sigRefCount() === 0); }
+  function integrityState() {
+    var raw = readRaw(KEYS.INTEGRITY), wm = null, cur = integrityCurrent(), unreadable = false;
+    if (raw != null) { try { wm = JSON.parse(raw); } catch (e) { wm = null; } if (!wm || typeof wm !== 'object') { unreadable = true; wm = null; } }
+    var restored = false, why = [];
+    /* 워터마크 키만 지워 탐지를 피하는 경로 차단 (fail-closed): 감사 또는 서명이 1건 이상인데 워터마크가 없으면 'wm_missing',
+       형식이 틀리면(v !== 1 · auditCount 숫자 아님 · {} 등) 'wm_invalid' → 복원 탐지와 같이 읽기 전용(조건 12 차단, QA 복원 확인 서명으로만 해제) */
+    if (raw == null && (cur.auditCount >= 1 || cur.esignCount >= 1 || cur.voidSeq >= 1 || sigRefCount() > 0)) { restored = true; why.push('wm_missing'); }
+    else if (wm && (wm.v !== 1 || typeof wm.auditCount !== 'number' || !isFinite(wm.auditCount) || typeof wm.esignCount !== 'number')) { restored = true; why.push('wm_invalid'); wm = null; }
+    if (wm) {
+      if (cur.auditCount < (wm.auditCount || 0)) why.push('audit');
+      if (cur.esignCount < (wm.esignCount || 0)) why.push('esign');
+      if (cur.voidSeq < (wm.voidSeq || 0)) why.push('void');
+      /* 워터마크 당시 마지막 감사 항목이 같은 내용으로 남아 있어야 한다 (개수를 다시 채워도 내용 해시로 탐지) */
+      if (wm.lastAuditId) {
+        var hit = readArr(KEYS.AUDIT).filter(function (x) { return x && x.auditId === wm.lastAuditId; })[0];
+        if (!hit || (wm.lastAuditHash && sha256Hex(stableStringify(hit)) !== wm.lastAuditHash)) why.push('lastAudit');
+      }
+      restored = why.length > 0;
+    }
+    restored = restored || why.length > 0;
+    return { ok: !unreadable, unreadable: unreadable, restored: restored, why: why, watermark: wm ? clone(wm) : null, current: cur };
+  }
+  /* allowCreate: 워터마크 최초 생성은 이번 기록 전 감사 · 서명 · 무효 사슬 모두 0건(새 저장소)일 때만 */
+  function touchWatermark(allowCreate) {
+    try {
+      var st = integrityState();
+      var firstOk = allowCreate && readRaw(KEYS.INTEGRITY) == null && st.why.length === 1 && st.why[0] === 'wm_missing';
+      if (st.unreadable || (st.restored && !firstOk)) return false;   /* 손상 · 복원 탐지 중에는 고정 */
+      var w = st.watermark || {}, c = st.current;
+      var n = { v: 1, auditCount: c.auditCount, lastAuditId: c.lastAuditId, lastAuditHash: c.lastAuditHash, esignCount: c.esignCount, voidSeq: c.voidSeq, at: w.at || nowIsoLocal() };
+      if (w.auditCount !== c.auditCount || w.esignCount !== c.esignCount || w.voidSeq !== c.voidSeq) n.at = nowIsoLocal();
+      if (w.ackSignatureId) { n.ackSignatureId = w.ackSignatureId; n.ackedAt = w.ackedAt; }
+      ls().setItem(KEYS.INTEGRITY, JSON.stringify(n));
+      return true;
+    } catch (e) { return false; }
+  }
+  /* QA 확인 서명(SM-REV-RESTORE) 커밋 안에서만 — 워터마크를 현재 값으로 다시 맞춘다. 저장 실패 시 throw (커밋 원복) */
+  function integrityReset(ackSignatureId) {
+    var c = integrityCurrent(), at = nowIsoLocal();
+    var n = { v: 1, auditCount: c.auditCount, lastAuditId: c.lastAuditId, lastAuditHash: c.lastAuditHash, esignCount: c.esignCount, voidSeq: c.voidSeq, at: at, ackSignatureId: String(ackSignatureId || ''), ackedAt: at };
+    writeJson(KEYS.INTEGRITY, n, 'integrity');
+    return clone(n);
+  }
+  /* 복원 탐지 감사 INTEGRITY_RESTORE_DETECTED — 같은 워터마크(at)당 1회. → { ok, logged } */
+  function integrityNoteDetected(screen) {
+    var st = integrityState(); if (!st.restored) return { ok: true, logged: false };
+    var raw = readRaw(KEYS.INTEGRITY), wm = null; try { wm = JSON.parse(raw); } catch (e) { return { ok: false, logged: false }; }
+    if (wm && wm.detectedAt) return { ok: true, logged: false };
+    var w = st.watermark || {}, c = st.current;
+    if (!wm || typeof wm !== 'object') wm = { v: 0, missing: true };   /* wm_missing · wm_invalid: 탐지 표지만 남김 (형식이 틀린 채라 계속 차단) */
+    wm.detectedAt = nowIsoLocal();
+    try {
+      ls().setItem(KEYS.INTEGRITY, JSON.stringify(wm));
+      appendAudit([{ uid: getCurrentUserId() || 'SYSTEM', act: 'INTEGRITY_RESTORE_DETECTED', tgt: KEYS.INTEGRITY, why: st.why.join(','),
+                     val: '감사 ' + w.auditCount + '→' + c.auditCount + ' · 서명 ' + w.esignCount + '→' + c.esignCount + ' · 무효 사슬 ' + (w.voidSeq || 0) + '→' + c.voidSeq,
+                     before: { auditCount: w.auditCount, esignCount: w.esignCount, voidSeq: w.voidSeq || 0, at: w.at }, after: c, screen: screen }]);
+    } catch (e) { return { ok: false, logged: false }; }
+    return { ok: true, logged: true };
+  }
+  /* 데모 초기화(EbrExecSign.resetDemo) 안에서만 — 복원 탐지 · wm_missing · wm_invalid 를 현재 값 기준 새 워터마크로 해제 (확인 서명 없음, 감사 INTEGRITY_DEMO_RESET).
+     저장 실패 시 throw (호출 쪽이 원복) */
+  function integrityDemoReset(uid, screen, password) {
+    var st = integrityState(), c = integrityCurrent(), at = nowIsoLocal();
+    if (!st.restored && !st.unreadable) return { ok: true, cleared: false };   /* 탐지 없으면 그대로 (감사 없음) */
+    /* 비밀번호 재입력 필수 (저장하지 않음) */
+    var ra = reauthCurrent(uid, password, { screen: screen, act: '데모 초기화 해제' });
+    if (!ra.ok) return { ok: false, cleared: false, why: ra.why, failCount: ra.failCount, locked: ra.locked, maxFail: MAX_FAIL, message: '데모 초기화 해제는 현재 사용자 비밀번호 재입력이 필요합니다.' + (ra.failCount != null ? ' (인증 실패 ' + ra.failCount + '/' + MAX_FAIL + (ra.locked ? ' — 계정 잠금' : '') + ')' : '') };
+    /* 현재 사용자 = uid, QA · ADMIN 만. 서명 · 무효 · 서명 참조가 0건인 저장소(데모 초기화로 진짜 비운 경우)만 해제 — 아니면 SM-REV-RESTORE 확인 서명 필요 */
+    var cu = getCurrentUserId();
+    if (!cu || !uid || String(uid) !== cu) return { ok: false, cleared: false, why: 'no_current_user', message: '현재 사용자가 없어 데모 초기화로 해제할 수 없습니다.' };
+    var rs = rolesOf(cu) || [];
+    if (rs.indexOf('QA') < 0 && rs.indexOf('ADMIN') < 0) return { ok: false, cleared: false, why: 'role_restricted', message: '데모 초기화 해제는 QA · ADMIN 만 할 수 있습니다.' };
+    var refs = sigRefs();
+    if (!c.esignCount && !c.voidSeq && refs.length) return { ok: false, cleared: false, why: 'wipe_refs_remain', refs: refs, message: wipeRefsMessage(refs) };
+    if (c.esignCount || c.voidSeq) return { ok: false, cleared: false, why: 'restore_ack_required', message: '서명 기록이 남아 있어 데모 초기화로 해제할 수 없습니다 — 출하 게이트 조건 12 QA 복원 확인 서명(SM-REV-RESTORE)이 필요합니다.' };
+    var n = { v: 1, auditCount: c.auditCount, lastAuditId: c.lastAuditId, lastAuditHash: c.lastAuditHash, esignCount: 0, voidSeq: 0, at: at, demoResetAt: at };
+    writeJson(KEYS.INTEGRITY, n, 'integrity');
+    appendAudit([{ uid: cu, act: 'INTEGRITY_DEMO_RESET', tgt: KEYS.INTEGRITY, why: (st.why || []).join(',') || (st.unreadable ? 'unreadable' : ''),
+                   val: '데모 초기화 — 서명 0건 저장소 워터마크 재설정 (탐지 ' + ((st.why || []).join(',') || (st.unreadable ? 'unreadable' : '없음')) + ')', before: st.watermark ? { at: st.watermark.at, auditCount: st.watermark.auditCount } : null, after: { at: at }, screen: screen }]);
+    return { ok: true, cleared: true };
+  }
+  var REF_STORE_NAME = { 'ebr.dispense.v1': '칭량 기록', 'ebr.balanceCheck.v1': '저울 점검', 'ebr.equipment.v1': '설비 일상 점검', 'ebr.batch.issued.v1': '배치 발행', 'ebr.mbrSign.v1': 'MBR 서명', 'ebmr.masterSetup.v2': '기준정보' };
+  function wipeRefsMessage(refs) {
+    return '서명 원장은 비웠지만 다른 기록에 서명 참조가 남아 데모 초기화로 해제할 수 없습니다 — 남은 곳: ' +
+      refs.map(function (r) { return (REF_STORE_NAME[r.key] ? REF_STORE_NAME[r.key] + ' ' : '') + r.key + ' ' + r.n + '건'; }).join(', ') + '. 조건 12 QA 복원 확인 서명(SM-REV-RESTORE)을 쓰세요.';
+  }
+  var Integrity = { KEY: KEYS.INTEGRITY, state: function () { return integrityState(); }, current: function () { return integrityCurrent(); },
+                    reset: integrityReset, noteDetected: integrityNoteDetected, demoReset: integrityDemoReset, sigRefs: function () { return sigRefs(); } };
+
   /* entries 를 한 번의 setItem 으로 append (원자적). 저장 실패 시 throw */
   function appendAudit(entries, stage) {
     var list = readArr(KEYS.AUDIT).slice(), out = [], curId = getCurrentUserId();
+    var c0 = list.length === 0 ? integrityCurrent() : null;
+    var fresh = freshStore(c0);   /* 감사 · 서명 · 무효 사슬 모두 0건일 때만 최초 생성 (서명만 남기고 감사를 지운 경우는 wm_missing) */
     entries.forEach(function (e0) {
       var e = scrub(e0 || {}), at = e.at || nowIsoLocal();
       var uid = e.uid == null ? (curId || '') : String(e.uid);
@@ -320,6 +467,7 @@
       list.push(rec); out.push(rec);
     });
     writeJson(KEYS.AUDIT, list, stage || 'audit');
+    touchWatermark(fresh);
     return out;
   }
   var Audit = {
@@ -383,7 +531,17 @@
              authMethod: u.authMethod || 'AM-IDPW', note: u.note || '', upd: u.upd || '', updBy: u.updBy || '', roles: rolesIn(o, u.userId) };
   }
 
+  /* 새 저장소(감사 · 서명 · 무효 사슬 0건)이고 워터마크가 없으면 0건 워터마크를 만든다 — 첫 서명이 감사보다 먼저 저장돼도 wm_missing 이 되지 않게 */
+  function ensureWatermark() {
+    try {
+      if (readRaw(KEYS.INTEGRITY) != null) return false;
+      var c = integrityCurrent(); if (!freshStore(c)) return false;
+      ls().setItem(KEYS.INTEGRITY, JSON.stringify({ v: 1, auditCount: 0, lastAuditId: null, lastAuditHash: null, esignCount: 0, voidSeq: 0, at: nowIsoLocal() }));
+      return true;
+    } catch (e) { return false; }
+  }
   function ensureSeed() {
+    ensureWatermark();
     var o = readJson(KEYS.USER_ROLE, null);
     if (validStore(o)) return { seeded: false };
     loadStore(); emit('users', false);
@@ -555,6 +713,26 @@
     }
     return { failCount: u.failCount, locked: lockedNow, lockAudit: en };
   }
+  /* 재인증(비밀번호 재입력, 저장하지 않음) — 21 CFR 11.300(d): 틀린 비밀번호는 실패 카운트 +1 · 감사 REAUTH_FAIL · 5회째 잠금(USER_LOCKED). 맞으면 카운트 0.
+     비밀번호 없음은 시도로 세지 않음. 잠김 · 비활성 계정은 비밀번호 확인 전에 거부. 반환 why: reauth_required | locked | account_inactive */
+  function reauthCurrent(uid, password, ctx) {
+    ctx = ctx || {};
+    var id = normId(uid), u = id ? getUserRaw(id) : null;
+    if (!u) return { ok: false, why: 'reauth_required', failCount: null, locked: false };
+    if (u.status && u.status !== 'active') return { ok: false, why: u.status === 'locked' ? 'locked' : 'account_inactive', failCount: u.failCount || 0, locked: u.status === 'locked' };
+    var pw = password == null ? '' : String(password);
+    if (!pw) return { ok: false, why: 'reauth_required', failCount: u.failCount || 0, locked: false };
+    if (!verifyPassword(id, pw)) {
+      var rf = recordFailCore(id, { screen: ctx.screen });
+      if (rf.ignored) return { ok: false, why: 'reauth_required', failCount: null, locked: false };
+      var en = [{ uid: id, act: 'REAUTH_FAIL', tgt: id, val: (ctx.act || '재인증') + ' 실패 ' + (rf.failCount || 0) + '/' + MAX_FAIL, why: 'bad_password', screen: ctx.screen }];
+      if (rf.lockAudit) en.push(rf.lockAudit);
+      tryAudit(en);
+      return { ok: false, why: rf.locked ? 'locked' : 'reauth_required', failCount: rf.failCount, locked: !!rf.locked, saveError: !!rf.saveError };
+    }
+    resetFail(id);
+    return { ok: true };
+  }
   function resetFail(id) {
     var o = loadStore(), u = findUser(o, id);
     if (!u || !u.failCount) return false;
@@ -577,6 +755,7 @@
     var db = readMasterDb(), r;
     if (!db) { r = builtinRule(ruleId); if (r) { r.source = 'builtin'; r.effective = true; } return r; }
     var rows = db.sign.filter(function (x) { return x && x.id === ruleId; });
+    if (BUILTIN_MIN_VER[ruleId] && !rows.some(function (x) { return (x.ver || 0) >= BUILTIN_MIN_VER[ruleId]; })) rows = [];
     if (!rows.length) { r = builtinRule(ruleId); if (r) { r.source = 'backfill'; r.effective = true; } return r; }
     var eff = rows.filter(function (x) { return x.status === 'effective'; }).sort(function (a, b) { return (b.ver || 0) - (a.ver || 0); })[0];
     var base = eff || rows.slice().sort(function (a, b) { return (b.ver || 0) - (a.ver || 0); })[0];
@@ -623,6 +802,7 @@
   function verifySigner(req) {
     req = req || {};
     var ctx = req.ctx || {}, ruleId = req.signRuleId || ISSUE_RULE_ID;
+    var roV = readOnlyGuard(ruleId); if (roV) return roV;
     var inputRaw = String(req.userId == null ? '' : req.userId).trim(), inputId = normId(inputRaw);
     var pw = req.password == null ? '' : String(req.password);
     if (!inputId || !pw) {
@@ -819,8 +999,38 @@
     void_store_integrity: '무효화 기록이 손상되어 처리할 수 없습니다.', save_error: '무효화 저장에 실패했습니다 — 바뀌지 않았습니다.'
   };
   function voidFail(why, extra) { var r = { ok: false, why: why, message: VOID_MSG[why] || why }; if (extra) Object.keys(extra).forEach(function (k) { r[k] = extra[k]; }); return r; }
+  /* 내부 무효 기록 (정정 흐름 §5.1 · K-3) — 공개하지 않는다. signAndCommitRecord 가 SM-VERI-CORR 커밋의 apply ctx 로만 넘긴다.
+     list = [{signatureId, reason}], o = { viaSignatureId, by, byName, correctionId, batchId? }. 기존 해시 사슬 · 서명 status 'invalid' · ESIGN_INVALIDATED 감사 모양 재사용.
+     저장(void · esign)은 여기서 하고, 감사 항목은 돌려줘 apply 의 audits 로 같은 커밋에 붙인다. 실패는 throw (커밋이 전부 원복) → { voidIds, records, audits } */
+  function appendVoidRecords(list, o) {
+    o = o || {};
+    var vs = voidState(); if (!vs.intact) throw new Error('void_store_integrity');
+    var vraw = readRaw(KEYS.ESIGN_VOID), items = vraw != null ? JSON.parse(vraw).items.slice() : [];
+    var esign = readArr(KEYS.ESIGN).slice(), at = nowIsoLocal(), out = { voidIds: [], records: [], audits: [] };
+    (list || []).forEach(function (x) {
+      var sid = String(x && x.signatureId || ''), sig = null;
+      esign.forEach(function (e) { if (e && e.signatureId === sid) sig = e; });
+      if (!sig) throw new Error('no_signature:' + sid);
+      if (validity(sig).state !== 'valid') throw new Error('not_valid:' + sid);
+      var reason = String(x.reason || '').trim().slice(0, VOID_REASON_MAX) || '정정';
+      var rec = { seq: items.length + 1, voidId: nextSeq(items, 'EV-' + ymdOf(at) + '-', 'voidId', 4), signatureId: sid, signRuleId: sig.signRuleId || null,
+                  signerId: sig.signerId || null, batchId: sig.batchId || null, at: at, by: o.by, byName: o.byName || '', reason: reason,
+                  viaSignatureId: o.viaSignatureId || null, correctionId: o.correctionId || null, prevHash: items.length ? items[items.length - 1].hash : '' };
+      rec.hash = voidHash(rec);
+      items.push(rec);
+      esign = esign.map(function (e) { if (e && e.signatureId === sid) { e = clone(e); e.status = 'invalid'; e.voidId = rec.voidId; } return e; });
+      out.voidIds.push(rec.voidId); out.records.push(clone(rec));
+      out.audits.push({ uid: o.by, act: 'ESIGN_INVALIDATED', tgt: sid, val: (sig.signRuleId || '') + ' · ' + (sig.signerId || '') + ' · ' + reason, why: reason,
+                        before: { status: 'valid' }, after: { status: 'invalid', voidId: rec.voidId, hash: rec.hash },
+                        batchId: sig.batchId || null, signRuleId: sig.signRuleId || null, recordType: sig.recordType || null });
+    });
+    writeJson(KEYS.ESIGN_VOID, { v: 1, items: items }, 'void');
+    writeJson(KEYS.ESIGN, esign, 'esign');
+    return out;
+  }
   function voidSignature(req) {
     req = req || {};
+    var roVd = readOnlyGuard(null); if (roVd) return roVd;
     var uid = getCurrentUserId(), u = uid ? getUser(uid) : null;
     if (!u) return voidFail('no_current_user');
     if (rolesOf(uid).indexOf('QA') < 0) return voidFail('not_qa');
@@ -869,6 +1079,15 @@
 
   /* ------------------------------------------------------------------ 발행 서명 트랜잭션 (UI-03) */
   var tickets = {}, ticketSeq = 0;
+  /* 복원 탐지 읽기 전용 (출하 게이트 개정 1.2 G1-04 · 결정 6): 워터마크 복원 탐지 · 판독 불가면 헬퍼의 모든 서명 경로를 거부(fail-closed).
+     예외는 SM-REV-RESTORE(복원 확인 — 유일한 해제 경로) 하나 */
+  var RESTORE_RULE_ID = 'SM-REV-RESTORE';
+  function readOnlyGuard(ruleId) {
+    if (ruleId === RESTORE_RULE_ID) return null;
+    var st; try { st = integrityState(); } catch (e) { st = { unreadable: true, restored: false, why: ['error'] }; }
+    if (!st.unreadable && !st.restored) return null;
+    return guard('read_only', MSG.read_only, { readOnlyWhy: st.unreadable ? 'unreadable' : 'restore_detected', integrityWhy: (st.why || []).slice(), closeDialog: true });
+  }
   function guard(why, message, extra) {
     var r = { ok: false, stage: 'guard', why: why, message: message, closeDialog: false, clearPassword: false, locked: false, maxFail: MAX_FAIL };
     if (extra) Object.keys(extra).forEach(function (k) { r[k] = extra[k]; });
@@ -902,6 +1121,7 @@
   }
   function beginIssueSign(batchRec, opts) {
     opts = opts || {};
+    var roI = readOnlyGuard(ISSUE_RULE_ID); if (roI) return roI;
     var cur = getCurrentUser();
     if (!cur) return guard('no_current_user', MSG.no_current_user);
     var miss = [];
@@ -1020,6 +1240,7 @@
     input = input || {};
     var t = tickets[ticket];
     if (!t || !t.open || t.kind === 'record') return guard('ticket_closed', MSG.ticket_closed);
+    var roC = readOnlyGuard(ISSUE_RULE_ID); if (roC) { cancelIssueSign(ticket, { why: 'error', message: 'read_only' }); return roC; }
     var ctx = { tgt: t.tgt, val: t.val, orderNo: t.orderNo, hasOrder: true, screen: t.screen, struct: t.struct, qualTargets: ['ISSUE'] };
     var v = verifySigner({ userId: input.userId, password: input.password, signRuleId: ISSUE_RULE_ID, ctx: ctx });
     if (!v.ok) { if (v.locked) closeTicket(t); return v; }
@@ -1125,6 +1346,7 @@
      cancelRecordSign(ticket, {why, message}) → cancelAct 감사 (발행 cancelIssueSign 과 같은 규칙) */
   function beginRecordSign(spec) {
     spec = spec || {};
+    var roR = readOnlyGuard(spec.signRuleId); if (roR) return roR;
     var entered = spec.signerMode === 'entered';
     var cur = getCurrentUser();
     if (!cur && !entered) return guard('no_current_user', MSG.no_current_user);
@@ -1179,6 +1401,7 @@
     input = input || {};
     var t = tickets[ticket];
     if (!t || !t.open || t.kind !== 'record') return guard('ticket_closed', MSG.ticket_closed_record);
+    var roS = readOnlyGuard(t.spec && t.spec.signRuleId); if (roS) { cancelRecordSign(ticket, { why: 'error', message: 'read_only' }); return roS; }
     var spec = t.spec, rbAct = spec.rollbackAct || 'RECORD_ROLLBACK';
     if (typeof spec.requireInput === 'function') {
       var ri = spec.requireInput(scrub(input));
@@ -1197,7 +1420,8 @@
       return { ok: false, stage: 'precheck', why: 'precheck_changed', detail: pc.detail || 'changed', message: pc.message || MSG.record_precheck,
                closeDialog: true, clearPassword: true, locked: false, maxFail: MAX_FAIL };
     }
-    var keys = [KEYS.ESIGN].concat((spec.keys || []).filter(function (k) { return k && k !== KEYS.ESIGN && k !== KEYS.AUDIT; }));
+    var keys = [KEYS.ESIGN].concat((spec.keys || []).filter(function (k) { return k && k !== KEYS.ESIGN && k !== KEYS.AUDIT && k !== KEYS.ESIGN_VOID; }));
+    if (v.rule.id === CORR_RULES.VERIFY) keys.push(KEYS.ESIGN_VOID);   /* 정정 확인: 내부 무효 기록도 같은 커밋으로 복원 */
     var orig = {}; keys.forEach(function (k) { orig[k] = readRaw(k); });
     var stage = 'esign', sig, applied = null, signer = v.user;
     try {
@@ -1219,7 +1443,9 @@
       esignList.push(clone(sig));
       writeJson(KEYS.ESIGN, esignList, 'esign');
       stage = 'apply';
-      applied = spec.apply(clone(sig), { input: scrub(input), at: at, signer: clone(signer), signerRole: v.signerRole }) || {};
+      var actx = { input: scrub(input), at: at, signer: clone(signer), signerRole: v.signerRole };
+      if (v.rule.id === CORR_RULES.VERIFY) actx.appendVoidRecords = function (list, o) { return appendVoidRecords(list, Object.assign({}, o || {}, { viaSignatureId: sig.signatureId, by: signer.userId, byName: signer.name })); };
+      applied = spec.apply(clone(sig), actx) || {};
       stage = 'audit';
       appendAudit([withStruct({ uid: signer.userId, act: 'ESIGN_SIGNED', tgt: t.tgt, val: t.val + ' · ' + sig.signatureId + ' · ' + v.signerRole, orderNo: t.orderNo, screen: t.screen, at: at,
                                 signerMode: t.signerMode === 'entered' ? 'entered' : undefined }, t.struct)]
@@ -1256,9 +1482,11 @@
        숫자: net 은 소수 3자리(0.000), size 는 천 단위 구분 · 소수 최대 6자리. 빈 값은 '—' */
   var STATEMENT_KINDS = ['weigh_perform', 'weigh_verify', 'reweigh_approve', 'batch_issue', 'balance_check', 'balance_check_fail',
     'exec_step', 'exec_step_verify', 'pack_step', 'pack_step_verify', 'pack_label_qa', 'pack_review', 'matqc_release', 'matqc_reject', 'matqc_legacy_confirm',
-    'rbe_review', 'batch_review', 'batch_release', 'audit_review', 'mbr_review', 'mbr_approve', 'briefing_read'];
+    'rbe_review', 'batch_review', 'batch_release', 'audit_review', 'mbr_review', 'mbr_approve', 'briefing_read',
+    'downtime_review', 'change_impact_review', 'control_eval_review', 'restore_ack', 'correction_perform', 'correction_verify', 'interlock_rule_review', 'interlock_rule_approve', 'interlock_override'];
   var STATEMENT_ALIAS = { perform: 'weigh_perform', verify: 'weigh_verify', reweigh: 'reweigh_approve', issue: 'batch_issue', balchk: 'balance_check', balchk_fail: 'balance_check_fail' };
   function stPct(v, signed) { var x = Number(v); if (v == null || v === '' || !isFinite(x)) return '—'; var t = Math.abs(x).toFixed(2); return signed ? (x < 0 ? '-' : '+') + t : (x < 0 ? '-' : '') + t; }
+  function str0(v) { return String(v == null ? '' : v).trim(); }
   function stTxt(v) { var s = String(v == null ? '' : v).trim(); return s || '—'; }
   function stQty(v) { var x = Number(v); return v == null || v === '' || !isFinite(x) ? '—' : x.toFixed(3); }
   function signStatement(kind, ctx) {
@@ -1299,13 +1527,30 @@
     if (k === 'batch_review') return bb + '의 critical 기록 전수를 검토했습니다(미종결 일탈 0건 · 예외 ' + stTxt(c.n) + '건 검토 포함). (Reviewed by)';
     if (k === 'audit_review') return bb + '의 감사추적 ' + stTxt(c.n) + '건을 검토했습니다. (Reviewed by)';
     if (k === 'batch_release') {
-      return bb + '의 출하 전제 조건 12건 평가(manifest ' + stTxt(String(c.manifestHash == null ? '' : c.manifestHash).slice(0, 8)) + ')를 확인하고 QP 인증 및 출하를 승인합니다. (Approved by)' +
+      /* naCount 가 있으면 N/A 건수 · 번호 (출하 게이트 동적 판정 §2.8 · D-O7) — 없으면 이전 문장 그대로 */
+      var naTxt = c.naCount == null ? '' : ', N/A ' + stTxt(c.naCount) + '건' + (Number(c.naCount) > 0 ? ': ' + (Array.isArray(c.naNos) ? c.naNos.join(' · ') : stTxt(c.naNos)) : '');
+      return bb + '의 출하 전제 조건 12건 평가(manifest ' + stTxt(String(c.manifestHash == null ? '' : c.manifestHash).slice(0, 8)) + naTxt + ')를 확인하고 QP 인증 및 출하를 승인합니다. (Approved by)' +
         (c.qaProxy ? ' (PoC: QA 대행, QP 인증 아님)' : '');
     }
     var mh = '본인은 MBR ' + stTxt(c.mbrId) + ' v' + stTxt(c.ver) + ' (hash ' + stTxt(String(c.contentHash == null ? '' : c.contentHash).slice(0, 8)) + ')';
     if (k === 'mbr_review') return mh + '을(를) 작성자와 독립적으로 검토했습니다. (Reviewed by)';
     if (k === 'mbr_approve') return mh + '을(를) 승인합니다. (Approved by)';
     if (k === 'briefing_read') return bb + ' ' + stTxt(c.opId) + ' 변경 브리핑 ' + stTxt(c.ccId) + '을(를) 읽고 이해했습니다. (Read and understood)';
+    /* 출하 게이트 조건 서명 (조건 7 · 10 · 11 · 12) */
+    if (k === 'downtime_review') return bb + '의 다운타임 ' + stTxt(c.dtId) + ' 기간 기록(비상 양식 ' + stTxt(c.n) + '매)과 전사 내용을 전수 검토했습니다. (Reviewed by)';
+    if (k === 'change_impact_review') return bb + '가 ' + stTxt(c.mbr) + ' v' + stTxt(c.ver) + '의 첫 배치임을 확인하고 ' + (str0(c.cc) ? '변경 ' + str0(c.cc) : '신규 MBR') + '의 영향을 검토했습니다. (Reviewed by)';
+    if (k === 'control_eval_review') return bb + '에서 규칙 강화 전에 서명된 값 ' + stTxt(c.n) + '건을 평가했습니다. (Reviewed by)';
+    /* 정정 (정정 흐름 §5.3): correction_perform { batchId, targetLabel, before, after, uom, reasonCode, reason } · correction_verify { …, performerName, voidN } */
+    if (k === 'correction_perform' || k === 'correction_verify') {
+      var cu = c.uom ? ' ' + stTxt(c.uom) : '', ch = bb + ' ' + stTxt(c.targetLabel) + ' ' + stTxt(c.before) + cu + ' 을 ' + stTxt(c.after) + cu + ' 으로';
+      if (k === 'correction_perform') return ch + ' 정정합니다. 사유: ' + stTxt(c.reasonCode) + (str0(c.reason) ? ' ' + str0(c.reason) : '') + '. (Performed by)';
+      return ch + ' 바꾼 ' + stTxt(c.performerName) + '의 정정을 확인하고 원 서명 ' + stTxt(c.voidN) + '건의 무효화를 승인합니다. (Verified by)';
+    }
+    /* 인터록 (인터록 설계 §4): interlock_rule_review/approve { setId, ver, hash8, n } · interlock_override { batchId, ruleId, value, reasonCodeText, reason } */
+    if (k === 'interlock_rule_review') return '본인은 인터록 룰 세트 ' + stTxt(c.setId) + ' v' + stTxt(c.ver) + '(hash ' + stTxt(c.hash8) + ') 변경 ' + stTxt(c.n) + '건을 검토했습니다. (Reviewed by)';
+    if (k === 'interlock_rule_approve') return '본인은 인터록 룰 세트 ' + stTxt(c.setId) + ' v' + stTxt(c.ver) + '(hash ' + stTxt(c.hash8) + ') 변경 ' + stTxt(c.n) + '건을 승인합니다. (Approved by)';   /* '변경 N건' 1회 (검토 문장과 같은 꼴) */
+    if (k === 'interlock_override') return '본인은 배치 ' + stTxt(c.batchId) + ' 인터록 ' + stTxt(c.ruleId) + ' (' + stTxt(c.value) + ') 의 진행을 승인합니다. 사유: ' + stTxt(c.reasonCodeText) + (str0(c.reason) ? ' — ' + str0(c.reason) : '') + ' (Approved by)';
+    if (k === 'restore_ack') return '본인은 저장 데이터 복원 탐지(기준 ' + stTxt(c.wmAt) + ')를 확인하고 영향 범위를 검토했습니다. (Reviewed by)';
     return '';
   }
   /* 서명 레코드(또는 signRuleId) → 문장 kind ('' = 해당 없음) — 서명 내역 재구성용 */
@@ -1328,6 +1573,15 @@
     if (o.signRuleId === EXEC_RULES.AUDIT_REVIEW) return 'audit_review';
     if (o.signRuleId === EXEC_RULES.RELEASE) return 'batch_release';
     if (o.signRuleId === EXEC_RULES.MBR_REVIEW) return 'mbr_review';
+    if (o.signRuleId === GATE_RULES.DOWNTIME) return 'downtime_review';
+    if (o.signRuleId === GATE_RULES.CHANGE) return 'change_impact_review';
+    if (o.signRuleId === GATE_RULES.CONTROL) return 'control_eval_review';
+    if (o.signRuleId === GATE_RULES.RESTORE) return 'restore_ack';
+    if (o.signRuleId === CORR_RULES.PERFORM) return 'correction_perform';
+    if (o.signRuleId === CORR_RULES.VERIFY) return 'correction_verify';
+    if (o.signRuleId === ILR_RULES.REVIEW) return 'interlock_rule_review';
+    if (o.signRuleId === ILR_RULES.APPROVE) return 'interlock_rule_approve';
+    if (o.signRuleId === ILR_RULES.CTRL) return 'interlock_override';
     if (o.signRuleId === EXEC_RULES.MBR_APPROVE) return 'mbr_approve';
     if (o.signRuleId === EXEC_RULES.BRIEFING) return 'briefing_read';
     return '';
@@ -1429,14 +1683,14 @@
     VERSION: 1,
     KEYS: KEYS, ROLES: ROLES.slice(), ROLE_PRIORITY: ROLE_PRIORITY.slice(), ROLE_LABEL: ROLE_LABEL, GMP_ROLES: GMP_ROLES.slice(),
     MAX_FAIL: MAX_FAIL, ISSUE_RULE_ID: ISSUE_RULE_ID, DEMO_PASSWORD: DEMO_PASSWORD, DEMO_PASSWORD_HINT: DEMO_PASSWORD_HINT, SEED_ISSUE_RULE: clone(SEED_ISSUE_RULE),
-    WEIGH_RULES: clone(WEIGH_RULES), EXEC_RULES: clone(EXEC_RULES), BUILTIN_RULES: clone(BUILTIN_RULES), MEANING_DEFAULT: clone(MEANING_DEFAULT),
+    WEIGH_RULES: clone(WEIGH_RULES), EXEC_RULES: clone(EXEC_RULES), GATE_RULES: clone(GATE_RULES), CORR_RULES: clone(CORR_RULES), ILR_RULES: clone(ILR_RULES), Integrity: Integrity, BUILTIN_RULES: clone(BUILTIN_RULES), MEANING_DEFAULT: clone(MEANING_DEFAULT),
     /* 사용자 · 현재 사용자 */
     ensureSeed: ensureSeed, listUsers: listUsers, getUser: getUser, rolesOf: rolesOf, hasSodConflict: hasSodConflict,
     saveUser: saveUser, unlockUser: unlockUser, resetSeed: resetSeed,
     getCurrentUser: getCurrentUser, setCurrentUser: setCurrentUser, currentUserName: currentUserName, onChange: onChange, switchOptions: switchOptions,
     /* 인증 · 역할 · S-39 */
-    verifyPassword: verifyPassword, recordFail: recordFail, resetFail: resetFail,
-    getSignRule: getSignRule, canSign: canSign, validateAllowedRoles: validateAllowedRoles, verifySigner: verifySigner,
+    verifyPassword: verifyPassword, reauthCurrent: reauthCurrent, recordFail: recordFail, resetFail: resetFail,
+    getSignRule: getSignRule, canSign: canSign, validateAllowedRoles: validateAllowedRoles, verifySigner: verifySigner, readOnlyGuard: readOnlyGuard,
     /* 발행 서명 */
     beginIssueSign: beginIssueSign, signAndCommitIssue: signAndCommitIssue, cancelIssueSign: cancelIssueSign,
     computeSnapshotHash: computeSnapshotHash, issueSignatureOf: issueSignatureOf, formatSignLine: formatSignLine, fmtKst: fmtKst,

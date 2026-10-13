@@ -20,6 +20,7 @@
 <link rel="icon" href="data:,">
 <title>생산 실행 — eMBR/eBR PoC</title>
 <link rel="stylesheet" href="./assets/mesui.css">
+<link rel="stylesheet" href="./ilr-ui.css">
 <style>
   body { margin: 0; background: var(--c-bg); }
   .lnk { color: var(--c-primary); cursor: pointer; text-decoration: none; }
@@ -46,22 +47,7 @@
   .flow-strip .arrow { color: var(--c-border-03); padding: 0 4px; font-size: 14px; }
   .flow-strip .hint { margin-left: auto; font-size: 11px; color: var(--c-text-disabled); padding-right: 8px; }
 
-  .il-banner {
-    flex: 0 0 auto; display: none; align-items: center; gap: 10px; min-height: 40px;
-    padding: 6px 12px; border: 1px solid transparent; border-left-width: 5px; font-size: 13px;
-  }
-  .il-banner.open { display: flex; }
-  .il-banner .il-grade { font-weight: bold; white-space: nowrap; min-width: 72px; }
-  .il-banner .il-msg { flex: 1 1 auto; line-height: 1.4; }
-  .il-banner .il-actions { display: inline-flex; gap: 6px; flex: 0 0 auto; }
-  .il-banner.absolute { background: var(--bc-faulty); border-color: var(--c-error); }
-  .il-banner.absolute .il-grade { color: var(--c-error); }
-  .il-banner.hardqa { background: var(--bc-quality); border-color: var(--c-sign-reviewed); }
-  .il-banner.hardqa .il-grade { color: var(--c-sign-reviewed); }
-  .il-banner.controlled { background: var(--bc-alam); border-color: var(--c-warn); }
-  .il-banner.controlled .il-grade { color: var(--c-warn); }
-  .il-banner.warning { background: var(--bc-gray-light); border-color: var(--c-warn); }
-  .il-banner.warning .il-grade { color: var(--c-text); }
+  /* .il-banner(인터록 배너 1줄) · 등급 칩 → ./ilr-ui.css (토큰화, 생산 · 포장 · S-23 · S-48 공통) */
 
   .phase-board { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
   .phase-board .up-block { border-bottom: 1px solid var(--c-border-03); }
@@ -150,6 +136,7 @@
   }
   .demo-panel button:hover { background: var(--c-text-sub); }
   .demo-panel .dp-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .demo-panel button.cur { background: var(--c-primary); border-color: var(--c-primary); }   /* W7 현재 프리셋 = primary 모양 */
 
   .shell-body > .split.main-split {
     flex: 1 1 auto; min-height: 0;
@@ -208,6 +195,11 @@
   #grdRecSignVal .col-item { width: var(--col-w-200); }
   #dlgRecSign .form-grid .field .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   #dlgRecSign .auth-row > .input { height: var(--ctrl-h-form); }
+  #dlgRecSign #signReasonCode { flex: 1 1 auto; min-width: 0; }   /* 사유 코드 콤보(o.reasonCodes) — 자기 행, 행 폭 전체(가장 긴 항목보다 넓음) */
+  #dlgRecSign #signReasonCode[hidden], #dlgRecSign #signReasonRow:has(#signReasonCode[hidden]) { display: none; }   /* opt-in 아닐 때 행째 숨김 */
+  #dlgRecSign .auth-hint { display: flex; gap: var(--title-gap); min-width: 0; white-space: nowrap; }   /* PoC 안내 + 자격 요건 1줄 (새 사유 행 자리 확보) */
+  #dlgRecSign .auth-hint > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #dlgRecSign .auth-hint > #signPocNote { flex: 0 0 auto; }
   .user-card { border: 1px solid var(--c-border-04); border-radius: var(--radius); padding: var(--title-gap) var(--fs-grid); display: flex; align-items: baseline; gap: var(--title-gap); background: var(--c-board-normal); flex-wrap: wrap; }
   .user-card .name { font-size: var(--fs-group); font-weight: bold; }
   .user-card .badges { display: inline-flex; align-items: center; gap: var(--badge-gap); flex-wrap: wrap; align-self: center; }
@@ -228,6 +220,8 @@
   .user-switch .us-roles { display: inline-flex; align-items: center; gap: var(--badge-gap); min-width: 0; }
   .badge.role-qa { background: var(--bc-quality); } .badge.role-qa::before { background: var(--c-primary); }
   .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
+  #grdLog col.col-corr { width: var(--col-w-qual); }   /* 정정 열 (값 행 끝 [정정]) */
+  #grdLog td .badge { margin-left: var(--badge-gap); }
   #dlgRecSign [hidden] { display: none; }   /* QA 대행 배지 등 — .badge display 보다 우선 */
   body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
 </style>
@@ -332,12 +326,7 @@
       </div>
     </div>
 
-    <div class="il-banner" id="ilBanner" role="alert">
-      <span class="status-dot red lg" id="ilDot"></span>
-      <span class="il-grade" id="ilGrade">멈춤</span>
-      <span class="il-msg" id="ilMsg"></span>
-      <span class="il-actions" id="ilActions"></span>
-    </div>
+    <div class="il-banner" id="ilBanner" role="alert"></div>   <!-- 인터록 배너 1줄 — EbrInterlock.evaluate('exec.step') 결과 (IlUi.banner) -->
 
     <div class="split main-split" id="prodExecSplit">
       <div class="grid-block rs-pane" id="panePhaseSteps">
@@ -425,6 +414,7 @@
             <col style="width:40px"><col style="width:130px"><col style="width:70px"><col style="width:90px">
             <col style="width:180px"><col><col style="width:100px"><col style="width:70px">
             <col style="width:80px"><col style="width:90px"><col style="width:70px"><col style="width:90px">
+            <col class="col-corr">
           </colgroup>
           <thead><tr>
             <th class="col-no">#</th>
@@ -439,7 +429,7 @@
             <th data-key="sig">보증 서명</th>
             <th data-key="user">작업자</th>
             <th data-key="hash">해시</th>
-          </tr></thead>
+          <th class="col-corr">정정</th></tr></thead>
           <tbody id="grdLogBody"></tbody>
         </table>
       </div>
@@ -453,12 +443,9 @@
 <div class="demo-panel" id="demoPanel">
   
   <label><input type="checkbox" id="demoAllowHardcoded"> 데모: 하드코딩 BATCH 허용 (배너 표시)</label>
-  <span class="dp-title">데모 시나리오</span>
-  <label><input type="checkbox" id="demoIlAbs"> 인터록 Absolute (멈춤)</label>
-  <label><input type="checkbox" id="demoIlHard"> 인터록 Hard-QA</label>
-  <label><input type="checkbox" id="demoIlCtrl"> 인터록 Controlled</label>
-  <label><input type="checkbox" id="demoIlWarn"> 인터록 Warning</label>
-  <label><input type="checkbox" id="demoEqFail"> 장비 적격 실패(교정 만료)</label>
+  <span class="dp-title">데모 데이터 프리셋 <span class="badge warn" id="demoPresetCur">정상</span></span>
+  <div class="dp-row" id="demoPresets"></div>
+  <span id="demoPresetNote">프리셋은 데모 데이터만 바꿉니다 — 등급은 규칙(ILR-DEMO)이 판정</span>
   <div class="dp-row">
     <button type="button" id="demoSkipTry">건너뛰기 시도</button>
     <button type="button" id="demoReset">초기화(Reset)</button>
@@ -498,11 +485,11 @@
           <span class="sub-info sign-rule" id="signRule"></span>
           <div class="auth-row"><span class="label required">사용자 ID</span><input class="input" type="text" id="signId" placeholder="ID 직접 입력" autocomplete="off"></div>
           <div class="auth-row"><span class="label required">비밀번호</span><input class="input" type="password" id="signPw" autocomplete="new-password"></div>
+          <div class="auth-row" id="signReasonRow"><span class="label required">사유 코드</span><select class="input" id="signReasonCode" hidden aria-label="사유 코드"></select></div>
           <div class="auth-row"><span class="label" id="signCmtLabel">코멘트</span><input class="input" type="text" id="signCmt" placeholder="선택 입력" autocomplete="off" maxlength="60"></div>
           <div class="sign-err sub-info fc-fail" id="signErr" role="alert"></div>
           <div class="qual-msg" id="signQualMsg" aria-live="polite"></div>
-          <span class="sub-info one-line" id="signPocNote">PoC 전용 — 실서비스는 LDAP(AM-IDPW)</span>
-          <span class="sub-info qual-req" id="signQualReq"></span>
+          <div class="auth-hint"><span class="sub-info one-line" id="signPocNote">PoC 전용 — 실서비스는 LDAP(AM-IDPW)</span><span class="sub-info qual-req" id="signQualReq"></span></div>
         </div>
       </div>
       <div class="sign-statement" id="signStatement"><span class="stmt" id="signStatementText"></span></div>
@@ -519,11 +506,15 @@
 <script src="./assets/ebr-p0-stores.js"></script>
 <script src="./assets/ebr-exec-snapshot.js"></script>
 <script src="./assets/ebr-user-session.js"></script>   <!-- 칭량 E16 감사 · 세션 (window.EbrUserSession) -->
+<script src="./assets/ebr-interlock.js"></script>   <!-- 인터록 store (window.EbrInterlock) -->
+<script src="./ilr-ui-wire.js"></script>   <!-- 인터록 연결 지점 (IlApi → EbrInterlock, 없으면 fail-closed) -->
 <script src="./assets/ebr-dispense-store.js"></script>   <!-- 칭량 E16 완료 판정 (window.EbrDispense) -->
 <script src="./assets/ebr-qual-store.js"></script>   <!-- 교육 · 자격 (window.EbrQual) — 서명 창 ⑦ 요구 자격 이름 (읽기만) -->
 <script src="./assets/ebr-exec-sign-store.js"></script>   <!-- 실행 · 출하 서명 래퍼 (window.EbrExecSign) -->
 <script src="./assets/ebr-sign-status.js"></script>   <!-- 서명 상태 읽기 (window.EbrSignStatus) -->
 <script src="./exec-sign-ui.js"></script>
+<script src="./assets/ebr-correction-store.js"></script>   <!-- D1 정정 store (window.EbrCorrection) -->
+<script src="./assets/ebr-correction-ui.js"></script>   <!-- 정정 공통 팝업 (window.CorrUI) -->
 <script>
 (function () {
   'use strict';
@@ -819,39 +810,18 @@
       ras: 'ok', cal: 'ok', cfms: 'ok', note: '포장 화면 이관' }
   ];
 
-  var IL = {
-    absolute: {
-      grade: '멈춤', cls: 'absolute', dot: 'red',
-      msg: 'Absolute — 유당 LAC-2411: 재시험일 경과 자재(211.87). override 불가. 대체 경로만 허용.',
-      actions: [
-        { t: '적합 LOT 선택', primary: true },
-        { t: '자재 담당 호출', primary: false }
-      ]
-    },
-    hardqa: {
-      grade: 'QA 호출', cls: 'hardqa', dot: 'navy',
-      msg: 'Hard-QA — EC-MIX-01 외 설비 전환 요청. QA 전 요소 서명 + 일탈 초안 자동 생성(배치당 1회).',
-      actions: [
-        { t: 'QA 원격 승인', primary: true },
-        { t: '일탈 초안 보기', primary: false }
-      ]
-    },
-    controlled: {
-      grade: '감독자 승인', cls: 'controlled', dot: 'amber',
-      msg: 'Controlled — 재측정 3회째. 감독자 승인 후 진행 · RBE 예외 기록.',
-      actions: [
-        { t: '감독자 서명', primary: true },
-        { t: '사유 코드', primary: false }
-      ]
-    },
-    warning: {
-      grade: '확인 후 진행', cls: 'warning', dot: 'amber',
-      msg: 'Warning — 혼합 시간 10→12 min (CC-2026-031 Minor). 사유 입력 후 진행 가능.',
-      actions: [
-        { t: '사유 입력 · 진행', primary: true }
-      ]
-    }
-  };
+  /* 인터록 = EbrInterlock.evaluate('exec.step', ctx) 결과만 (IlApi, ilr-ui-wire.js). 화면 고정 메시지 · 등급 분기 없음 (설계 §6.1)
+     eqBlock = 설비 사용 불가(EbrP0.Equip assertEquipUsable) — 인터록 규칙 아님, 같은 배너 자리에 Absolute 로 표시 */
+  var ILR = { last: '' };
+  function ilCtx() { var a = activeOpIndex(); return { batchId: execCtx.batchId || BATCH.id || '', opId: OP_ORDER[a] || '' }; }
+  function ilRes() {
+    var r = IlApi.evaluate('exec.step', ilCtx());
+    if (state.eqBlock && r.ok) { r = JSON.parse(JSON.stringify(r)); var h = { ruleId: state.eqBlock.equipmentId || '설비', grade: 'Absolute', msg: state.eqBlock.msg, override: { allowed: false } }; r.hits.unshift(h); r.open.unshift(h); r.result = 'block'; }
+    return r;
+  }
+  function ilBlocked() { var r = ilRes(); return !r.ok || r.result === 'block'; }
+  /* K1: 차단 원인이 Controlled 적중(승인 전)뿐이면 수행 서명만 허용 — 확인 서명 · 단계 완료는 승인 뒤 */
+  function ilPerformOnly() { var r = ilRes(); if (!r.ok || r.result !== 'block') return false; var bl = (r.open || []).filter(function (h) { return h.grade !== 'Warning'; }); return bl.length > 0 && bl.every(function (h) { return h.grade === 'Controlled'; }); }
 
   var $ = function (id) { return document.getElementById(id); };
   function esc(s) {
@@ -884,9 +854,7 @@
       activeOp: first,
       opDone: opDone,
       logs: [],
-      il: null,
-      eqFail: false,
-      hardQaDevCreated: false
+      eqBlock: null
     };
   }
 
@@ -955,9 +923,6 @@
         activeOp: state.activeOp,
         opDone: state.opDone,
         logs: state.logs,
-        il: state.il,
-        eqFail: state.eqFail,
-        hardQaDevCreated: !!state.hardQaDevCreated,
         line: $('schLine').value,
         orderNo: execCtx.orderNo || BATCH.orderNo || '',
         batchId: execCtx.batchId || BATCH.id || '',
@@ -998,9 +963,6 @@
       state.activeOp = o.activeOp || 'OP1-1';
       state.opDone = o.opDone;
       state.logs = Array.isArray(o.logs) ? o.logs : [];
-      state.il = (o.il && IL[o.il]) ? o.il : null;
-      state.eqFail = !!o.eqFail;
-      state.hardQaDevCreated = !!o.hardQaDevCreated;
       if (o.line) $('schLine').value = o.line;
       return true;
     } catch (e) { return false; }
@@ -1009,9 +971,7 @@
   function resetAll() {
     try { localStorage.removeItem(LS_KEY); } catch (e) {}
     state = defaultState();
-    ['demoIlAbs', 'demoIlHard', 'demoIlCtrl', 'demoIlWarn', 'demoEqFail'].forEach(function (id) {
-      if ($(id)) $(id).checked = false;
-    });
+    IlApi.demoPreset('정상');
     bindExecFromQuery();
     $('schBatch').value = BATCH.id || '';
     $('schBatchDesc').value = BATCH.product || '';
@@ -1059,9 +1019,7 @@
     var op = s.kind === 'ph' ? s.parent : s.id;
     var idx = opIndex(op);
     var act = activeOpIndex();
-    if (state.il === 'absolute' && (op === state.activeOp || op === 'OP2-1')) {
-      if (idx === act) return 'blocked';
-    }
+    if (idx === act && !state.opDone[op] && ilBlocked()) return 'blocked';
     if (state.opDone[op]) return 'done';
     if (idx === act) return 'active';
     if (idx > act) return 'wait';
@@ -1102,21 +1060,16 @@
       return;
     }
     var op = OP_ORDER[act];
-    if (state.il === 'absolute') {
-      MesUI.alert('인터록 활성 — 단계를 완료할 수 없습니다.', 'Warning');
+    if (ilBlocked()) {
+      MesUI.alert('인터록 활성 — 단계를 완료할 수 없습니다.\n\n' + ilTopMsg(), 'Warning');
       return;
     }
     var eu = assertEquipUsableFor(op);
     if (!eu.ok) {
-      state.il = 'absolute';
-      IL.absolute.msg = 'Absolute — ' + eu.reason;
+      state.eqBlock = { equipmentId: eu.equipmentId, msg: 'Absolute — ' + eu.reason };
       saveState(); renderAll();
       MesUI.alert('Absolute — 설비 사용 불가\n\nequipmentId=' + (eu.equipmentId || '') +
         (eu.holdUntil ? '\nholdUntil=' + eu.holdUntil : '') + '\n\n' + eu.reason, 'Error');
-      return;
-    }
-    if (state.eqFail && (op === 'OP2-1' || op === 'OP2-2')) {
-      MesUI.alert('장비 적격 미충족 — 단계 완료 불가', 'Warning');
       return;
     }
     if (isWeighStep(op)) {   /* 칭량 E16 · E17: 칭량 OP 는 OP 서명 없음 — 저장소 판정이 참이면 자동 완료 */
@@ -1189,7 +1142,7 @@
         var act = activeOpIndex();
         if (act >= OP_ORDER.length) break;
         var op = OP_ORDER[act];
-        if (!isWeighStep(op) || state.il === 'absolute') break;
+        if (!isWeighStep(op) || ilBlocked()) break;
         if (!assertEquipUsableFor(op).ok) break;
         var wg = weighGateFor(op);
         if (!wg.ok) break;
@@ -1210,9 +1163,6 @@
   function eligRows() {
     return ELIG_BASE.map(function (r) {
       var o = {}; for (var k in r) o[k] = r[k];
-      if (state.eqFail && r.ec === 'EC-MIX-01') {
-        o.cal = 'fail'; o.note = '교정 만료 2026-09-28 · 사용 차단';
-      }
       return o;
     });
   }
@@ -1341,28 +1291,22 @@
     $('kpiEligCard').classList.toggle('warning', !!fail);
   }
 
+  function ilTopMsg() { var r = ilRes(), h = (r.open || [])[0]; return !r.ok ? IlApi.whyText(r.why || 'ilr_store_error') : h ? h.ruleId + ' · ' + h.msg : ''; }
   function renderIl() {
-    var banner = $('ilBanner');
-    var key = state.il;
-    if (!key || !IL[key]) {
-      banner.className = 'il-banner';
-      banner.classList.remove('open');
-      $('kpiIl').textContent = '없음';
-      $('kpiIlNote').textContent = '활성 0';
-      $('kpiIlCard').classList.remove('warning');
-      return;
-    }
-    var d = IL[key];
-    banner.className = 'il-banner open ' + d.cls;
-    $('ilDot').className = 'status-dot lg ' + d.dot;
-    $('ilGrade').textContent = d.grade;
-    $('ilMsg').textContent = d.msg;
-    $('ilActions').innerHTML = d.actions.map(function (a) {
-      return '<button class="btn inner' + (a.primary ? ' primary' : '') + '" type="button" data-il-act="' + esc(a.t) + '">' + esc(a.t) + '</button>';
-    }).join('');
-    $('kpiIl').textContent = d.grade;
-    $('kpiIlNote').textContent = '활성 1 · ' + key;
-    $('kpiIlCard').classList.add('warning');
+    var r = ilRes(), bid = execCtx.batchId || BATCH.id || '';
+    IlUi.banner($('ilBanner'), r, { s48: './master-setup/ebr/s-ebr-interlock-rule-ui.html', batchId: bid, screen: 'S-EBR-PROD-EXEC', screenName: '생산 실행',   /* C1: 단계는 store 가 정함 */
+      onChange: function () { saveState(); renderAll(); } });
+    var key = r.ok ? r.result + '|' + r.hits.map(function (h) { return h.ruleId + ':' + h.value + ':' + !!(h.override && h.override.done); }).join(',') : 'err';
+    if (r.ok && r.hits.length && key !== ILR.last && !state.eqBlock) IlApi.logHit(r, { screen: 'S-EBR-PROD-EXEC', batchId: bid });   /* 결과 해시가 바뀔 때 1회 */
+    ILR.last = key;
+    var top = (r.open || [])[0];
+    $('kpiIl').textContent = !r.ok ? '진행 불가' : top ? IlApi.GRADE_TEXT[top.grade] : r.hits.length ? '승인됨' : '없음';
+    $('kpiIlNote').textContent = !r.ok ? (r.why || 'ilr_store_error') : '활성 ' + (r.open || []).length + (top ? ' · ' + top.ruleId : '');
+    $('kpiIlCard').classList.toggle('warning', !r.ok || !!top);
+    var cur = IlApi.currentPreset();
+    $('demoPresetCur').textContent = cur;
+    $('demoPresets').innerHTML = IlApi.DEMO_PRESETS.map(function (n) { return '<button type="button" data-preset="' + esc(n) + '"' + (n === '장비 적격 실패' ? ' title="' + esc(presetOpHint(n).replace(/^ · /, '') || '장비 적격 규칙 대상 공정에서 적중') + '"' : '') + (n === cur ? ' class="cur"' : '') + '>' + esc(n) + '</button>'; }).join('');
+    $('demoPresetNote').textContent = '프리셋은 데모 데이터만 바꿉니다 — 등급은 규칙(ILR-DEMO)이 판정' + (IlUi.srcNote() ? ' · ' + IlUi.srcNote() : '');
   }
 
   function currentOpForSign() {
@@ -1454,7 +1398,7 @@
       var wn = ws && ws.ok ? ws.verified + '/' + ws.lines : wg.verified + '/' + wg.total;
       var weq = null, wst = 'pending', wlabel = '줄 서명 대기', wmeta = '칭량 줄 서명 ' + wn + ' · 칭량 화면에서 줄마다 수행 · 확인 서명';
       if (state.opDone[op]) { wst = 'done'; wlabel = '자동 완료'; wmeta = '칭량 줄 서명 ' + wn + ' · OP 서명 없음 (줄 2인 서명)'; }
-      else if (wg.ok && state.il === 'absolute') { wst = 'blocked'; wlabel = '인터록'; wmeta = '칭량 줄 서명 ' + wn + ' VERIFIED · Absolute 인터록 해소 후 자동 완료'; }
+      else if (wg.ok && ilBlocked()) { wst = 'blocked'; wlabel = '인터록'; wmeta = '칭량 줄 서명 ' + wn + ' VERIFIED · Absolute 인터록 해소 후 자동 완료'; }
       else if (wg.ok && !(weq = assertEquipUsableFor(op)).ok) { wst = 'blocked'; wlabel = '설비 사용 불가'; wmeta = '칭량 줄 서명 ' + wn + ' VERIFIED · ' + String(weq.reason || '').split('\n')[0] + ' — 해소 후 자동 완료'; }
       else if (wg.ok) { wst = 'done'; wlabel = '자동 완료 대상'; wmeta = '칭량 줄 서명 ' + wn + ' VERIFIED · 열린 일탈 0'; }
       else if (wg.why !== 'pending') { wst = 'blocked'; wlabel = wg.why === 'open_deviation' ? '일탈 처분 대기' : '계획 없음'; wmeta = wg.message || '칭량 계획 없음'; }
@@ -1467,7 +1411,8 @@
       var meta = '<span class="sc-k">수행</span> ' + SignView.slotHtml(sg.p, '수행 대기') + ' <span class="sc-k">확인</span> ' + SignView.slotHtml(sg.v, '확인 대기');
       var st = sg.confirm ? 'done' : 'pending', badge = sg.confirm ? '<span class="badge ok">2/2</span>' : '<span class="badge muted">' + (sg.perform ? '확인 대기' : '대기') + '</span>';
       if ((sg.p && sg.p.status === 'invalid') || (sg.v && sg.v.status === 'invalid')) { st = 'blocked'; badge = '<span class="badge error">무효</span>'; }
-      if (state.il === 'absolute') { st = 'blocked'; meta = esc('인터록 차단 — 서명 불가'); badge = '<span class="badge error">차단</span>'; }
+      if (ilPerformOnly()) { st = 'blocked'; meta = esc(sg.perform ? 'Controlled 인터록 — 감독자 승인 대기 (확인 서명 · 완료는 승인 뒤)' : 'Controlled 인터록 — 수행 서명 후 감독자 승인'); badge = '<span class="badge error">승인 필요</span>'; }
+      else if (ilBlocked()) { st = 'blocked'; meta = esc('인터록 차단 — 서명 불가'); badge = '<span class="badge error">차단</span>'; }
       cards.push({ id: 'sc-cur', title: op + ' ' + opName, meta: meta, st: st, badge: badge });
     }
     cards.push(briefCard());
@@ -1494,15 +1439,79 @@
     /* 칭량 OP 는 OP 서명 버튼 숨김. 다른 OP 는 수행 → 확인 순서 */
     $('btnPerformSign').style.display = weigh ? 'none' : '';
     $('tipConfirm').style.display = weigh ? 'none' : '';
-    var blocked = state.il === 'absolute' || state.opDone[op];
-    var canPerform = !weigh && sg.ok && !sg.perform && !blocked && !(state.eqFail && (op === 'OP2-1' || op === 'OP2-2'));
+    var blocked = state.opDone[op] || ilBlocked();
+    var canPerform = !weigh && sg.ok && !sg.perform && !(state.opDone[op] || (ilBlocked() && !ilPerformOnly()));
     var canConfirm = !weigh && sg.ok && sg.perform && !sg.confirm && !blocked;
     var tp = canPerform ? roleTip(op, 'perform') : '', tc = canConfirm ? (roleTip(op, 'verify') || (sg.p && sg.p.signerId && sg.p.signerId === ((window.EbrUserSession && EbrUserSession.getCurrentUserId && EbrUserSession.getCurrentUserId()) || '') ? '수행자(' + sg.p.signerId + ')와 다른 사용자가 확인 서명합니다' : '')) : '';
     $('btnPerformSign').disabled = !canPerform || !!tp;
     $('btnConfirmSign').disabled = !canConfirm || !!tc;
     $('btnPerformSign').title = !sg.ok ? '서명 상태를 읽지 못해 서명할 수 없습니다' : tp;
-    $('tipConfirm').title = !sg.ok ? '서명 상태를 읽지 못해 서명할 수 없습니다' : tc || (!sg.perform ? '수행 서명 뒤 확인 서명' : sg.confirm ? '확인 서명 완료' : '');
+    $('tipConfirm').title = !sg.ok ? '서명 상태를 읽지 못해 서명할 수 없습니다' : tc || (sg.perform && !sg.confirm && ilPerformOnly() ? 'Controlled 인터록 — 감독자 승인 후 확인 서명' : '') || (!sg.perform ? '수행 서명 뒤 확인 서명' : sg.confirm ? '확인 서명 완료' : '');
   }
+
+  /* ==== 정정 (C4-3 · CF-06) — 서명 완료(수행 + 확인) OP 값만 [정정] → 공통 팝업 #dlgCorrection (CorrUI). 서명 전 · 진행 중 단계는 비활성.
+     '정정됨' 표지 = EbrCorrection.effectiveValues (값 + title 원 값 근거) ==== */
+  function corrBid() { return (execCtx && execCtx.batchId) || BATCH.id || ''; }
+  /* 값 행 표지 · [정정] 판정 — renderLog 가 행마다 부름. corrCtx = 렌더 1회 캐시 */
+  var corrCtx = null;
+  function corrPrep() {
+    corrCtx = { ok: false, tip: '', idx: {}, open: {} };
+    if (!window.CorrUI) { corrCtx.tip = '정정 팝업(ebr-correction-ui.js) 미연결'; return; }
+    if (!CorrUI.has('targetsFor')) { corrCtx.tip = CorrUI.whyMsg({ why: 'not_connected', fn: 'targetsFor' }); return; }
+    var g = CorrUI.canRequest(); corrCtx.ok = g.ok; corrCtx.tip = g.tip;
+    /* store 값 단위 항목(값 사본) → 공정 로그 행(hash = valueKey)에 매핑. 값 사본 없는 이전 서명 = 단계 1행 values_unavailable → 화면 값으로 매핑 · 버튼 활성(팝업이 화면 값으로 엶) */
+    var tf = CorrUI.call('targetsFor', corrBid(), { kind: 'exec_value', scope: 'prod' }), steps = {};
+    (tf.ok ? tf.items || [] : []).forEach(function (it) {
+      var t = it.target || {}; if (t.scope !== 'prod' || isWeighStep(t.stepKey)) return;
+      steps[t.stepKey] = 1;
+      if (t.valueIndex != null) {
+        var c = it.current || {};
+        corrCtx.idx[t.valueKey || ''] = { op: t.stepKey, i: t.valueIndex, no: it.correctable ? '' : CorrUI.whyMsg({ why: it.why }),
+          eff: c.source === 'correction' ? { value: c.value, correctionId: c.correctionId, original: (it.values[t.valueIndex] || {}).value } : null };
+      } else if (it.why === 'values_unavailable') {
+        var vals = prodValuesFor('prod', t.stepKey) || [], e = CorrUI.call('effectiveValues', corrBid(), 'prod', t.stepKey, vals);
+        vals.forEach(function (v, i) { var x = e.ok ? (e.values || [])[i] : null;
+          corrCtx.idx[v.key] = { op: t.stepKey, i: i, no: '', legacy: true, eff: x && x.source === 'correction' ? x : null }; });
+      }
+    });
+    /* '정정 대기' = 단계별 openCount 가 0 이 아닐 때만 값 단위로 찾음 */
+    Object.keys(steps).forEach(function (op) {
+      var n = CorrUI.call('openCount', corrBid(), { scope: 'prod', stepKey: op }) || {};
+      if (!((n.draft || 0) + (n.performed || 0))) return;
+      var l = CorrUI.call('listCorrections', { batchId: corrBid(), state: ['DRAFT', 'PERFORMED'] });
+      (l.ok ? l.rows || [] : []).forEach(function (c) { var t = c.target || {}; if (t.scope === 'prod' && t.stepKey === op) corrCtx.open[op + '|' + t.valueIndex] = c; });
+    });
+  }
+  function corrCells(r) {
+    var x = corrCtx && r.kind !== '서명' ? corrCtx.idx[r.hash] : null;
+    if (!x) return { mark: '', btn: '<td></td>' };
+    var e = x.eff, oc = corrCtx.open[x.op + '|' + x.i], mark = '';
+    if (oc) mark = ' <span class="badge muted" title="' + esc(oc.correctionId + ' · ' + CorrUI.stateText(oc.state)) + '">정정 대기</span>';
+    else if (e) mark = ' <span class="badge" title="' + esc('원래 값 ' + e.original + ' · ' + e.correctionId) + '">정정됨</span>';
+    var tip = oc ? '열린 정정 ' + oc.correctionId : x.no || corrCtx.tip || (x.legacy ? CorrUI.whyMsg({ why: 'values_unavailable' }) + ' — 이 화면 값으로 엶' : '');
+    return { mark: mark, eff: e ? e.value : null,
+      btn: '<td><span class="tip" title="' + esc(tip) + '"><button class="btn inner secondary" type="button" data-corr-hash="' + esc(r.hash) + '" data-p0-edit' + (corrCtx.ok && !oc && !x.no ? '' : ' disabled') + '>정정</button></span></td>' };
+  }
+  /* 원 값 배열 = 서명 때 넘긴 것과 같은 규칙(openSign) — 공정 로그에서 그 단계의 서명 줄 제외 */
+  function prodValuesFor(scope, op) {
+    if (scope !== 'prod') return null;
+    return state.logs.filter(function (r) { return r.step === op && r.kind !== '서명'; }).map(function (r) {
+      return { key: r.hash, label: r.item, value: r.value, judge: r.judge && r.judge !== '—' ? r.judge : '', source: r.src };
+    });
+  }
+  function openCorrProd(stepKey) {
+    CorrUI.open({ batchId: corrBid(), scope: 'prod', stepKey: stepKey || '', valuesFor: prodValuesFor, screen: 'S-EBR-PROD-EXEC', onDone: function () { renderAll(); } });
+  }
+  $('grdLogBody').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-corr-hash]'); if (!b || !corrCtx) return;
+    var x = corrCtx.idx[b.getAttribute('data-corr-hash')]; if (!x) return;
+    CorrUI.open({ batchId: corrBid(), scope: 'prod', stepKey: x.op, valueIndex: x.i, valuesFor: prodValuesFor, screen: 'S-EBR-PROD-EXEC', onDone: function () { renderAll(); } });
+  });
+  /* 출하 게이트 [정정] → ?corrStep= 으로 진입하면 그 단계 정정 창을 연다 (값 배열은 이 화면만 가짐) */
+  (function () {
+    var cs = new URLSearchParams(location.search).get('corrStep');
+    if (cs && window.CorrUI) window.addEventListener('load', function () { setTimeout(function () { openCorrProd(cs); }, 0); });
+  })();
 
   function renderLog() {
     var kind = $('fltLogKind').value;
@@ -1512,26 +1521,28 @@
       if (onlyFail && r.judge !== 'WARN' && r.judge !== 'FAIL') return false;
       return true;
     });
+    corrPrep();
     $('grdLogBody').innerHTML = rows.map(function (r, i) {
+      var cc = corrCells(r);
       return '<tr data-hash="' + esc(r.hash) + '">' +
         '<td class="col-no">' + (i + 1) + '</td>' +
         '<td>' + esc(r.ts) + '</td>' +
         '<td>' + esc(r.kind) + '</td>' +
         '<td>' + esc(r.step) + '</td>' +
         '<td>' + esc(r.item) + '</td>' +
-        '<td>' + esc(r.value) + '</td>' +
+        '<td title="' + esc(cc.eff != null ? '원래 값 ' + r.value : r.value) + '">' + esc(cc.eff != null ? cc.eff : r.value) + cc.mark + '</td>' +
         '<td>' + esc(r.equip) + '</td>' +
         '<td>' + srcTag(r.src) + '</td>' +
         '<td>' + judgeHtml(r.judge) + '</td>' +
         '<td>' + esc(r.sig) + '</td>' +
         '<td>' + esc(r.user) + '</td>' +
-        '<td class="hash">' + esc(r.hash) + '</td></tr>';
+        '<td class="hash">' + esc(r.hash) + '</td>' + cc.btn + '</tr>';
     }).join('');
     MesUI.setTotal('grdLog', rows.length);
   }
 
   function renderKpi() {
-    $('kpiStatus').textContent = (state.il === 'absolute' || state.eqFail) ? '보류' : BATCH.status;
+    $('kpiStatus').textContent = ilBlocked() ? '보류' : BATCH.status;
     $('kpiBatch').textContent = BATCH.id;
     var stepId = state.selectedStep;
     var step = null;
@@ -1619,25 +1630,20 @@
   $('fltLogFail').addEventListener('change', renderLog);
 
   function openSign(meaning) {
-    if (state.il === 'absolute') {
-      MesUI.alert('인터록 활성 — 서명할 수 없습니다.', 'Warning');
+    if (ilBlocked() && !(meaning === '수행' && ilPerformOnly())) {
+      MesUI.alert('인터록 활성 — 서명할 수 없습니다.\n\n' + ilTopMsg(), 'Warning');
       return;
     }
     var op = currentOpForSign();
     if (meaning === '수행') {
       var eu2 = assertEquipUsableFor(op);
       if (!eu2.ok) {
-        state.il = 'absolute';
-        IL.absolute.msg = 'Absolute — ' + eu2.reason;
+        state.eqBlock = { equipmentId: eu2.equipmentId, msg: 'Absolute — ' + eu2.reason };
         saveState(); renderAll();
         MesUI.alert('Absolute — 설비 사용 불가 (Phase 시작/USE)\n\nequipmentId=' + (eu2.equipmentId || '') +
           (eu2.holdUntil ? '\nholdUntil=' + eu2.holdUntil : '') + '\n\n' + eu2.reason, 'Error');
         return;
       }
-    }
-    if (state.eqFail && meaning === '수행' && (op === 'OP2-1' || op === 'OP2-2')) {
-      MesUI.alert('장비 적격 미충족(교정 만료) — 단계 시작·수행 서명이 차단됩니다.', 'Warning');
-      return;
     }
     if (isWeighStep(op)) {   /* 칭량 Q8: 칭량 OP 는 OP 서명 없음 — 칭량 화면 줄 서명 후 자동 완료 */
       var wg2 = weighGateFor(op);
@@ -1667,20 +1673,6 @@
   $('btnPerformSign').addEventListener('click', function () { openSign('수행'); });
   $('btnConfirmSign').addEventListener('click', function () { openSign('확인'); });
 
-  $('ilActions').addEventListener('click', function (e) {
-    var btn = e.target.closest('[data-il-act]');
-    if (!btn) return;
-    var act = btn.getAttribute('data-il-act');
-    if (act === '적합 LOT 선택') {
-      state.il = null;
-      saveState();
-      renderAll();
-      MesUI.toast('적합 LOT 경로(데모) — 인터록 해제', 'ok');
-      return;
-    }
-    MesUI.toast('인터록 조치: ' + act + ' (연동)', 'info');
-  });
-
   /* flow-strip: real hrefs + query from wireFlowStripLinks (no preventDefault) */
   wireFlowStripLinks();
 
@@ -1701,46 +1693,22 @@
       }
     });
   }
-  function applyDemoIl() {
-    var abs = $('demoIlAbs').checked, hard = $('demoIlHard').checked,
-        ctrl = $('demoIlCtrl').checked, warn = $('demoIlWarn').checked;
-    if (abs) { state.il = 'absolute'; $('demoIlHard').checked = $('demoIlCtrl').checked = $('demoIlWarn').checked = false; }
-    else if (hard) {
-      state.il = 'hardqa';
-      $('demoIlCtrl').checked = $('demoIlWarn').checked = false;
-      if (Dev && Dev.create && !state.hardQaDevCreated) {
-        try {
-          Dev.create({
-            batchId: execCtx.batchId || BATCH.id || 'BR-DEMO-0001',
-            orderNo: execCtx.orderNo || BATCH.orderNo || null,
-            source: 'production',
-            title: '설비 전환 Hard-QA (EC-MIX-01 외)',
-            grade: 'Hard-QA',
-            status: 'open'
-          });
-          state.hardQaDevCreated = true;
-          MesUI.toast('일탈 초안 생성(Dev) · Hard-QA', 'warn');
-        } catch (eDev) { /* ignore */ }
-      }
-    }
-    else if (ctrl) { state.il = 'controlled'; $('demoIlWarn').checked = false; }
-    else if (warn) { state.il = 'warning'; }
-    else if (state.il === 'absolute' || state.il === 'hardqa' || state.il === 'controlled' || state.il === 'warning') {
-      state.il = null;
-    }
-    state.eqFail = $('demoEqFail').checked;
-    saveState();
-    renderAll();
+  /* 공정 한정 규칙(eq.qualified opIds)은 현재 공정이 대상이 아니면 배너가 없음 — 대상 공정을 안내 (규칙 데이터에서 읽음) */
+  function presetOpHint(name) {
+    try {
+      var rs = IlApi.ruleSetFor({ point: 'exec.step', batchId: ilCtx().batchId }), cur = ilCtx().opId;
+      var r = ((rs && rs.rules) || []).filter(function (x) { return x.cond && x.cond.type === 'eq.qualified' && name === '장비 적격 실패'; })[0];
+      var ops = r ? r.cond.opIds || [] : [];
+      return ops.length && ops.indexOf(cur) < 0 ? ' · ' + ops.join('/') + '에서 적중 (현재 ' + (cur || '—') + ')' : '';
+    } catch (x) { return ''; }
   }
-  ['demoIlAbs', 'demoIlHard', 'demoIlCtrl', 'demoIlWarn', 'demoEqFail'].forEach(function (id) {
-    $(id).addEventListener('change', function () {
-      if (id.indexOf('demoIl') === 0 && $(id).checked) {
-        ['demoIlAbs', 'demoIlHard', 'demoIlCtrl', 'demoIlWarn'].forEach(function (oid) {
-          if (oid !== id) $(oid).checked = false;
-        });
-      }
-      applyDemoIl();
-    });
+  /* W7 데모 데이터 프리셋 6 — 데이터만 바꿈(EbrInterlock.demoPreset, 감사 DEMO_PRESET) → evaluate 다시 → 배너. 화면이 등급을 정하지 않음 */
+  $('demoPresets').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-preset]'); if (!b) return;
+    var r = IlApi.demoPreset(b.getAttribute('data-preset'));
+    if (!r || r.ok === false) { MesUI.toast('프리셋을 바꾸지 못했습니다 — ' + IlApi.whyText((r && r.why) || 'ilr_store_error'), 'error'); return; }
+    state.eqBlock = null; saveState(); renderAll();
+    MesUI.toast('데모 프리셋 — ' + b.getAttribute('data-preset') + presetOpHint(b.getAttribute('data-preset')), 'warn');
   });
   $('demoSkipTry').addEventListener('click', function () {
     state.selectedStep = 'OP1-1';
