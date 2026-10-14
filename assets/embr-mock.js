@@ -129,18 +129,40 @@
   var ui = {
     esc: function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); },
     badge: function (cls, text) { return '<span class="badge' + (cls ? ' ' + cls : '') + '">' + ui.esc(text) + '</span>'; },
-    /* 주격 조사 이/가 — 끝 괄호 설명을 뺀 마지막 한글 글자의 받침으로 고름 (한글이 아니면 '이(가)') */
+    /* 주격 조사 이/가 — 끝 괄호 설명·문장부호를 뺀 마지막 글자의 읽기 받침으로 고름
+       한글은 받침, 숫자는 읽기(0영 1일 2이 3삼 4사 5오 6육 7칠 8팔 9구, 끝 0은 십·백·천·만·억·조), 영문은 글자 이름(L·M·N·R만 받침) */
     josa: function (text) {
-      var t = String(text || '').replace(/\s*\([^()]*\)\s*$/, '').trim(), c = t.charCodeAt(t.length - 1);
-      if (!(c >= 44032 && c <= 55203)) return '이(가)';
-      return (c - 44032) % 28 ? '이' : '가';
+      var t = ui.whySplit(text).base.replace(/[^0-9A-Za-z\uAC00-\uD7A3]+$/, ''), ch = t.charAt(t.length - 1), c = t.charCodeAt(t.length - 1), m;
+      if (c >= 44032 && c <= 55203) return (c - 44032) % 28 ? '이' : '가';
+      if (/[0-9]/.test(ch)) {
+        var r = t.match(/[0-9]+$/)[0], unit = '영';
+        if (/[1-9]/.test(r)) { m = /([1-9])(0*)$/.exec(r); var z = m[2].length;
+          unit = !z ? '영일이삼사오육칠팔구'.charAt(+m[1]) : z < 4 ? '십백천'.charAt(z - 1) : '만억조'.charAt(Math.min(Math.floor(z / 4), 3) - 1); }
+        return (unit.charCodeAt(0) - 44032) % 28 ? '이' : '가';
+      }
+      if (/[A-Za-z]/.test(ch)) return /[LMNR]/i.test(ch) ? '이' : '가';
+      return '이(가)';
     },
-    /* [data-mock-why] 버튼 = disabled + title "목업 - PoC 범위 밖 (DC-03). 운영에서는 {통제}이/가 필요한 동작" (받침에 따라 조사 선택) */
+    /* 끝 괄호 설명(여러 겹·중첩 포함)을 떼어 냄 → { base, note } */
+    whySplit: function (text) {
+      var t = String(text == null ? '' : text).trim(), notes = [], i, d;
+      while (/\)[\s.,·:;!?]*$/.test(t)) {
+        var e = t.lastIndexOf(')'); d = 0;
+        for (i = e; i >= 0; i--) { if (t.charAt(i) === ')') d++; else if (t.charAt(i) === '(' && !--d) break; }
+        if (i < 0) break;
+        notes.unshift(t.slice(i, e + 1)); t = t.slice(0, i).trim();
+      }
+      return { base: t, note: notes.join(' ') };
+    },
+    /* [data-mock-why] 버튼 = disabled + title "목업 - PoC 범위 밖 (DC-03). 운영에서는 {통제}이/가 필요한 동작 (괄호 설명)" (괄호 설명은 문장 끝으로) */
+    whyTitle: function (why) {
+      var w = ui.whySplit(why);
+      return '목업 - PoC 범위 밖 (DC-03). 운영에서는 ' + w.base + ui.josa(w.base) + ' 필요한 동작' + (w.note ? ' ' + w.note : '');
+    },
     applyDisabled: function (root) {
       Array.prototype.forEach.call((root || document).querySelectorAll('[data-mock-why]'), function (b) {
         b.disabled = true; b.setAttribute('aria-disabled', 'true');
-        var why = b.getAttribute('data-mock-why');
-        b.title = '목업 - PoC 범위 밖 (DC-03). 운영에서는 ' + why + ui.josa(why) + ' 필요한 동작' + (b.getAttribute('data-mock-sign') ? ' — 예: ' + b.getAttribute('data-mock-sign') : '');
+        b.title = ui.whyTitle(b.getAttribute('data-mock-why')) + (b.getAttribute('data-mock-sign') ? ' — 예: ' + b.getAttribute('data-mock-sign') : '');
       });
     },
     fit: function () {

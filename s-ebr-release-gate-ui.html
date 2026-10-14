@@ -250,7 +250,7 @@
       <a class="fl done lnk" id="lnkLot" href="./s-ebr-lot-trace-ui.html" title="LOT 추적"><span class="n">4</span>LOT 추적</a>
       <span class="arrow">&rsaquo;</span>
       <span class="fl active" id="lnkRelease"><span class="n">5</span>출하 게이트</span>
-      <span class="hint">출하 게이트 · issued 메타 · 쿼리 전파</span>
+      <span class="hint">출하 게이트 · 발행 메타데이터 · 쿼리 전파</span>
     </div>
     <div class="snap-banner hidden" id="snapBanner" role="status">
       <span class="status-dot navy" id="snapBannerDot"></span>
@@ -283,7 +283,7 @@
           <span class="group-title">RBE 예외</span>
           <span class="total-text" data-total-for="grdRbe"></span>
           <span class="vbar"></span>
-          <select class="input w-160" id="fltCat" title="카테고리"><option value="">카테고리 전체</option><option>WARNING_ACK</option><option>규격 이탈(IPC)</option><option>MANUAL_BY_DESIGN + 정정</option></select>
+          <select class="input w-160" id="fltCat" title="카테고리"><option value="">카테고리 전체</option><option value="WARNING_ACK" title="WARNING_ACK">경고 확인</option><option>규격 이탈(IPC)</option><option value="MANUAL_BY_DESIGN + 정정" title="MANUAL_BY_DESIGN + 정정">설계상 수동 + 정정</option></select>
           <select class="input w-120" id="fltStatus" title="상태"><option value="">상태 전체</option><option>미결</option><option>검토 완료</option><option>QA 승인</option></select>
           <label class="checkbox"><input type="checkbox" id="fltCritical"> 치명만</label>
           <span class="spacer"></span>
@@ -337,7 +337,7 @@
           <div class="grid-wrap">
             <table class="grid selectable" id="grdGate">
               <colgroup><col class="c-no"><col class="c-cond"><col class="c-gst"><col></colgroup>
-              <thead><tr><th class="center">No</th><th>조건</th><th>상태</th><th>근거(현재 값)</th></tr></thead>
+              <thead><tr><th class="center">번호</th><th>조건</th><th>상태</th><th>근거(현재 값)</th></tr></thead>
               <tbody id="grdGateBody"></tbody>
             </table>
           </div>
@@ -896,6 +896,12 @@
     $('smReview2').innerHTML = SIG.ok ? SignView.slotHtml(reviewItem('batch'), '2차 검토 대기') : '<span class="badge muted" title="' + esc(RecSign.whyMsg(SIG)) + '">확인 불가</span>';
   }
 
+  /* 화면 표시 전용 한글 매핑 — 데이터 값은 그대로, 원래 코드는 툴팁 */
+  var CAT_KO = { WARNING_ACK: '경고 확인', MANUAL_BY_DESIGN: '설계상 수동' }, SRC_KO = { AUTO: '자동', MANUAL: '수동' }, MEANING_KO = { reviewed: '검토', approved: '승인', performed: '수행', verified: '확인' };
+  function codeKo(s, map) { return String(s == null ? '' : s).replace(/\b[A-Z][A-Z_]+\b/g, function (w) { return map[w] || w; }); }
+  function catKo(s) { return codeKo(s, CAT_KO); }
+  function srcKo(s) { return codeKo(s, SRC_KO); }
+  function textKo(s) { return String(s == null ? '' : s).replace(/critical 전수/g, '치명 전수').replace(/\breleased (\d+\/\d+)/g, '출하 가능 $1'); }
   function renderRbe() {
     var tb = $('grdRbeBody'); tb.innerHTML = '';
     exceptions().forEach(function (e) {
@@ -906,11 +912,11 @@
         : '<span class="muted">—</span>';
       tr.innerHTML =
         '<td>' + esc(e.id) + '</td>' +
-        '<td title="' + esc(e.cat) + '">' + esc(e.cat) + '</td>' +
+        '<td title="' + esc(e.cat) + '">' + esc(catKo(e.cat)) + '</td>' +
         '<td>' + esc(e.step) + '</td>' +
         '<td title="' + esc(e.item) + '">' + esc(e.item) + '</td>' +
         '<td title="' + esc(e.value) + '">' + esc(e.value) + '</td>' +
-        '<td title="출처 플래그">' + esc(e.src) + '</td>' +
+        '<td title="' + esc('출처 플래그 · ' + (e.src || '')) + '">' + esc(srcKo(e.src)) + '</td>' +
         '<td><span class="badge ' + badgeClass(e.status) + '" title="' + esc(e.note) + '">' + esc(e.status) + '</span></td>' +
         '<td>' + esc(e.reviewer) + '</td>' +
         '<td>' + devCell + '</td>' +
@@ -944,7 +950,7 @@
       var tgt = it.label || ((it.stepKey || '') + ' ' + (it.slot || ''));
       var gn = it.gateNo ? ' · 게이트 ' + it.gateNo : '';
       return '<tr data-key="' + esc(it.key) + '"><td>' + esc(AREA[it.scope] || it.scope || '') + '</td>' +
-        '<td title="' + esc(tgt + gn) + '">' + esc(tgt) + '</td>' +
+        '<td title="' + esc(tgt + gn) + '">' + esc(textKo(tgt)) + '</td>' +
         '<td title="' + esc(it.signRuleId || '') + '">' + esc(it.signRuleId || '') + '</td>' +
         '<td>' + SignView.slotHtml(it) + (canInv && it.status === 'signed' && it.signatureId && !relDone ? ' <button class="btn inner" type="button" data-inv="' + esc(it.signatureId) + '" data-inv-tgt="' + esc((AREA[it.scope] || it.scope || '') + ' · ' + tgt + gn) + '" title="QA 조사 — 서명 무효화 (사유 필수)">무효화</button>' : '') + '</td></tr>';
     }).join('') || '<tr><td colspan="4" class="sub-info">필요 서명 없음</td></tr>';
@@ -969,7 +975,7 @@
         '<td class="center">' + g.no + '</td>' +
         '<td title="' + esc(g.cond) + '">' + (g.no === 12 && rn ? '<span class="rg-flex"><span class="rg-ell">' + esc(g.cond) + '</span>' + rnBadge(rn, 'dot') + '</span>' : esc(g.cond)) + '</td>' +
         '<td>' + stBadge(g) + '</td>' +
-        '<td title="' + esc(g.basis) + '">' + esc(g.basis) + '</td>';
+        '<td title="' + esc(g.basis) + '">' + esc(textKo(g.basis)) + '</td>';
       if (g.status === 'block') tr.classList.add('blocked');
       if (g.no === state.condNo) tr.classList.add('selected');
       if (sel && sel.links.indexOf(g.no) >= 0) tr.classList.add('linked');
@@ -982,9 +988,10 @@
     renderCondMenu();
     renderRelease();
   }
+  function signLineRaw(sg) { return sg ? sg.ruleId + ' · ' + (sg.meaning || '') + ' · 허용 ' + ((sg.roles || []).join(' · ') || '—') : '—'; }   /* 툴팁 = 원래 코드 */
   function signLine(sg) {
     if (!sg) return '—';
-    return sg.ruleId + ' · ' + (sg.meaning || '') + ' · 허용 ' + ((sg.roles || []).join(' · ') || '—');
+    return sg.ruleId + ' · ' + (MEANING_KO[sg.meaning] || sg.meaning || '') + ' · 허용 ' + ((sg.roles || []).join(' · ') || '—');
   }
   /* 조건 서명 활성 · 사유 = 모듈 condSignSpec(batchId) 메뉴 그대로 (화면 판정 없음). 모듈이 없으면 전부 비활성 */
   function condMenuSpec() {
@@ -1005,13 +1012,13 @@
     set('cdSrc', esc(g.source.join(' · ') || '—'));
     set('cdJudge', esc(g.comp + ' · 담당 ' + g.owner));
     set('cdTarget', esc(BATCH.id + ' · ' + BATCH.mbr));
-    set('cdSign', g.sign ? esc(signLine(g.sign)) + (g.sign.pending ? ' <span class="badge muted">대기</span>' : '') : '<span class="muted">조건 서명 없음</span>', g.sign ? signLine(g.sign) : '');
+    set('cdSign', g.sign ? esc(signLine(g.sign)) + (g.sign.pending ? ' <span class="badge muted">대기</span>' : '') : '<span class="muted">조건 서명 없음</span>', g.sign ? signLineRaw(g.sign) : '');
     var dm2 = g.no === 2 ? devById() : {};
     set('cdRefs', (g.refs.map(function (r) { return esc(r) + devMarks(dm2[r]); }).join(' · ') || '—'), g.refs.join(' · ') || '—');
     var blk = g.status === 'block';
     $('cdMsg').className = 'cond-msg' + (blk ? ' block' : '');
     var m = blk ? (g.msg || g.basis) : g.basis;
-    $('cdMsgText').textContent = m || '—'; $('cdMsg').title = (blk ? '차단 사유: ' : '근거: ') + (m || '');
+    $('cdMsgText').textContent = textKo(m) || '—'; $('cdMsg').title = (blk ? '차단 사유: ' : '근거: ') + textKo(m || '');
     $('cdLink').textContent = g.link ? g.link + ' 바로가기 ›' : ''; $('cdLink').dataset.link = g.link || ''; $('cdLink').dataset.no = g.no;
     var b = $('btnCondDetailSign'), cs = COND_SIGN[g.no];
     b.hidden = !cs; if (cs) { b.textContent = cs.name + ' 서명'; b.disabled = !canCondSign(g, ro);
@@ -1073,10 +1080,10 @@
     $('gcSt').innerHTML = stBadge(g) + ' <span class="muted">' + esc(g.comp + ' · 담당 ' + g.owner) + '</span>';
     $('gcAt').textContent = (EV && EV.evalAt) || state.evalTime;
     $('gcSrc').textContent = g.source.join(' · ') || '—'; $('gcSrc').title = $('gcSrc').textContent;
-    $('gcSign').innerHTML = g.sign ? esc(signLine(g.sign)) + (g.sign.pending ? ' <span class="badge muted">대기</span>' : '') : '<span class="muted">조건 서명 없음</span>';
+    $('gcSign').title = g.sign ? signLineRaw(g.sign) : ''; $('gcSign').innerHTML = g.sign ? esc(signLine(g.sign)) + (g.sign.pending ? ' <span class="badge muted">대기</span>' : '') : '<span class="muted">조건 서명 없음</span>';
     $('gcMsgLabel').textContent = blk ? '차단 사유' : '근거';
     $('gcMsg').className = 'cond-msg' + (blk ? ' block' : '');
-    $('gcMsgText').textContent = (g.no === 12 ? stripRn((blk ? (g.msg || g.basis) : g.basis), rebaseNone()) : (blk ? (g.msg || g.basis) : g.basis)) || '—'; $('gcMsg').title = $('gcMsgText').textContent;
+    $('gcMsgText').textContent = textKo(g.no === 12 ? stripRn((blk ? (g.msg || g.basis) : g.basis), rebaseNone()) : (blk ? (g.msg || g.basis) : g.basis)) || '—'; $('gcMsg').title = $('gcMsgText').textContent;
     var rows, miss = [];
     if (g.ef) {
       $('gcGridTitle').textContent = '비상 양식 (발행 기록)'; $('gcColA').textContent = 'EF 번호'; $('gcColB').textContent = '상태';
@@ -1197,7 +1204,7 @@
     $('rtSt').innerHTML = stBadge(g) + ' <span class="muted">' + (isRO() ? '읽기 전용' : '잠금 해제') + '</span>';
     $('rtBatch').textContent = BATCH.id;
     var rnW = rebaseNone(), what = stripRn(g.msg || g.basis, rnW) || '—';
-    $('rtWhat').textContent = what; $('rtWhat').title = what;
+    $('rtWhat').textContent = textKo(what); $('rtWhat').title = what;
     $('rtRefs').textContent = g.refs.join(' · ') || '—';
     $('rtS42').href = './s-ebr-esign-history-ui.html?batchId=' + encodeURIComponent(currentBatchId());
     $('btnRestoreSign').disabled = !canCondSign(g, true);
