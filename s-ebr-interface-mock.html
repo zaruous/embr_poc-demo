@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<!--
+  화면 id   : s-ebr-interface-mock  (S-55 외부 시스템 연동 현황 · S-56 인터페이스 메시지 상세 팝업 #dlgMockMsg · S-57 연동 대사 탭 2) — 목업 (PoC 범위 밖, DC-03)
+  설계      : poc-deferred-mockups-design.md 개정 2 W7 · W8 · W9 (MK-08 · MK-09 · MK-15)
+  자산      : ./assets/mesui.css · ./assets/mesui.js · ./assets/embr-mock-fixtures.js · ./assets/embr-mock.js (ebr-*.js 로드 안 함)
+  저장      : embrMock.iface.v1 (재처리 시뮬 상태 · 대사 시각) · embrMock.ui.v1 — ebr.* · ebmr.* 읽기 · 쓰기 없음 (출하 게이트 조건 5 · 6 원천 키 미접촉 → 계속 N/A)
+  외부 시스템 : ERP · LIMS · QMS · Historian 일반명만
+  비활성    : 연동 설정 · 실제 전송 · 폐기 · 대사 확인 서명
+  URL       : ?tab=recon (S-57) · ?open=<메시지 ID> (S-56)
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>외부 시스템 연동 현황 (S-55 · S-56 · S-57) — eBR PoC (목업)</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  /* ---- 목업 공통 (S-49 ~ S-57, DC-03) — mesui.css 토큰만, hex · px 리터럴 없음 ---- */
+  html, body { margin: 0; overflow: hidden; background: var(--c-bg); }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale { flex: 0 0 auto; }
+  .title-left .badge.warn { margin-left: var(--title-gap); }
+  .mock-band { flex: 0 0 var(--form-row-h); height: var(--form-row-h); display: flex; align-items: center; gap: var(--title-gap);
+    padding: var(--grid-cell-pad); border-left: var(--badge-gap) solid var(--c-warn); font-size: var(--fs-base); white-space: nowrap; overflow: hidden; }
+  .mock-band .spacer, .mock-line .spacer { flex: 1 1 auto; }
+  .title-row { display: flex; align-items: center; gap: var(--title-gap); }
+  .mock-notes { flex: 0 0 auto; display: flex; flex-direction: column; }
+  .mock-note { font-size: var(--fs-grid); color: var(--c-text-sub); line-height: 1.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mock-note.err { color: var(--c-error); font-weight: bold; }
+  .mock-note.ok { color: var(--c-ok); font-weight: bold; }
+  .mock-line { flex: 0 0 auto; display: flex; align-items: center; gap: var(--title-gap); min-height: var(--form-row-h); white-space: nowrap; overflow: hidden; }
+  .grid td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grid tr.row-faulty td { background: var(--bc-faulty); }
+  .grid tr.row-alam td { background: var(--bc-alam); }
+  .mono { font-family: var(--font-mono); }
+  .grid-block.fixed-6 { flex: 0 0 auto; }
+  .grid-block.fixed-6 > .grid-wrap { flex: 0 0 auto; min-height: 0; height: calc(var(--grid-head-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h)); }
+  .grid-block.auto-h { flex: 0 0 auto; }
+  .grid-block.auto-h > .grid-wrap { flex: 0 0 auto; min-height: 0; }
+  .shell-body > .grid-block.fill-rest { flex: 1 1 auto; min-height: 0; }
+  .dialog .grid-wrap { flex: 0 0 auto; min-height: 0; }
+  .dialog .mock-band { flex: 0 0 var(--form-row-h); }
+  .popup-title .text .badge.warn { margin-left: var(--title-gap); vertical-align: middle; }
+  .btn[disabled] { cursor: not-allowed; }
+  @media print {
+    html, body { height: auto; overflow: visible; }
+    body::before { content: '목업 - GMP 기록 아님'; position: fixed; top: 0; left: 0; right: 0; text-align: center; font-weight: bold; color: var(--c-error); }
+  }
+  /* 활성 탭 = secondary 유지 + 굵은 글자 · 하단 primary 선 (DESIGN.md M-18 선택 탭, 주 버튼 primary 와 구분) */
+  .btn[role="tab"][aria-selected="true"] { font-weight: bold; border-bottom: var(--badge-gap) solid var(--c-primary); }
+  .tab-pane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--body-gap); }
+  .tab-pane > .grid-block.fill-rest { flex: 1 1 auto; min-height: 0; }
+  .search-control .field .input[type="date"] { flex: 1 1 0; }
+  .raw-text { height: calc(var(--search-row-h) + var(--body-gap)); padding: var(--badge-gap) var(--title-gap); overflow: hidden; font-size: var(--fs-grid); }
+  .raw-text > .raw-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: pre-wrap; word-break: break-all; line-height: 1.34; }
+</style>
+</head>
+<body>
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="title-left">
+      <span class="main-title"><span class="mod-tag">EBR</span><span id="pageTitle">외부 시스템 연동 현황</span><span class="badge warn">목업</span></span>
+      <span class="sub-info"><i class="ic-info"></i><span id="pageSub"></span></span>
+    </span>
+    <span class="breadcrumb"><span>목업 (PoC 범위 밖)</span><span class="sep">&rsaquo;</span><span class="current">연동</span></span>
+  </div>
+
+  <div class="shell-body">
+    <div class="mock-band bc-alam" role="note">
+      <span id="bandText"></span>
+      <span class="spacer"></span>
+      <button class="btn search secondary" type="button" id="btnMockReset">목업 초기화</button>
+    </div>
+    <div class="grid-toolbar" role="tablist" aria-label="화면 탭">
+      <button class="btn search secondary" type="button" role="tab" aria-selected="true" data-tab="status">연동 현황 (S-55)</button>
+      <button class="btn search secondary" type="button" role="tab" aria-selected="false" data-tab="recon">연동 대사 (S-57)</button>
+    </div>
+
+    <!-- ===== 탭 1 : S-55 ===== -->
+    <div class="tab-pane" data-tab-pane="status">
+      <div class="search-box cols-4">
+        <div class="search-control"><span class="label">상대 시스템</span>
+          <select class="input" id="schSys" aria-label="상대 시스템"><option value="">전체</option><option>ERP</option><option>LIMS</option><option>QMS</option><option>Historian</option></select></div>
+        <div class="search-control"><span class="label">방향 · 상태</span>
+          <span class="field"><select class="input" id="schDir" aria-label="방향"><option value="">전체</option><option>수신</option><option>송신</option></select>
+            <select class="input" id="schState" aria-label="상태"><option value="">전체</option><option value="ok">정상</option><option value="warn">경고</option><option value="error">오류</option></select></span></div>
+        <div class="search-control"><span class="label">기간</span>
+          <span class="field"><input class="input" type="date" id="schFrom" value="2026-10-13" aria-label="시작일">~<input class="input" type="date" id="schTo" value="2026-10-13" aria-label="종료일"></span></div>
+        <div class="search-actions"><button class="btn search secondary" type="button" id="btnSearch">조회</button></div>
+      </div>
+      <div class="grid-block auto-h">
+        <div class="grid-title-area">
+          <div class="title-row"><span class="group-title">연동 채널</span><span class="sub-info">경고 = 미전송 &gt; 0 · 오류 = 데드레터 &gt; 0 (Annex 11 §13)</span></div>
+          <div class="grid-toolbar">
+            <span class="total-text" id="totCh"></span><span class="vbar"></span>
+            <button class="btn search" type="button" id="btnMsg">메시지 상세 &gt;</button>
+            <span class="spacer"></span>
+            <button class="btn search secondary" type="button" id="btnExcel55" data-mock-why="기록 반출 승인 · 반출 이력">엑셀 내보내기</button>
+            <button class="btn search secondary" type="button" id="btnCfg55" data-mock-why="화면 설정 변경 승인 · 설정 이력">설정 저장</button>
+            <button class="btn search secondary" type="button" id="btnIfSetup" data-mock-why="연동 설정 변경 승인 (변경관리)">연동 설정</button>
+            <button class="btn search secondary" type="button" id="btnSend" data-mock-why="외부 시스템 연결 · 전송 기록">실제 전송</button>
+            <button class="btn search primary" type="button" id="btnReproc">재처리 (시뮬)</button>
+          </div>
+        </div>
+        <div class="grid-wrap">
+          <table class="grid selectable" id="grdCh">
+            <colgroup><col style="width:var(--col-w-key)"><col style="width:var(--col-w-200)"><col style="width:var(--form-label-w)"><col style="width:var(--col-w-240)"><col style="width:var(--col-w-160)"><col style="width:var(--col-w-ts)"><col style="width:var(--col-w-ts)"><col style="width:var(--col-w-key)"><col></colgroup>
+            <thead><tr><th>채널 ID</th><th>상대 시스템</th><th class="center">방향</th><th>메시지 종류</th><th class="right">오늘 성공</th><th class="right">미전송</th><th class="right">데드레터</th><th>마지막 송수신</th><th>상태</th></tr></thead>
+            <tbody id="grdChBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="grid-block fill-rest">
+        <div class="grid-title-area">
+          <div class="title-row"><span class="group-title" id="msgTitle">최근 메시지</span><span class="sub-info">행 더블클릭 = 메시지 상세 (S-56)</span></div>
+          <div class="grid-toolbar"><span class="total-text" id="totMsg"></span></div>
+        </div>
+        <div class="grid-wrap">
+          <table class="grid selectable" id="grdMsg">
+            <colgroup><col style="width:var(--col-w-240)"><col style="width:var(--col-w-200)"><col style="width:var(--col-w-240)"><col style="width:var(--col-w-240)"><col></colgroup>
+            <thead><tr><th>메시지 ID</th><th>수신 시각</th><th>대상</th><th>검사</th><th>결과</th></tr></thead>
+            <tbody id="grdMsgBody"></tbody>
+          </table>
+          <div class="nodata hidden" id="msgNodata">이 채널의 최근 메시지 예시가 없습니다 (목업 fixture 는 IF-LIMS-RES 만)</div>
+        </div>
+        <div class="mock-notes">
+          <span class="mock-note" id="reprocMsg">(i) 재처리 (시뮬) = 목업 상태만 바뀜. 실제 시스템 · eBR 기록 변경 없음</span>
+          <span class="mock-note">(i) 비활성 이유: 연동 설정 · 실제 전송 · 엑셀 내보내기 · 설정 저장 = 외부 시스템 연결 · 전송 기록 · 기록 반출 · 설정 저장이 PoC 범위 밖 (DC-03) - 툴팁에도 같은 문구</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 탭 2 : S-57 ===== -->
+    <div class="tab-pane hidden" data-tab-pane="recon">
+      <div class="search-box cols-3">
+        <div class="search-control"><span class="label">배치</span>
+          <select class="input" id="rcBatch" aria-label="배치"><option value="BR-DEMO-0001">BR-DEMO-0001</option></select></div>
+        <div class="search-control"><span class="label">대사 대상</span>
+          <select class="input" id="rcTarget" aria-label="대사 대상"><option value="ERP 실적">ERP 실적</option><option value="LIMS 판정">LIMS 판정</option></select></div>
+        <div class="search-actions"><button class="btn search secondary" type="button" id="btnRecon">대사 (시뮬)</button></div>
+      </div>
+      <div class="grid-block fill-rest">
+        <div class="grid-title-area">
+          <div class="title-row"><span class="group-title" id="rcTitle">대사 결과</span><span class="sub-info" id="rcAt"></span></div>
+          <div class="grid-toolbar">
+            <span class="total-text" id="totRc"></span><span class="vbar"></span>
+            <button class="btn search" type="button" id="btnDiff">차이 상세 &gt;</button>
+            <span class="spacer"></span>
+            <button class="btn search primary" type="button" id="btnRcSign" data-mock-why="QA 검토 서명 (서명 원장)" data-mock-sign="">대사 확인 서명</button>
+          </div>
+        </div>
+        <div class="grid-wrap">
+          <table class="grid selectable" id="grdRc">
+            <colgroup><col style="width:var(--col-w-240)"><col style="width:var(--col-w-240)"><col style="width:var(--col-w-240)"><col style="width:var(--col-w-key)"><col></colgroup>
+            <thead><tr><th>항목</th><th class="right">eBR 값</th><th class="right" id="thExt">외부 값</th><th class="right">차이</th><th>판정</th></tr></thead>
+            <tbody id="grdRcBody"></tbody>
+          </table>
+        </div>
+        <div class="mock-notes">
+          <span class="mock-note" id="rcResult"></span>
+          <span class="mock-note">(i) 원천 값 비교만 — 값 무수정 (Annex 11 §4.8). 출하 게이트 조건 5 판정과 연결하지 않음 (실제 게이트는 계속 N/A)</span>
+          <span class="mock-note">(i) 비활성 이유: 대사 확인 서명 = 서명 원장 · 운영 대사 연결이 PoC 범위 밖 (DC-03) - 툴팁에도 같은 문구</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<!-- S-56 인터페이스 메시지 상세 팝업 (T-10, 1100×700) -->
+<div class="dialog-backdrop" id="dlgMockMsg">
+  <div class="dialog" role="dialog" aria-labelledby="dlgMsgTitle">
+    <div class="popup-title"><span class="text" id="dlgMsgTitle">인터페이스 메시지 상세<span class="badge warn">목업</span></span><button class="popup-close" type="button" data-dialog-close aria-label="닫기"></button></div>
+    <div class="shell-body">
+      <div class="mock-band bc-alam" role="note"><span><b>(!) 목업</b> - 고정 예시 메시지. 재처리는 목업 상태만 바뀜 (실제 시스템 · eBR 기록 변경 없음, S-56)</span></div>
+      <div class="form-grid cols-2 readonly">
+        <span class="label">메시지</span><span class="field"><input class="input" id="mId" readonly></span>
+        <span class="label">채널</span><span class="field"><input class="input" id="mCh" readonly></span>
+        <span class="label">수신</span><span class="field"><input class="input" id="mAt" readonly></span>
+        <span class="label">시도 · 상태</span><span class="field"><input class="input" id="mTry" readonly><span id="mState"></span></span>
+      </div>
+      <div class="grid-block auto-h">
+        <div class="grid-toolbar"><span class="group-title">내장 검사 (Annex 11 §5)</span><span class="spacer"></span><span class="total-text" id="totChk"></span></div>
+        <div class="grid-wrap">
+          <table class="grid" id="grdChk">
+            <colgroup><col style="width:var(--col-w-200)"><col style="width:var(--col-w-240)"><col style="width:var(--col-w-240)"><col></colgroup>
+            <thead><tr><th>검사</th><th>기대</th><th>수신</th><th class="center">결과</th></tr></thead>
+            <tbody id="grdChkBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <span class="mock-note" id="msgResult"></span>
+      <div class="grid-block auto-h">
+        <div class="grid-toolbar"><span class="group-title">원문</span><span class="sub-info">읽기 전용 · 줄바꿈 + 3줄 넘으면 말줄임 · 전체는 [원문 복사]</span></div>
+        <div class="input raw-text" id="rawText" role="textbox" aria-readonly="true" aria-label="원문"></div>
+      </div>
+      <span class="mock-note">(i) 비활성 이유: 폐기 = 데드레터 처리 기록 · 승인이 PoC 범위 밖 (DC-03) - 툴팁에도 같은 문구</span>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn search secondary" type="button" data-dialog-close>닫기</button>
+      <button class="btn search secondary" type="button" id="btnCopyRaw">원문 복사</button>
+      <button class="btn search secondary" type="button" id="btnDiscard" data-mock-why="데드레터 폐기 승인 · 처리 기록">폐기</button>
+      <button class="btn search primary" type="button" id="btnReprocDlg">재처리 (시뮬)</button>
+    </div>
+  </div>
+</div>
+
+<script src="./assets/mesui.js"></script>
+<script src="./assets/embr-mock-fixtures.js"></script>
+<script src="./assets/embr-mock.js"></script>
+<script>
+(function () {
+  'use strict';
+  var M = window.EmbrMock, U = M.ui, esc = U.esc, SCREEN = 's55';
+  var $ = function (id) { return document.getElementById(id); };
+  var F = M.fixture('iface'), selCh = null, selMsg = null, dlgMsg = null;
+  var BAND = {
+    status: '<b>(!) 목업 화면</b> - ERP · LIMS · QMS · Historian 실제 연결 없음. 출하 게이트 조건 5 는 계속 N/A (fixture iface v1)',
+    recon: '<b>(!) 목업 화면</b> - 대사 결과는 고정 예시. 출하 게이트 조건 5 판정과 연결하지 않음 (fixture iface v1)' };
+  var TITLE = { status: ['외부 시스템 연동 현황', 'S-55 · 채널별 성공 · 미전송 · 데드레터 (DI-03 · DI-04 · S-32 #5/#6 · S-25)'], recon: ['연동 대사', 'S-57 · eBR 값 ↔ 외부 시스템 값 비교 (DI-03 · S-32 #5 · S-31)'] };
+  var MSTATE = { applied: ['ok', '반영'], dead: ['error', '데드레터'], dead_kept: ['error', '데드레터 유지 (재처리 시뮬)'] };
+  function chState(c) { return c.dead > 0 ? ['error', '오류', 'error'] : c.pending > 0 ? ['warn', '경고', 'warn'] : ['ok', '정상', 'ok']; }
+  function msgState(m) { var s = m.simState || m.state; return MSTATE[s] || ['', s]; }
+  function renderCh() {
+    var sys = $('schSys').value, dir = $('schDir').value, st = $('schState').value;
+    var rows = F.channels.filter(function (c) { return (!sys || c.system === sys) && (!dir || c.dir === dir) && (!st || chState(c)[2] === st); });
+    $('totCh').innerHTML = 'Total <b>' + rows.length + '</b>';
+    if (!rows.some(function (c) { return c.chId === selCh; })) selCh = (rows.filter(function (c) { return c.chId === 'IF-LIMS-RES'; })[0] || rows[0] || {}).chId || null;
+    $('grdChBody').innerHTML = rows.map(function (c) {
+      var s = chState(c);
+      return '<tr data-id="' + esc(c.chId) + '"' + (c.chId === selCh ? ' class="selected"' : '') + '><td>' + esc(c.chId) + '</td><td>' + esc(c.system) + '</td><td class="center">' + esc(c.dir) + '</td><td>' + esc(c.kind) + '</td>' +
+        '<td class="right">' + c.ok + '</td><td class="right">' + c.pending + '</td><td class="right">' + c.dead + '</td><td>' + esc(c.last) + '</td><td>' + U.badge(s[0], s[1]) + '</td></tr>';
+    }).join('');
+    renderMsg();
+    U.keepUi(SCREEN, { filters: { sys: sys, dir: dir, state: st }, selectedId: selCh });
+  }
+  function renderMsg() {
+    var list = F.messages.filter(function (m) { return m.channel === selCh; }).map(function (m) { return M.msgView(m.msgId); });
+    $('msgTitle').textContent = '최근 메시지 - ' + (selCh || '-');
+    $('totMsg').innerHTML = 'Total <b>' + list.length + '</b>';
+    if (!list.some(function (m) { return m.msgId === selMsg; })) selMsg = list.length ? list[0].msgId : null;
+    $('grdMsgBody').innerHTML = list.map(function (m) {
+      var s = msgState(m);
+      return '<tr data-id="' + esc(m.msgId) + '"' + (m.msgId === selMsg ? ' class="selected"' : '') + '><td>' + esc(m.msgId) + '</td><td>' + esc(m.at.slice(11)) + '</td><td>' + esc(m.target) + ' <span class="src-tag iface">IF</span></td>' +
+        '<td>' + m.checks.map(function (c) { return esc(c.key.split(' ')[0]); }).join(' · ') + '</td><td>' + U.badge(s[0], s[1]) + (m.reason ? ' ' + esc(m.reason) : '') + '</td></tr>';
+    }).join('');
+    $('msgNodata').classList.toggle('hidden', list.length > 0);
+  }
+  function renderDlg() {
+    var m = M.msgView(dlgMsg); if (!m) return;
+    var ch = F.channels.filter(function (c) { return c.chId === m.channel; })[0] || {}, s = msgState(m);
+    $('mId').value = m.msgId; $('mCh').value = m.channel + ' (' + m.route + ')'; $('mAt').value = m.at; $('mTry').value = '시도 ' + m.attempt + '/' + m.maxAttempt;
+    $('mState').innerHTML = U.badge(s[0], s[1]);
+    $('totChk').innerHTML = 'Total <b>' + m.checks.length + '</b>';
+    $('grdChkBody').innerHTML = m.checks.map(function (c) {
+      return '<tr' + (c.ok ? '' : ' class="row-faulty"') + '><td>' + esc(c.key) + '</td><td>' + esc(c.expected) + '</td><td>' + esc(c.actual) + '</td><td class="center">' + (c.ok ? U.badge('ok', '통과') : U.badge('error', '실패')) + '</td></tr>';
+    }).join('');
+    var bad = m.checks.filter(function (c) { return !c.ok; });
+    $('msgResult').className = 'mock-note ' + (bad.length ? 'err' : 'ok');
+    $('msgResult').textContent = bad.length ? '(x) ' + bad.map(function (c) { return c.key; }).join(' · ') + ' 불일치 - 값 자동 환산 금지, 데드레터로 보관. 담당: ' + m.owner + ' (연락 후 원 시스템에서 재전송)' + (m.simState ? ' · 재처리 시뮬 결과: 데드레터 유지' : '')
+      : '(v) 내장 검사 4종 통과 - 반영됨 (' + (ch.system || '') + ' > eBR, 목업)';
+    $('rawText').innerHTML = '<span class="raw-clamp">' + esc(m.raw.replace(/,"/g, ', "').replace(/":/g, '": ')) + '</span>';
+  }
+  function openDlg(id) { dlgMsg = id; renderDlg(); MesUI.openDialog('dlgMockMsg'); }
+  function reproc(id) {
+    var r = M.reprocess(id); if (!r.ok) return;
+    $('reprocMsg').className = 'mock-note ' + (r.failed.length ? 'err' : 'ok'); $('reprocMsg').textContent = (r.failed.length ? '(x) ' : '(v) ') + id + ' ' + r.msg;
+    renderMsg(); if (dlgMsg === id) renderDlg();
+    MesUI.toast(r.failed.length ? '재처리 시뮬 — 데드레터 유지 (자동 환산 금지)' : '재처리 시뮬 — 반영 (목업)', r.failed.length ? 'warn' : 'ok');
+  }
+  function renderRecon(run) {
+    var r = M.reconcile($('rcBatch').value, $('rcTarget').value, run ? U.now() : null); if (!r.ok) return;
+    var ext = r.target.split(' ')[0];
+    $('thExt').textContent = ext + ' 값'; $('rcTitle').textContent = '대사 결과 - ' + r.batchId + ' · ' + r.label;
+    var at = M.state('iface').reconRunAt; $('rcAt').textContent = at ? '마지막 대사 (시뮬) ' + at : '대사 (시뮬) 전 — fixture 값 그대로 비교';
+    $('totRc').innerHTML = 'Total <b>' + r.rows.length + '</b>';
+    function v(x, u) { return typeof x === 'number' ? x.toLocaleString('en-US') + (u ? ' ' + u : '') : x; }
+    $('grdRcBody').innerHTML = r.rows.map(function (x) {
+      return '<tr' + (x.match ? '' : ' class="row-faulty"') + '><td>' + esc(x.item) + '</td><td class="right">' + esc(v(x.ebr, x.unit)) + '</td><td class="right">' + esc(v(x.ext, x.unit)) + '</td><td class="right">' + esc(x.diff) + '</td><td>' + (x.match ? U.badge('ok', '일치') : U.badge('error', '불일치')) + '</td></tr>';
+    }).join('');
+    $('rcResult').className = 'mock-note ' + (r.mismatch ? 'err' : 'ok');
+    $('rcResult').textContent = r.mismatch ? '(!) 불일치 ' + r.mismatch + '건 - 원천 값은 어느 쪽도 고치지 않음. 실제 운영은 미결 시 출하 차단 (게이트 조건 5)' : '(v) 전 항목 일치 - 원천 값 무수정 비교 (목업)';
+  }
+  function onTab(t) { $('bandText').innerHTML = BAND[t]; $('pageTitle').textContent = TITLE[t][0]; $('pageSub').textContent = TITLE[t][1]; document.title = TITLE[t][0] + (t === 'recon' ? ' (S-57)' : ' (S-55)') + ' — eBR PoC (목업)'; }
+
+  $('btnRcSign').setAttribute('data-mock-sign', F.reconSign.signedText + ' (예시값(PoC))');
+  U.applyDisabled(document);
+  var keep = U.uiOf(SCREEN), f = keep.filters || {};
+  if (f.sys) $('schSys').value = f.sys; if (f.dir) $('schDir').value = f.dir; if (f.state) $('schState').value = f.state;
+  selCh = keep.selectedId || null;
+  var goTab = U.tabs(SCREEN, onTab);
+  $('btnSearch').addEventListener('click', renderCh);
+  $('grdChBody').addEventListener('click', function (e) { var tr = e.target.closest('tr'); if (!tr) return; selCh = tr.getAttribute('data-id'); MesUI.selectRow(tr); renderMsg(); U.keepUi(SCREEN, { selectedId: selCh }); });
+  $('grdMsgBody').addEventListener('click', function (e) { var tr = e.target.closest('tr'); if (!tr) return; selMsg = tr.getAttribute('data-id'); MesUI.selectRow(tr); });
+  $('grdMsgBody').addEventListener('dblclick', function (e) { var tr = e.target.closest('tr'); if (tr) openDlg(tr.getAttribute('data-id')); });
+  $('btnMsg').addEventListener('click', function () { if (selMsg) openDlg(selMsg); else MesUI.toast('선택 채널에 메시지 예시가 없습니다 (목업)', 'info'); });
+  $('btnReproc').addEventListener('click', function () { if (selMsg) reproc(selMsg); else MesUI.toast('재처리할 메시지를 선택하세요 (목업)', 'info'); });
+  $('btnReprocDlg').addEventListener('click', function () { if (dlgMsg) reproc(dlgMsg); });
+  $('btnCopyRaw').addEventListener('click', function () {
+    var m = M.msgView(dlgMsg); if (!m) return;
+    var done = function () { MesUI.toast('원문을 클립보드에 복사했습니다 (' + m.raw.length + '자)', 'ok'); }, fail = function () { MesUI.toast('클립보드 사용 불가 — 브라우저 권한을 확인하세요', 'warn'); };
+    try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(m.raw).then(done, fail); else fail(); } catch (e) { fail(); }
+  });
+  $('btnRecon').addEventListener('click', function () { renderRecon(true); MesUI.toast('대사 (시뮬) — fixture 두 값 집합 비교, 저장 없음', 'info'); });
+  $('rcTarget').addEventListener('change', function () { renderRecon(false); });
+  $('btnDiff').addEventListener('click', function () { var tr = $('grdRcBody').querySelector('tr.row-faulty'); if (tr) MesUI.selectRow(tr); });
+  $('btnMockReset').addEventListener('click', function () { var r = M.reset(); selCh = null; ['schSys', 'schDir', 'schState'].forEach(function (k) { $(k).value = ''; }); renderCh(); renderRecon(false); goTab('status');
+    $('reprocMsg').className = 'mock-note'; $('reprocMsg').textContent = '(i) 목업 초기화 — 재처리 · 대사 시뮬 상태 삭제 (목업 상태 ' + r.removed.length + '건)'; });
+  renderCh(); renderRecon(false);
+  var tab = U.param('tab') || keep.tab || 'status'; goTab(tab === 'recon' ? 'recon' : 'status');
+  var open = U.param('open'); if (open && M.msgView(open)) { goTab('status'); openDlg(open); }
+  U.bindFit();
+})();
+</script>
+</body>
+</html>

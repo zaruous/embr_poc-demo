@@ -49,7 +49,7 @@
     no_signature: '서명 레코드를 찾을 수 없습니다.', already_invalid: '이미 무효인 서명입니다.', not_qa: '서명 무효화는 QA만 할 수 있습니다.', unknown_actor: '행위자(현재 사용자)를 확인할 수 없습니다 — 사용자를 선택하세요.',
     invalidate_reason_required: '무효화 사유(QA 조사 내용)를 입력하세요.', invalidate_reason_too_long: '무효화 사유는 ' + INVALIDATE_REASON_MAX + '자 이내로 입력하세요.',
     bad_briefing: '배치 · 단계 · 변경 번호가 필요합니다.',
-    no_gate_eval: '출하 게이트 판정 모듈(EbrGateEval)을 찾을 수 없습니다 — 차단(fail-closed).', read_only: '복원 탐지로 읽기 전용입니다 — QA 복원 확인 서명 필요(데모 초기화는 QA·관리자만)',
+    no_gate_eval: '출하 게이트 판정 모듈(EbrGateEval)을 찾을 수 없습니다 — 차단(fail-closed).', read_only: '복원 탐지로 읽기 전용입니다 — QA 복원 확인 서명 필요(데모 초기화는 QA·관리자, 출하 준비 시드는 관리자만)',
     cond_changed: '서명 창을 연 뒤 조건 판정이 바뀌었습니다 — 창을 닫고 다시 여세요.'
   };
 
@@ -659,11 +659,37 @@
       return fail(why, why === 'not_demo_batch' ? '데모 배치(' + ss.DEMO_BATCH + ')에서만 쓸 수 있습니다.' : why === 'no_demo_marker' ? '데모 표지가 없는 발행 기록입니다 — 실데이터에는 데모 시드를 쓸 수 없습니다.'
         : why === 'role_restricted' ? '데모 출하 준비 시드는 관리자(ADMIN)만 실행할 수 있습니다.' : '현재 사용자를 선택하세요.', { signed: 0, failed: [], blocked: null, blockedDetail: null });
     }
+    /* 데모 게이트 근거 데이터 (게이트 판정 로직 · N/A 규칙 변경 없음 — 근거만 만든다)
+       조건 5: ebr.ifaceMsg.v1 연계 켬 + 데모 배치 메시지 1건 전송 완료(미전송 · 데드레터 · critical 차이 0) — 키에 그 배치 항목이 없을 때만
+       조건 7: 데모 발행 라인 · 발행 시각 구간 다운타임 1건 (EbrGateCond.addDowntime, 현재 사용자) — 그 배치에 걸친 다운타임이 없을 때만. QA 검토 서명은 seedSignedBatchCore 'cond' 가 함
+       조건 6 · 11: 근거 데이터로 통과시킬 수 없음 (6 = P0 고정 N/A, 11 = 서명 뒤 서명 규칙 버전 상승이 있어야 함 — 기준정보 변경) → 그대로 */
+    var KEY_IFACE = 'ebr.ifaceMsg.v1';
+    function seedDemoGateEvidence(batchId) {
+      var s = S(), ss = SS(), out = { iface: false, downtime: false };
+      var iss = ss.issuedOf(batchId); if (!iss) return out;
+      var raw = global.localStorage.getItem(KEY_IFACE), o = null; try { o = raw ? JSON.parse(raw) : null; } catch (e) { o = null; }
+      if (raw == null || (o && typeof o === 'object')) {
+        o = o || { v: 1, enabled: false, items: [] }; if (!Array.isArray(o.items)) o.items = [];
+        if (!o.items.some(function (x) { return x && x.batchId === batchId; })) {
+          var n = { v: 1, enabled: true, items: o.items.concat([{ msgId: 'IF-DEMO-' + batchId, batchId: batchId, kind: 'batch_record', status: 'sent', critical: true, diff: false, at: s.nowIsoLocal(), demoSeed: true }]) };
+          try { writeJson(KEY_IFACE, n); s.Audit.append({ uid: curId() || 'SYSTEM', act: 'DEMO_IFACE_SEED', tgt: batchId, val: '데모 연계 메시지 1건 전송 완료 (조건 5 근거)', screen: 'seedDemoReleaseReady' }); out.iface = true; }
+          catch (e) { try { if (raw == null) global.localStorage.removeItem(KEY_IFACE); else global.localStorage.setItem(KEY_IFACE, raw); } catch (e2) { /* 무시 */ } }
+        }
+      }
+      var GC = global.EbrGateCond, GEv = GE();
+      var has7 = false; try { var it7 = GEv && GEv.evaluate(batchId).items[6]; has7 = !!(it7 && it7.detail && it7.detail.downtimes && it7.detail.downtimes.length); } catch (e) { has7 = false; }
+      if (!has7 && GC && typeof GC.addDowntime === 'function' && str(iss.line) && iss.issuedAt) {
+        var r = GC.addDowntime({ line: str(iss.line), from: iss.issuedAt, to: iss.issuedAt, reason: '데모 — 시스템 점검 정지', efUsed: [], screen: 'seedDemoReleaseReady' });
+        out.downtime = !!(r && r.ok);
+      }
+      return out;
+    }
     function seedDemoReleaseReady(batchId, o) {
       batchId = str(batchId) || SS().DEMO_BATCH; o = o || {};
       var g = demoGuard('seedDemoReleaseReady', batchId, true); if (g) return g;
       var di = o.issue === false ? { ok: true, created: false } : seedDemoIssue(batchId);
       if (!di.ok) return { ok: false, why: di.why, signed: 0, failed: [], blocked: null, blockedDetail: null };
+      var ev0 = o.evidence === false ? null : seedDemoGateEvidence(batchId);
       var m = seedDemoMatQcCore({ batchId: batchId, force: true }), r = seedSignedBatchCore(batchId, o);
       var mf = manifestOf(batchId), GE = global.EbrGateEval, ev = null;
       try { ev = GE && GE.evaluate ? GE.evaluate(batchId) : null; } catch (e) { ev = null; }
@@ -673,7 +699,7 @@
         return { no: no, why: it ? it.why || 'blocked' : 'blocked', basis: it ? it.basis || '' : '', message: it ? it.msg || it.basis || '' : '' };
       }) : null;
       var ok = m.ok && r.ok && mf.ok && !mf.blocked.length;
-      return { ok: ok, issueCreated: !!di.created, signed: (m.signed || 0) + r.signed, failed: (m.failed || []).concat(r.failed || []), blocked: mf.ok ? mf.blocked : null, blockedDetail: blockedDetail,
+      return { ok: ok, issueCreated: !!di.created, evidence: ev0, signed: (m.signed || 0) + r.signed, failed: (m.failed || []).concat(r.failed || []), blocked: mf.ok ? mf.blocked : null, blockedDetail: blockedDetail,
                why: !mf.ok ? mf.why : ok ? undefined : (mf.blocked.length ? 'gate_blocked' : 'sign_failed') };
     }
     /* 시험 · 스모크 훅(_test): 데모 배치 + 데모 표지만 (역할 제한 없음 — 스모크가 QP 화면에서 부름) */

@@ -24,7 +24,7 @@
   var NOS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   var COND_SIGN_LABEL = { 7: '다운타임 검토', 10: '변경 영향 검토', 11: '통제 강화 평가', 12: '복원 확인' };
   /* §2 공통 문구 (개정 1.1) */
-  var MSG_READ_ONLY = '복원 탐지로 읽기 전용입니다 — QA 복원 확인 서명 필요(데모 초기화는 QA·관리자만)';
+  var MSG_READ_ONLY = '복원 탐지로 읽기 전용입니다 — QA 복원 확인 서명 필요(데모 초기화는 QA·관리자, 출하 준비 시드는 관리자만)';
   function msgUnreadable(store) { return '판정 원천을 읽을 수 없습니다 (' + store + ') — 재평가하세요.'; }
 
   function clone(o) { return o == null ? o : JSON.parse(JSON.stringify(o)); }

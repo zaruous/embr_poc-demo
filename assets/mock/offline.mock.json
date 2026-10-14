@@ -1,0 +1,261 @@
+{
+  "v": 1,
+  "area": "offline",
+  "currentUser": {
+    "userId": "OP-0101",
+    "name": "작업자 A"
+  },
+  "scenarios": {
+    "offline": {
+      "label": "오프라인",
+      "terminals": [
+        {
+          "termId": "T-MX-01",
+          "room": "R-215",
+          "line": "L-01",
+          "conn": "OFFLINE",
+          "lastSync": "2026-10-13 13:41:20",
+          "buffer": 3,
+          "signPending": 2,
+          "clock": "none",
+          "state": "warn"
+        },
+        {
+          "termId": "T-CART-02",
+          "room": "-",
+          "line": "-",
+          "conn": "OFFLINE",
+          "lastSync": "-",
+          "buffer": 0,
+          "signPending": 0,
+          "clock": "na",
+          "state": "wait"
+        },
+        {
+          "termId": "T-WB-01",
+          "room": "R-201",
+          "line": "L-01",
+          "conn": "ONLINE",
+          "lastSync": "2026-10-13 16:05:12",
+          "buffer": 0,
+          "signPending": 0,
+          "clock": "none",
+          "state": "ok"
+        },
+        {
+          "termId": "T-GR-01",
+          "room": "R-210",
+          "line": "L-01",
+          "conn": "ONLINE",
+          "lastSync": "2026-10-13 16:04:57",
+          "buffer": 0,
+          "signPending": 0,
+          "clock": "none",
+          "state": "ok"
+        }
+      ],
+      "buffer": {
+        "T-MX-01": [
+          {
+            "seq": 1,
+            "batchId": "BR-DEMO-0001",
+            "step": "OP2-1",
+            "item": "혼합 시간",
+            "value": "12",
+            "unit": "min",
+            "at": "2026-10-13 13:52:08",
+            "src": "OFFLINE",
+            "proc": "동기화 대기"
+          },
+          {
+            "seq": 2,
+            "batchId": "BR-DEMO-0001",
+            "step": "OP2-1",
+            "item": "혼합 속도",
+            "value": "18",
+            "unit": "rpm",
+            "at": "2026-10-13 13:52:40",
+            "src": "OFFLINE",
+            "proc": "동기화 대기"
+          },
+          {
+            "seq": 3,
+            "batchId": "BR-DEMO-0001",
+            "step": "OP2-1",
+            "item": "비고",
+            "value": "정상",
+            "unit": "",
+            "at": "2026-10-13 13:55:02",
+            "src": "OFFLINE",
+            "proc": "동기화 대기"
+          }
+        ]
+      },
+      "conflicts": []
+    },
+    "reconnect": {
+      "label": "재연결 직후(충돌 1)",
+      "reconnectAt": "2026-10-13 14:20:05",
+      "terminals": [
+        {
+          "termId": "T-MX-01",
+          "room": "R-215",
+          "line": "L-01",
+          "conn": "ONLINE",
+          "lastSync": "2026-10-13 14:20:05",
+          "buffer": 3,
+          "signPending": 2,
+          "clock": "none",
+          "state": "warn"
+        },
+        {
+          "termId": "T-CART-02",
+          "room": "-",
+          "line": "-",
+          "conn": "OFFLINE",
+          "lastSync": "-",
+          "buffer": 0,
+          "signPending": 0,
+          "clock": "na",
+          "state": "wait"
+        },
+        {
+          "termId": "T-WB-01",
+          "room": "R-201",
+          "line": "L-01",
+          "conn": "ONLINE",
+          "lastSync": "2026-10-13 16:05:12",
+          "buffer": 0,
+          "signPending": 0,
+          "clock": "none",
+          "state": "ok"
+        },
+        {
+          "termId": "T-GR-01",
+          "room": "R-210",
+          "line": "L-01",
+          "conn": "ONLINE",
+          "lastSync": "2026-10-13 16:04:57",
+          "buffer": 0,
+          "signPending": 0,
+          "clock": "none",
+          "state": "ok"
+        }
+      ],
+      "buffer": {
+        "T-MX-01": [
+          {
+            "seq": 1,
+            "batchId": "BR-DEMO-0001",
+            "step": "OP2-1",
+            "item": "혼합 시간",
+            "value": "12",
+            "unit": "min",
+            "at": "2026-10-13 13:52:08",
+            "src": "OFFLINE",
+            "proc": "반영 가능"
+          },
+          {
+            "seq": 2,
+            "batchId": "BR-DEMO-0001",
+            "step": "OP2-1",
+            "item": "혼합 속도",
+            "value": "18",
+            "unit": "rpm",
+            "at": "2026-10-13 13:52:40",
+            "src": "OFFLINE",
+            "proc": "충돌 - 감독자 확인"
+          },
+          {
+            "seq": 3,
+            "batchId": "BR-DEMO-0001",
+            "step": "OP2-1",
+            "item": "비고",
+            "value": "정상",
+            "unit": "",
+            "at": "2026-10-13 13:55:02",
+            "src": "OFFLINE",
+            "proc": "반영 가능"
+          }
+        ]
+      },
+      "conflicts": [
+        {
+          "seq": 1,
+          "item": "혼합 시간",
+          "termValue": "12 min",
+          "serverValue": "-",
+          "verdict": "ok",
+          "plan": "서버에 추가"
+        },
+        {
+          "seq": 2,
+          "item": "혼합 속도",
+          "termValue": "18 rpm",
+          "serverValue": "20 rpm",
+          "verdict": "conflict",
+          "plan": "감독자 확인 (자동 덮어쓰기 금지)"
+        },
+        {
+          "seq": 3,
+          "item": "비고",
+          "termValue": "정상",
+          "serverValue": "-",
+          "verdict": "ok",
+          "plan": "서버에 추가"
+        }
+      ]
+    },
+    "normal": {
+      "label": "정상",
+      "terminals": [
+        {
+          "termId": "T-MX-01",
+          "room": "R-215",
+          "line": "L-01",
+          "conn": "ONLINE",
+          "lastSync": "2026-10-13 16:05:30",
+          "buffer": 0,
+          "signPending": 0,
+          "clock": "none",
+          "state": "ok"
+        },
+        {
+          "termId": "T-CART-02",
+          "room": "-",
+          "line": "-",
+          "conn": "OFFLINE",
+          "lastSync": "-",
+          "buffer": 0,
+          "signPending": 0,
+          "clock": "na",
+          "state": "wait"
+        },
+        {
+          "termId": "T-WB-01",
+          "room": "R-201",
+          "line": "L-01",
+          "conn": "ONLINE",
+          "lastSync": "2026-10-13 16:05:12",
+          "buffer": 0,
+          "signPending": 0,
+          "clock": "none",
+          "state": "ok"
+        },
+        {
+          "termId": "T-GR-01",
+          "room": "R-210",
+          "line": "L-01",
+          "conn": "ONLINE",
+          "lastSync": "2026-10-13 16:04:57",
+          "buffer": 0,
+          "signPending": 0,
+          "clock": "none",
+          "state": "ok"
+        }
+      ],
+      "buffer": {},
+      "conflicts": []
+    }
+  }
+}

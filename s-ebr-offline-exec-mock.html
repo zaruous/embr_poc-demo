@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<!--
+  화면 id   : s-ebr-offline-exec-mock  (S-50 오프라인 실행 미리보기 — 생산 실행 화면의 변경 부분 정적 사본, OI) — 목업 (PoC 범위 밖, DC-03)
+  설계      : poc-deferred-mockups-design.md 개정 2 W2 (MK-12) · K-MK9 별도 정적 사본 · PM 결정 4 별도 페이지(.shell-oi)
+  자산      : ./assets/mesui.css · ./assets/mesui.js · ./assets/embr-mock-fixtures.js · ./assets/embr-mock.js (실제 s-ebr-production-exec-ui.html 무변경)
+  저장      : embrMock.offline.v1 bufferAdds ([값 저장 (버퍼, 시뮬)]) — ebr.* · ebmr.* 읽기 · 쓰기 없음
+  비활성    : 수행 서명 · 다음 단계 (오프라인 중 서명 · 단계 전환 금지, 21 CFR 11.10(f))
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>오프라인 실행 미리보기 (S-50) — eBR PoC (목업)</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  /* ---- 목업 공통 (S-49 ~ S-57, DC-03) — mesui.css 토큰만, hex · px 리터럴 없음 ---- */
+  html, body { margin: 0; overflow: hidden; background: var(--c-bg); }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale { flex: 0 0 auto; }
+  .title-left .badge.warn { margin-left: var(--title-gap); }
+  .mock-band { flex: 0 0 var(--form-row-h); height: var(--form-row-h); display: flex; align-items: center; gap: var(--title-gap);
+    padding: var(--grid-cell-pad); border-left: var(--badge-gap) solid var(--c-warn); font-size: var(--fs-base); white-space: nowrap; overflow: hidden; }
+  .mock-band .spacer, .mock-line .spacer { flex: 1 1 auto; }
+  .title-row { display: flex; align-items: center; gap: var(--title-gap); }
+  .mock-notes { flex: 0 0 auto; display: flex; flex-direction: column; }
+  .mock-note { font-size: var(--fs-grid); color: var(--c-text-sub); line-height: 1.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mock-note.err { color: var(--c-error); font-weight: bold; }
+  .mock-note.ok { color: var(--c-ok); font-weight: bold; }
+  .mock-line { flex: 0 0 auto; display: flex; align-items: center; gap: var(--title-gap); min-height: var(--form-row-h); white-space: nowrap; overflow: hidden; }
+  .grid td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grid tr.row-faulty td { background: var(--bc-faulty); }
+  .grid tr.row-alam td { background: var(--bc-alam); }
+  .mono { font-family: var(--font-mono); }
+  .grid-block.fixed-6 { flex: 0 0 auto; }
+  .grid-block.fixed-6 > .grid-wrap { flex: 0 0 auto; min-height: 0; height: calc(var(--grid-head-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h)); }
+  .grid-block.auto-h { flex: 0 0 auto; }
+  .grid-block.auto-h > .grid-wrap { flex: 0 0 auto; min-height: 0; }
+  .shell-body > .grid-block.fill-rest { flex: 1 1 auto; min-height: 0; }
+  .dialog .grid-wrap { flex: 0 0 auto; min-height: 0; }
+  .dialog .mock-band { flex: 0 0 var(--form-row-h); }
+  .popup-title .text .badge.warn { margin-left: var(--title-gap); vertical-align: middle; }
+  .btn[disabled] { cursor: not-allowed; }
+  @media print {
+    html, body { height: auto; overflow: visible; }
+    body::before { content: '목업 - GMP 기록 아님'; position: fixed; top: 0; left: 0; right: 0; text-align: center; font-weight: bold; color: var(--c-error); }
+  }
+  .shell-oi .mock-banner { flex: 0 0 var(--form-row-h); height: var(--form-row-h); display: flex; align-items: center; gap: var(--title-gap);
+    padding: var(--grid-cell-pad); border-left: var(--badge-gap) solid var(--c-warn); font-size: var(--fs-base); }
+  .shell-oi .grid td .input { width: var(--col-w-140); height: var(--btn-inner-h); }
+  .shell-oi .grid td .unit { margin-left: var(--title-gap); }
+</style>
+</head>
+<body>
+<div class="shell-scale oi" id="shellScale" style="--scale:1"><div class="shell shell-oi">
+  <div class="title-bar">
+    <span class="title-left">
+      <span class="main-title"><span class="mod-tag">EBR</span>오프라인 실행 미리보기<span class="badge warn">목업</span></span>
+      <span class="sub-info"><i class="ic-info"></i>S-50 · 생산 실행 화면의 오프라인 변경 부분 정적 사본 (ES-08 · S-17 L1 · L2 표시)</span>
+    </span>
+    <span class="breadcrumb"><span>목업 (PoC 범위 밖)</span><span class="sep">&rsaquo;</span><span class="current">오프라인</span></span>
+  </div>
+
+  <div class="shell-body">
+    <div class="mock-band bc-alam" role="note">
+      <span><b>(!) 목업 화면</b> - 생산 실행 화면의 정적 사본. 실제 생산 화면 · 저장소는 바꾸지 않음 (fixture offline v1)</span>
+      <span class="spacer"></span>
+      <button class="btn search" type="button" id="btnBack">S-49 동기화 현황 &gt;</button>
+      <button class="btn search secondary" type="button" id="btnMockReset">목업 초기화</button>
+    </div>
+
+    <div class="kpi-board" id="infoBoard">
+      <div class="kpi"><span class="kpi-label">현재 사용자</span><span class="kpi-value" id="kUser"></span></div>
+      <div class="kpi"><span class="kpi-label">단말</span><span class="kpi-value">T-MX-01<small>R-215</small></span></div>
+      <div class="kpi"><span class="kpi-label">배치 · 단계</span><span class="kpi-value">BR-DEMO-0001<small>OP2-1</small></span></div>
+      <div class="kpi warning"><span class="kpi-label">연결 · 로컬 버퍼</span><span class="kpi-value" id="kBuf"></span></div>
+    </div>
+
+    <div class="mock-banner bc-alam" role="status"><span class="badge warn">OFFLINE</span><span>서버 연결 끊김 13:41:20 부터 - 입력은 단말 버퍼에 저장, 서명 · 단계 전환은 재연결 후</span></div>
+
+    <div class="grid-block auto-h">
+      <div class="grid-toolbar"><span class="group-title">단계 값</span><span class="spacer"></span><span class="total-text">OP2-1 혼합</span></div>
+      <div class="grid-wrap">
+        <table class="grid" id="grdStep">
+          <colgroup><col style="width:var(--col-w-240)"><col style="width:var(--col-w-240)"><col style="width:var(--col-w-240)"><col></colgroup>
+          <thead><tr><th>항목</th><th>값</th><th class="center">출처</th><th>입력 시각(단말)</th></tr></thead>
+          <tbody>
+            <tr><td>혼합 시간</td><td><input class="input" id="vTime" value="12" inputmode="decimal" aria-label="혼합 시간"><span class="unit">min</span></td><td class="center"><span class="src-tag">OFFLINE</span></td><td id="atTime">13:52:08</td></tr>
+            <tr><td>혼합 속도</td><td><input class="input" id="vSpeed" value="18" inputmode="decimal" aria-label="혼합 속도"><span class="unit">rpm</span></td><td class="center"><span class="src-tag">OFFLINE</span></td><td id="atSpeed">13:52:40</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="mock-notes">
+        <span class="mock-note">(i) 비활성 이유: 수행 서명 · 다음 단계 = 오프라인 중 서명 · 단계 전환 금지 (21 CFR 11.10(f)), 실제 동기화는 PoC 범위 밖 (DC-03) - 툴팁에도 같은 문구</span>
+      </div>
+    </div>
+    <div class="spacer fill"></div>
+    <div class="tran-buttons">
+      <span class="spacer"></span>
+      <button class="btn normal secondary" type="button" id="btnSaveBuf">값 저장 (버퍼, 시뮬)</button>
+      <button class="btn normal secondary" type="button" id="btnPerf" data-mock-why="수행 서명 (재연결 후 본인 로그인)">수행 서명</button>
+      <button class="btn normal primary" type="button" id="btnNext" data-mock-why="단계 완료 서명 · 서버 단계 전환">다음 단계</button>
+    </div>
+  </div>
+</div></div>
+
+<script src="./assets/mesui.js"></script>
+<script src="./assets/embr-mock-fixtures.js"></script>
+<script src="./assets/embr-mock.js"></script>
+<script>
+(function () {
+  'use strict';
+  var M = window.EmbrMock, U = M.ui;
+  var $ = function (id) { return document.getElementById(id); };
+  function bufCount() { var v = M.offlineView(); var t = (v.data.terminals || []).filter(function (x) { return x.termId === 'T-MX-01'; })[0]; return t ? t.buffer : 0; }
+  function render() {
+    var u = M.fixture('offline').currentUser;
+    $('kUser').innerHTML = U.esc(u.userId) + '<small>' + U.esc(u.name) + '</small>';
+    $('kBuf').innerHTML = 'OFFLINE<small>버퍼 ' + bufCount() + '건</small>';
+  }
+  U.applyDisabled(document);
+  $('btnBack').addEventListener('click', function () { location.href = './s-ebr-offline-sync-mock.html'; });
+  $('btnMockReset').addEventListener('click', function () { var r = M.reset(); render(); MesUI.toast('목업 초기화 — 목업 상태 ' + r.removed.length + '건 삭제', 'info'); });
+  $('btnSaveBuf').addEventListener('click', function () {
+    var at = U.now(), rows = [['혼합 시간', $('vTime').value, 'min'], ['혼합 속도', $('vSpeed').value, 'rpm']], ok = true;
+    rows.forEach(function (r) { var w = M.addBuffer({ termId: 'T-MX-01', batchId: 'BR-DEMO-0001', step: 'OP2-1', item: r[0], value: String(r[1]).trim(), unit: r[2], at: at }); ok = ok && w.ok; });
+    $('atTime').textContent = at.slice(11); $('atSpeed').textContent = at.slice(11);
+    render();
+    MesUI.toast(ok ? '단말 버퍼(목업)에 2건 저장 — S-49 상세에서 확인 · 서명은 재연결 후' : '목업 버퍼 저장 실패', ok ? 'ok' : 'error');
+  });
+  render();
+  U.bindFit();
+})();
+</script>
+</body>
+</html>

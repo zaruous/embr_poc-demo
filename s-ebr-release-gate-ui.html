@@ -968,7 +968,7 @@
     b.hidden = !cs; if (cs) { b.textContent = cs.name + ' 서명'; b.disabled = !canCondSign(g, ro);
       b.title = b.disabled ? (condSpecOf(g.no).reason || '서명할 수 없습니다') : ''; }
   }
-  var RO_TIP = '복원 탐지 — QA 복원 확인 서명 필요(데모 초기화는 QA·관리자만)';
+  var RO_TIP = '복원 탐지 — QA 복원 확인 서명 필요(데모 초기화는 QA·관리자, 출하 준비 시드는 관리자만)';
   function renderCondMenu() {
     var ro = isRO(), act = 0;
     var h = '<span class="cm-title">조건 서명 (차단 중인 조건만)</span>' + COND_SIGN_NOS.map(function (no) {
@@ -1072,7 +1072,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('#gateNotice .btn.inner'), function (b) { b.disabled = ro; });
     if (ro) {
       var g = itemOf(12);
-      setBanner('저장 데이터 복원이 탐지되었습니다 — 이 배치는 읽기 전용, QA 복원 확인 서명 필요(데모 초기화는 QA·관리자만). <span class="lnk" id="lnkRestore">복원 탐지 상세 ›</span>', 'restore', (g && g.msg) || '');
+      setBanner('저장 데이터 복원이 탐지되었습니다 — 이 배치는 읽기 전용, QA 복원 확인 서명 필요(데모 초기화는 QA·관리자, 출하 준비 시드는 관리자만). <span class="lnk" id="lnkRestore">복원 탐지 상세 ›</span>', 'restore', (g && g.msg) || '');
       var l = $('lnkRestore'); if (l) l.onclick = openRestore;
     } else if (uiCtx.banner) setBanner(uiCtx.banner.msg, uiCtx.banner.cls, '');
   }

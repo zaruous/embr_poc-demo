@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<!--
+  화면 id   : s-ebr-archive-mock  (S-52 기록 아카이브 대장 · S-53 패키지 상세 · 판독성 점검 팝업 #dlgMockArchive · S-54 백업 · 복원 시험 이력 탭 2) — 목업 (PoC 범위 밖, DC-03)
+  설계      : poc-deferred-mockups-design.md 개정 2 W4 · W5 · W6 (MK-06 · MK-07 · MK-14)
+  자산      : ./assets/mesui.css · ./assets/mesui.js · ./assets/embr-mock-fixtures.js · ./assets/embr-mock.js (ebr-*.js 로드 안 함)
+  저장      : embrMock.archive.v1 (판독성 점검 시뮬 결과) · embrMock.ui.v1 (조회 조건 · 선택 행 · 탭) — ebr.* · ebmr.* 읽기 · 쓰기 없음
+  동작      : 판독성 점검 = fixture 파일 내용 SHA-256 실제 재계산 · 기록 hash 비교 (ARC-2026-0015 = 의도된 불일치 예시)
+  비활성    : 아카이브 이관 · 폐기 검토 · 복원 열람 · 일탈 등록 · 복원 시험 기록
+  URL       : ?tab=backup (S-54) · ?open=<패키지 ID> (S-53, 점검 실행 후 열기)
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>기록 아카이브 대장 (S-52 · S-53 · S-54) — eBR PoC (목업)</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  /* ---- 목업 공통 (S-49 ~ S-57, DC-03) — mesui.css 토큰만, hex · px 리터럴 없음 ---- */
+  html, body { margin: 0; overflow: hidden; background: var(--c-bg); }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale { flex: 0 0 auto; }
+  .title-left .badge.warn { margin-left: var(--title-gap); }
+  .mock-band { flex: 0 0 var(--form-row-h); height: var(--form-row-h); display: flex; align-items: center; gap: var(--title-gap);
+    padding: var(--grid-cell-pad); border-left: var(--badge-gap) solid var(--c-warn); font-size: var(--fs-base); white-space: nowrap; overflow: hidden; }
+  .mock-band .spacer, .mock-line .spacer { flex: 1 1 auto; }
+  .title-row { display: flex; align-items: center; gap: var(--title-gap); }
+  .mock-notes { flex: 0 0 auto; display: flex; flex-direction: column; }
+  .mock-note { font-size: var(--fs-grid); color: var(--c-text-sub); line-height: 1.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mock-note.err { color: var(--c-error); font-weight: bold; }
+  .mock-note.ok { color: var(--c-ok); font-weight: bold; }
+  .mock-line { flex: 0 0 auto; display: flex; align-items: center; gap: var(--title-gap); min-height: var(--form-row-h); white-space: nowrap; overflow: hidden; }
+  .grid td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grid tr.row-faulty td { background: var(--bc-faulty); }
+  .grid tr.row-alam td { background: var(--bc-alam); }
+  .mono { font-family: var(--font-mono); }
+  .grid-block.fixed-6 { flex: 0 0 auto; }
+  .grid-block.fixed-6 > .grid-wrap { flex: 0 0 auto; min-height: 0; height: calc(var(--grid-head-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h)); }
+  .grid-block.auto-h { flex: 0 0 auto; }
+  .grid-block.auto-h > .grid-wrap { flex: 0 0 auto; min-height: 0; }
+  .shell-body > .grid-block.fill-rest { flex: 1 1 auto; min-height: 0; }
+  .dialog .grid-wrap { flex: 0 0 auto; min-height: 0; }
+  .dialog .mock-band { flex: 0 0 var(--form-row-h); }
+  .popup-title .text .badge.warn { margin-left: var(--title-gap); vertical-align: middle; }
+  .btn[disabled] { cursor: not-allowed; }
+  @media print {
+    html, body { height: auto; overflow: visible; }
+    body::before { content: '목업 - GMP 기록 아님'; position: fixed; top: 0; left: 0; right: 0; text-align: center; font-weight: bold; color: var(--c-error); }
+  }
+  /* 활성 탭 = secondary 유지 + 굵은 글자 · 하단 primary 선 (DESIGN.md M-18 선택 탭, 주 버튼 primary 와 구분) */
+  .btn[role="tab"][aria-selected="true"] { font-weight: bold; border-bottom: var(--badge-gap) solid var(--c-primary); }
+  .tab-pane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: var(--body-gap); }
+  .tab-pane > .grid-block.fill-rest { flex: 1 1 auto; min-height: 0; }
+  .search-control .field .input[type="date"] { flex: 1 1 0; }
+  .grid td.cell-faulty { background: var(--bc-faulty); }
+  .dialog .form-grid .field .badge { flex: 0 0 auto; }
+</style>
+</head>
+<body>
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="title-left">
+      <span class="main-title"><span class="mod-tag">EBR</span><span id="pageTitle">기록 아카이브 대장</span><span class="badge warn">목업</span></span>
+      <span class="sub-info"><i class="ic-info"></i><span id="pageSub">S-52 · 아카이브 패키지 · 보존 기한 · 판독성 점검 (DI-08 · S-37)</span></span>
+    </span>
+    <span class="breadcrumb"><span>목업 (PoC 범위 밖)</span><span class="sep">&rsaquo;</span><span class="current">아카이브</span></span>
+  </div>
+
+  <div class="shell-body">
+    <div class="mock-band bc-alam" role="note">
+      <span id="bandText"></span>
+      <span class="spacer"></span>
+      <button class="btn search secondary" type="button" id="btnMockReset">목업 초기화</button>
+    </div>
+    <div class="grid-toolbar" role="tablist" aria-label="화면 탭">
+      <button class="btn search secondary" type="button" role="tab" aria-selected="true" data-tab="ledger">아카이브 대장 (S-52)</button>
+      <button class="btn search secondary" type="button" role="tab" aria-selected="false" data-tab="backup">백업 · 복원 시험 (S-54)</button>
+    </div>
+
+    <!-- ===== 탭 1 : S-52 ===== -->
+    <div class="tab-pane" data-tab-pane="ledger">
+      <div class="search-box cols-4">
+        <div class="search-control"><span class="label">기간</span>
+          <span class="field"><input class="input" type="date" id="schFrom" value="2026-01-01" aria-label="시작일">~<input class="input" type="date" id="schTo" value="2026-10-13" aria-label="종료일"></span></div>
+        <div class="search-control"><span class="label">상태</span>
+          <select class="input" id="schState" aria-label="상태"><option value="">전체</option><option value="kept">보존</option><option value="error">오류</option><option value="wait">대기</option></select></div>
+        <div class="search-control"><span class="label">제품 · 배치</span>
+          <span class="field"><select class="input" id="schProd" aria-label="제품"><option value="">전체</option><option value="TAB-A">TAB-A (예시)</option></select><input class="input" type="text" id="schBatch" placeholder="BR-2026-" aria-label="배치"></span></div>
+        <div class="search-actions"><button class="btn search secondary" type="button" id="btnSearch">조회</button></div>
+      </div>
+      <div class="grid-block auto-h">
+        <div class="grid-title-area">
+          <div class="title-row"><span class="group-title">아카이브 패키지</span><span class="sub-info">확정본 v1 = PDF/A + 데이터 패키지 + 감사추적 (21 CFR 11.10(b))</span></div>
+          <div class="grid-toolbar">
+            <span class="total-text" id="totPkg"></span><span class="vbar"></span>
+            <button class="btn search" type="button" id="btnDetail">상세 보기 &gt;</button>
+            <span class="spacer"></span>
+            <button class="btn search secondary" type="button" id="btnExcel52" data-mock-why="기록 반출 승인 · 반출 이력">엑셀 내보내기</button>
+            <button class="btn search secondary" type="button" id="btnCfg52" data-mock-why="화면 설정 변경 승인 · 설정 이력">설정 저장</button>
+            <button class="btn search secondary" type="button" id="btnMigrate" data-mock-why="보존 매체 이관 · QA 승인 서명">아카이브 이관</button>
+            <button class="btn search secondary" type="button" id="btnDispose" data-mock-why="보존 기한 확인 · QA 승인 서명">폐기 검토</button>
+            <button class="btn search primary" type="button" id="btnVerify">판독성 점검 (시뮬)</button>
+          </div>
+        </div>
+        <div class="grid-wrap">
+          <table class="grid selectable" id="grdPkg">
+            <colgroup><col style="width:var(--col-w-key)"><col style="width:var(--col-w-key)"><col style="width:var(--col-w-200)"><col style="width:var(--col-w-200)"><col style="width:var(--col-w-200)"><col style="width:var(--col-w-160)"><col style="width:var(--col-w-240)"><col></colgroup>
+            <thead><tr><th>패키지 ID</th><th>배치</th><th>확정일</th><th>보존 기한*</th><th>패키지 hash</th><th>매체</th><th>마지막 판독 점검</th><th>상태</th></tr></thead>
+            <tbody id="grdPkgBody"></tbody>
+          </table>
+        </div>
+        <div class="paging">
+          <button class="pg-btn pg-first" type="button" disabled aria-label="처음"></button><button class="pg-btn pg-prev" type="button" disabled aria-label="이전"></button>
+          <button class="pg-no current" type="button">1</button>
+          <button class="pg-btn pg-next" type="button" disabled aria-label="다음"></button><button class="pg-btn pg-last" type="button" disabled aria-label="끝"></button>
+        </div>
+        <div class="mock-notes">
+          <span class="mock-note" id="verifyMsg">(i) 판독성 점검 (시뮬) = 선택 패키지의 고정 파일 내용을 SHA-256 으로 다시 계산해 기록 hash 와 비교 (Annex 11 §17 · §7.1)</span>
+          <span class="mock-note">(i) 보존 기한* = 예시값(PoC) - 제품 유효기한 + 1년 가정 (21 CFR 211.180(a)). 운영 값은 보존 규정 기준 · 패키지 hash 는 앞 8자리, 전체는 툴팁</span>
+          <span class="mock-note">(i) 비활성 이유: 아카이브 이관 · 폐기 검토 · 엑셀 내보내기 · 설정 저장 = 보존 매체 이관 · QA 승인 · 기록 반출 · 설정 저장이 PoC 범위 밖 (DC-03) - 툴팁에도 같은 문구</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 탭 2 : S-54 ===== -->
+    <div class="tab-pane hidden" data-tab-pane="backup">
+      <div class="search-box cols-4">
+        <div class="search-control"><span class="label">기간</span>
+          <span class="field"><input class="input" type="date" id="bkFrom" value="2026-09-14" aria-label="시작일">~<input class="input" type="date" id="bkTo" value="2026-10-13" aria-label="종료일"></span></div>
+        <div class="search-control"><span class="label">종류</span>
+          <select class="input" id="bkKind" aria-label="종류"><option value="">전체</option><option value="일일 증분">일일 증분</option><option value="주간 전체">주간 전체</option></select></div>
+        <div class="search-control"><span class="label">결과</span>
+          <select class="input" id="bkResult" aria-label="결과"><option value="">전체</option><option value="ok">정상</option><option value="error">오류</option></select></div>
+        <div class="search-actions"><button class="btn search secondary" type="button" id="btnBkSearch">조회</button></div>
+      </div>
+      <div class="grid-block auto-h">
+        <div class="grid-title-area">
+          <div class="title-row"><span class="group-title">백업 작업</span><span class="sub-info">정기 백업 · 검증 (Annex 11 §7.2 · 21 CFR 211.68(b))</span></div>
+          <div class="grid-toolbar">
+            <span class="total-text" id="totBk"></span><span class="vbar"></span>
+            <button class="btn search" type="button" id="btnRtDetail">복원 시험 상세 &gt;</button>
+            <span class="spacer"></span>
+            <button class="btn search primary" type="button" id="btnRtRecord" data-mock-why="QA 검토 서명">복원 시험 기록</button>
+          </div>
+        </div>
+        <div class="grid-wrap">
+          <table class="grid selectable" id="grdBk">
+            <colgroup><col style="width:var(--col-w-240)"><col style="width:var(--col-w-200)"><col style="width:var(--col-w-240)"><col style="width:var(--col-w-240)"><col style="width:var(--col-w-240)"><col style="width:var(--col-w-200)"><col></colgroup>
+            <thead><tr><th>작업 ID</th><th>종류</th><th>시작</th><th>종료</th><th>대상</th><th class="center">결과</th><th>검증</th></tr></thead>
+            <tbody id="grdBkBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="grid-block fill-rest">
+        <div class="grid-title-area">
+          <div class="title-row"><span class="group-title">복원 시험 (분기)</span><span class="sub-info">복원 가능성 정기 확인</span></div>
+          <div class="grid-toolbar"><span class="total-text" id="totRt"></span></div>
+        </div>
+        <div class="grid-wrap">
+          <table class="grid selectable" id="grdRt">
+            <colgroup><col style="width:var(--col-w-200)"><col style="width:var(--col-w-ts)"><col style="width:var(--col-w-200)"><col style="width:calc(var(--col-w-240) + var(--col-w-name))"><col style="width:var(--form-label-w)"><col></colgroup>
+            <thead><tr><th>시험 ID</th><th>일자</th><th>환경</th><th>확인 항목</th><th class="center">결과</th><th>검토 서명</th></tr></thead>
+            <tbody id="grdRtBody"></tbody>
+          </table>
+        </div>
+        <div class="mock-notes">
+          <span class="mock-note">(i) 검토 서명은 S-42 서명 표시 형식의 예시값(PoC) — 실제 서명 원장 기록 아님</span>
+          <span class="mock-note">(i) 비활성 이유: 복원 시험 기록 = QA 검토 서명이 붙는 기록 · 실제 복원이 PoC 범위 밖 (DC-03) - 툴팁에도 같은 문구</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<!-- S-53 아카이브 패키지 상세 · 판독성 점검 팝업 (T-10, 1100×700) -->
+<div class="dialog-backdrop" id="dlgMockArchive">
+  <div class="dialog" role="dialog" aria-labelledby="dlgArcTitle">
+    <div class="popup-title"><span class="text" id="dlgArcTitle">아카이브 패키지 상세 · 판독성 점검<span class="badge warn">목업</span></span><button class="popup-close" type="button" data-dialog-close aria-label="닫기"></button></div>
+    <div class="shell-body">
+      <div class="mock-band bc-alam" role="note"><span><b>(!) 목업</b> - 판독성 점검은 고정 패키지 내용의 SHA-256 재계산만 (실제 보존 매체 읽기 없음, S-53)</span></div>
+      <div class="form-grid cols-2 readonly">
+        <span class="label">패키지</span><span class="field"><input class="input" id="fPkg" readonly></span>
+        <span class="label">배치</span><span class="field"><input class="input" id="fBatch" readonly></span>
+        <span class="label">확정본</span><span class="field"><input class="input" id="fVer" value="v1 (PDF/A + 데이터 패키지)" readonly></span>
+        <span class="label">매체</span><span class="field"><input class="input" id="fMedium" readonly></span>
+        <span class="label">보존 기한</span><span class="field"><input class="input" id="fRetain" readonly><span class="badge">예시값(PoC)</span></span>
+        <span class="label">패키지 hash</span><span class="field"><input class="input mono" id="fHash" readonly></span>
+      </div>
+      <div class="grid-block auto-h">
+        <div class="grid-toolbar"><span class="group-title">구성 파일</span><span class="spacer"></span><span class="total-text" id="totFiles"></span></div>
+        <div class="grid-wrap">
+          <table class="grid" id="grdFiles">
+            <colgroup><col style="width:var(--col-w-240)"><col style="width:var(--col-w-140)"><col style="width:var(--col-w-qty)"><col style="width:var(--col-w-160)"><col style="width:var(--col-w-160)"><col></colgroup>
+            <thead><tr><th>파일</th><th>종류</th><th class="right">크기</th><th>기록 hash</th><th>재계산 hash</th><th class="center">결과</th></tr></thead>
+            <tbody id="grdFilesBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <span class="mock-note" id="arcResult"></span>
+      <div class="mock-notes">
+        <div class="mock-line" id="arcHist"></div>
+        <span class="mock-note" id="arcSign"></span>
+        <span class="mock-note">(i) 비활성 이유: 복원 열람 · 일탈 등록 = 실제 보존 매체 · QMS 연결이 PoC 범위 밖 (DC-03) - 툴팁에도 같은 문구</span>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn search secondary" type="button" data-dialog-close>닫기</button>
+      <button class="btn search secondary" type="button" id="btnRestoreView" data-mock-why="보존 매체 복원 열람 권한 · QA 승인">복원 열람</button>
+      <button class="btn search secondary" type="button" id="btnDeviation" data-mock-why="QMS 일탈 등록 · 기록자 서명">일탈 등록</button>
+      <button class="btn search primary" type="button" id="btnReverify">점검 다시 실행 (시뮬)</button>
+    </div>
+  </div>
+</div>
+
+<script src="./assets/mesui.js"></script>
+<script src="./assets/embr-mock-fixtures.js"></script>
+<script src="./assets/embr-mock.js"></script>
+<script>
+(function () {
+  'use strict';
+  var M = window.EmbrMock, U = M.ui, esc = U.esc, SCREEN = 's52';
+  var $ = function (id) { return document.getElementById(id); };
+  var ST = { kept: ['ok', '보존'], error: ['error', '오류'], wait: ['muted', '대기'] };
+  var RES = { pass: ['ok', '통과'], fail: ['error', '실패'] };
+  var BAND = {
+    ledger: '<b>(!) 목업 화면</b> - 실제 이관 · 보존 매체 · 폐기 없음. 표시 값은 고정 예시 (fixture archive v1)',
+    backup: '<b>(!) 목업 화면</b> - 실제 백업 작업 · 복원 없음. 표시 값은 고정 예시 (fixture archive v1)' };
+  var TITLE = { ledger: ['기록 아카이브 대장', 'S-52 · 아카이브 패키지 · 보존 기한 · 판독성 점검 (DI-08 · S-37)'], backup: ['백업 · 복원 시험 이력', 'S-54 · 백업 작업 · 분기 복원 시험 (DI-07 · S-41 · S-32 #12)'] };
+  var F = M.fixture('archive'), selected = null, dlgPkg = null;
+  function short(h) { return h ? h.slice(0, 8) : '-'; }
+  function lastOf(p) {
+    var sim = M.lastCheck(p.pkgId);
+    if (sim) return { at: (sim.at || '').slice(0, 10), result: sim.result, sim: true };
+    var c = p.checks[p.checks.length - 1]; return c ? { at: c.at, result: c.result } : null;
+  }
+  function renderPkg() {
+    var st = $('schState').value, b = $('schBatch').value.trim(), from = $('schFrom').value, to = $('schTo').value;
+    var rows = F.packages.filter(function (p) { return (!st || p.state === st) && (!b || p.batchId.indexOf(b) >= 0) && (!p.finalizedAt || ((!from || p.finalizedAt >= from) && (!to || p.finalizedAt <= to))); });
+    $('totPkg').innerHTML = 'Total <b>' + rows.length + '</b>';
+    if (!rows.some(function (p) { return p.pkgId === selected; })) selected = rows.length ? rows[0].pkgId : null;
+    $('grdPkgBody').innerHTML = rows.map(function (p) {
+      var l = lastOf(p), s = ST[p.state];
+      return '<tr data-id="' + esc(p.pkgId) + '"' + (p.pkgId === selected ? ' class="selected"' : '') + '><td>' + esc(p.pkgId) + '</td><td>' + esc(p.batchId) + '</td><td>' + esc(p.finalizedAt || '(확정 전)') + '</td>' +
+        '<td>' + esc(p.retainUntil || '-') + '</td><td class="mono" title="' + esc(p.pkgHash) + '">' + short(p.pkgHash) + '</td><td>' + esc(p.medium || '-') + '</td>' +
+        '<td>' + (l ? esc(l.at) + ' ' + U.badge(RES[l.result][0], RES[l.result][1]) + (l.sim ? ' <span class="sub-info">(시뮬)</span>' : '') : '-') + '</td><td>' + U.badge(s[0], s[1]) + '</td></tr>';
+    }).join('');
+    U.keepUi(SCREEN, { filters: { state: st, batch: b, from: from, to: to }, selectedId: selected });
+  }
+  function runVerify(id) {
+    return M.verifyPackage(id, U.now()).then(function (r) {
+      if (!r.ok) { $('verifyMsg').className = 'mock-note'; $('verifyMsg').textContent = '(i) ' + id + ' — 확정 전 패키지라 판독성 점검 대상 아님 (목업)'; return r; }
+      $('verifyMsg').className = 'mock-note ' + (r.result === 'pass' ? 'ok' : 'err');
+      $('verifyMsg').textContent = r.result === 'pass' ? '(v) ' + id + ' 판독성 점검 통과 — 구성 파일 ' + Object.keys(r.computed).length + '개 SHA-256 재계산 일치 (시뮬, 목업 상태에만 기록)'
+        : '(x) ' + id + ' 판독성 점검 실패 — ' + r.mismatch.join(', ') + ' hash 불일치. 원본 보존, 일탈 등록 대상 (Annex 11 §17)';
+      renderPkg(); if (dlgPkg === id) renderDlg();
+      return r;
+    }, function (e) { MesUI.toast('SHA-256 계산 불가 (브라우저 crypto.subtle 없음): ' + e.message, 'error'); });
+  }
+  function renderDlg() {
+    var p = F.packages.filter(function (x) { return x.pkgId === dlgPkg; })[0]; if (!p) return;
+    var sim = M.lastCheck(p.pkgId), comp = (sim && sim.computed) || {};
+    $('fPkg').value = p.pkgId; $('fBatch').value = p.batchId; $('fMedium').value = p.medium || '-'; $('fRetain').value = p.retainUntil || '-';
+    $('fHash').value = p.pkgHash ? short(p.pkgHash) + '…' : '-'; $('fHash').title = p.pkgHash || '';
+    $('totFiles').innerHTML = 'Total <b>' + p.files.length + '</b>';
+    $('grdFilesBody').innerHTML = p.files.length ? p.files.map(function (f) {
+      var c = comp[f.name], ok = c ? c === f.recordedHash : null;
+      return '<tr><td>' + esc(f.name) + '</td><td>' + esc(f.kind) + '</td><td class="right">' + esc(f.size) + '</td><td class="mono" title="' + esc(f.recordedHash) + '">' + short(f.recordedHash) + '</td>' +
+        '<td class="mono' + (ok === false ? ' cell-faulty' : '') + '" title="' + esc(c || '') + '">' + (c ? short(c) : '-') + '</td><td class="center">' + (ok == null ? U.badge('muted', '미점검') : ok ? U.badge('ok', '일치') : U.badge('error', '불일치')) + '</td></tr>';
+    }).join('') : '<tr><td colspan="6">확정 전 — 구성 파일 없음</td></tr>';
+    var bad = sim ? sim.mismatch : [];
+    $('arcResult').className = 'mock-note ' + (!sim ? '' : bad.length ? 'err' : 'ok');
+    $('arcResult').textContent = !sim ? '(i) [점검 다시 실행 (시뮬)] 을 누르면 고정 파일 내용의 SHA-256 을 다시 계산해 기록 hash 와 비교합니다'
+      : bad.length ? '(x) 판독성 점검 실패 - ' + bad.join(', ') + ' hash 불일치. 원본 보존, 일탈 등록 대상 (Annex 11 §17) — 다음 조치: QA 통보 · 일탈 등록 · 이전 백업에서 복원 시험'
+      : '(v) 판독성 점검 통과 - 구성 파일 ' + p.files.length + '개 hash 일치 (시뮬, ' + esc(sim.at) + ')';
+    var hist = p.checks.map(function (c) { return U.badge(RES[c.result][0], RES[c.result][1]) + ' ' + esc(c.at + ' ' + c.kind); });
+    if (sim) hist.push(U.badge(RES[sim.result][0], RES[sim.result][1]) + ' ' + esc(sim.at.slice(0, 16) + ' 화면 시뮬'));
+    $('arcHist').innerHTML = '<b>판독성 점검 이력</b>' + (hist.length ? hist.join('<span class="vbar"></span>') : ' -') + (p.nextCheck ? '<span class="vbar"></span>다음 정기 ' + esc(p.nextCheck) : '');
+    $('arcSign').innerHTML = '점검 확인 서명: ' + esc(F.checkSign.signedText) + ' ' + U.badge('', '예시값(PoC)');
+  }
+  function openDlg(id) { dlgPkg = id; renderDlg(); MesUI.openDialog('dlgMockArchive'); }
+  function renderBackup() {
+    var k = $('bkKind').value, r = $('bkResult').value, from = $('bkFrom').value, to = $('bkTo').value + ' 99';
+    var rows = F.backups.filter(function (b) { return (!k || b.kind === k) && (!r || b.result === r) && (!from || b.start >= from) && b.start <= to; });
+    $('totBk').innerHTML = 'Total <b>' + rows.length + '</b>';
+    $('grdBkBody').innerHTML = rows.map(function (b) {
+      return '<tr><td>' + esc(b.jobId) + '</td><td>' + esc(b.kind) + '</td><td>' + esc(b.start) + '</td><td>' + esc(b.end) + '</td><td>' + esc(b.target) + '</td><td class="center">' +
+        (b.result === 'ok' ? U.badge('ok', '정상') : U.badge('error', '오류')) + '</td><td>' + esc(b.verify) + '</td></tr>';
+    }).join('');
+    $('totRt').innerHTML = 'Total <b>' + F.restoreTests.length + '</b>';
+    $('grdRtBody').innerHTML = F.restoreTests.map(function (t) {
+      return '<tr data-id="' + esc(t.testId) + '"><td>' + esc(t.testId) + '</td><td>' + esc(t.at) + '</td><td>' + esc(t.env) + '</td><td title="' + esc(t.checks) + '">' + esc(t.checks) + '</td><td class="center">' +
+        (t.result === 'pass' ? U.badge('ok', '통과') : U.badge('error', '실패')) + '</td><td title="' + esc(t.reviewText) + '">' + esc(t.reviewText) + ' ' + U.badge('', '예시값(PoC)') + '</td></tr>';
+    }).join('');
+  }
+  function onTab(t) { $('bandText').innerHTML = BAND[t]; $('pageTitle').textContent = TITLE[t][0]; $('pageSub').textContent = TITLE[t][1]; document.title = TITLE[t][0] + (t === 'backup' ? ' (S-54)' : ' (S-52)') + ' — eBR PoC (목업)'; }
+
+  U.applyDisabled(document);
+  var keep = U.uiOf(SCREEN), f = keep.filters || {};
+  if (f.state) $('schState').value = f.state; if (f.batch) $('schBatch').value = f.batch;
+  selected = keep.selectedId || null;
+  var goTab = U.tabs(SCREEN, onTab);
+  $('btnSearch').addEventListener('click', renderPkg);
+  $('btnBkSearch').addEventListener('click', renderBackup);
+  $('grdPkgBody').addEventListener('click', function (e) { var tr = e.target.closest('tr'); if (!tr) return; selected = tr.getAttribute('data-id'); MesUI.selectRow(tr); U.keepUi(SCREEN, { selectedId: selected }); });
+  $('grdPkgBody').addEventListener('dblclick', function (e) { var tr = e.target.closest('tr'); if (tr) openDlg(tr.getAttribute('data-id')); });
+  $('btnDetail').addEventListener('click', function () { if (selected) openDlg(selected); });
+  $('btnVerify').addEventListener('click', function () { if (selected) runVerify(selected); });
+  $('btnReverify').addEventListener('click', function () { if (dlgPkg) runVerify(dlgPkg); });
+  $('btnRtDetail').addEventListener('click', function () { var tr = $('grdRtBody').rows[0]; if (tr) MesUI.selectRow(tr); });
+  $('btnMockReset').addEventListener('click', function () { var r = M.reset(); selected = null; $('schState').value = ''; $('schBatch').value = ''; renderPkg(); goTab('ledger');
+    $('verifyMsg').className = 'mock-note'; $('verifyMsg').textContent = '(i) 목업 초기화 — 판독성 점검 시뮬 결과 삭제 (목업 상태 ' + r.removed.length + '건)'; });
+  renderPkg(); renderBackup();
+  var tab = U.param('tab') || keep.tab || 'ledger'; goTab(tab === 'backup' ? 'backup' : 'ledger');
+  var open = U.param('open');
+  if (open) { goTab('ledger'); selected = open; renderPkg(); runVerify(open).then(function () { openDlg(open); }); }
+  U.bindFit();
+})();
+</script>
+</body>
+</html>

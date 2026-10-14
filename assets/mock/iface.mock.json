@@ -1,0 +1,198 @@
+{
+  "v": 1,
+  "area": "iface",
+  "channels": [
+    {
+      "chId": "IF-ERP-ORD",
+      "system": "ERP",
+      "dir": "수신",
+      "kind": "생산 오더",
+      "ok": 12,
+      "pending": 0,
+      "dead": 0,
+      "last": "16:02:10"
+    },
+    {
+      "chId": "IF-ERP-GR",
+      "system": "ERP",
+      "dir": "송신",
+      "kind": "생산 실적 · 입고",
+      "ok": 9,
+      "pending": 1,
+      "dead": 0,
+      "last": "15:58:44"
+    },
+    {
+      "chId": "IF-LIMS-RES",
+      "system": "LIMS",
+      "dir": "수신",
+      "kind": "시험 결과 · 판정",
+      "ok": 5,
+      "pending": 0,
+      "dead": 1,
+      "last": "15:40:03"
+    },
+    {
+      "chId": "IF-QMS-DEV",
+      "system": "QMS",
+      "dir": "송신",
+      "kind": "일탈 초안",
+      "ok": 1,
+      "pending": 0,
+      "dead": 0,
+      "last": "11:20:31"
+    },
+    {
+      "chId": "IF-HIST-SNAP",
+      "system": "Historian",
+      "dir": "수신",
+      "kind": "공정 값 스냅샷",
+      "ok": 288,
+      "pending": 0,
+      "dead": 0,
+      "last": "16:05:00"
+    }
+  ],
+  "messages": [
+    {
+      "msgId": "MSG-LIMS-20261013-0005",
+      "channel": "IF-LIMS-RES",
+      "route": "LIMS > eBR",
+      "at": "2026-10-13 15:40:03",
+      "attempt": 1,
+      "maxAttempt": 3,
+      "target": "LOT LAC-2411",
+      "checks": [
+        {
+          "key": "스키마 버전",
+          "expected": "lims-result v2",
+          "actual": "lims-result v2",
+          "ok": true
+        },
+        {
+          "key": "체크섬 SHA-256",
+          "expected": "8d1e44c0 (헤더 값)",
+          "actual": "8d1e44c0 (재계산)",
+          "ok": true
+        },
+        {
+          "key": "LOT · 시험 항목",
+          "expected": "LAC-2411 · 수분",
+          "actual": "LAC-2411 · 수분",
+          "ok": true
+        },
+        {
+          "key": "단위",
+          "expected": "%",
+          "actual": "mg/g",
+          "ok": false
+        }
+      ],
+      "raw": "{\"lot\":\"LAC-2411\",\"test\":\"LOD\",\"value\":42,\"unit\":\"mg/g\",\"judged\":\"PASS\",\"at\":\"2026-10-13T15:40:03+09:00\",\"src\":\"LIMS\",\"attempt\":1,\"schema\":\"lims-result v2\",\"checksum\":\"8d1e44c0b2a7f13e\",\"method\":\"LOD 105C 3h (USP <731>)\",\"spec\":{\"min\":0,\"max\":5,\"unit\":\"%\"},\"sample\":{\"id\":\"SMP-LAC-2411-03\",\"container\":\"C-07\",\"pulledAt\":\"2026-10-13T11:05:00+09:00\"},\"instrument\":\"MB-LAB-02 (예시)\",\"analysis\":{\"run\":\"RUN-20261013-118\",\"replicates\":[41.8,42.1,42.1],\"mean\":42},\"reviewer\":\"QC 검토 대기\",\"note\":\"원 시스템 단위 설정이 mg/g 로 바뀐 것으로 보임 - 자동 환산 금지 시연용 예시 원문 (목업)\",\"history\":[{\"at\":\"2026-10-13T15:40:03+09:00\",\"event\":\"RECEIVED\",\"by\":\"IF-LIMS-RES\"},{\"at\":\"2026-10-13T15:40:03+09:00\",\"event\":\"CHECK_FAILED\",\"detail\":\"unit expected % actual mg/g\"},{\"at\":\"2026-10-13T15:40:04+09:00\",\"event\":\"DEAD_LETTER\",\"queue\":\"DLQ-LIMS\"}],\"trace\":{\"correlationId\":\"COR-LIMS-7f3a9c21-0005\",\"sourceRecord\":\"LIMS-RES-2026-104455\",\"batchRef\":\"BR-DEMO-0001\"}}",
+      "state": "dead",
+      "reason": "단위 불일치",
+      "owner": "QC 연동 담당자"
+    },
+    {
+      "msgId": "MSG-LIMS-20261013-0004",
+      "channel": "IF-LIMS-RES",
+      "route": "LIMS > eBR",
+      "at": "2026-10-13 14:12:51",
+      "attempt": 1,
+      "maxAttempt": 3,
+      "target": "LOT MCC-2409",
+      "checks": [
+        {
+          "key": "스키마 버전",
+          "expected": "lims-result v2",
+          "actual": "lims-result v2",
+          "ok": true
+        },
+        {
+          "key": "체크섬 SHA-256",
+          "expected": "51f0a9d2 (헤더 값)",
+          "actual": "51f0a9d2 (재계산)",
+          "ok": true
+        },
+        {
+          "key": "LOT · 시험 항목",
+          "expected": "MCC-2409 · 수분",
+          "actual": "MCC-2409 · 수분",
+          "ok": true
+        },
+        {
+          "key": "단위",
+          "expected": "%",
+          "actual": "%",
+          "ok": true
+        }
+      ],
+      "raw": "{\"lot\":\"MCC-2409\",\"test\":\"LOD\",\"value\":3.1,\"unit\":\"%\",\"judged\":\"PASS\",\"at\":\"2026-10-13T14:12:51+09:00\",\"src\":\"LIMS\",\"attempt\":1,\"schema\":\"lims-result v2\",\"checksum\":\"51f0a9d23c4e8b17\"}",
+      "state": "applied",
+      "reason": "",
+      "owner": "QC 연동 담당자"
+    }
+  ],
+  "recon": [
+    {
+      "batchId": "BR-DEMO-0001",
+      "target": "ERP 실적",
+      "label": "ERP 생산 실적",
+      "rows": [
+        {
+          "item": "양품 수량",
+          "ebr": 487200,
+          "ext": 487200,
+          "unit": "T"
+        },
+        {
+          "item": "샘플 수량",
+          "ebr": 2000,
+          "ext": 2000,
+          "unit": "T"
+        },
+        {
+          "item": "입고 LOT",
+          "ebr": "FG-2610-001",
+          "ext": "FG-2610-001",
+          "unit": ""
+        },
+        {
+          "item": "폐기 수량",
+          "ebr": 3100,
+          "ext": 3000,
+          "unit": "T"
+        }
+      ]
+    },
+    {
+      "batchId": "BR-DEMO-0001",
+      "target": "LIMS 판정",
+      "label": "LIMS 시험 판정",
+      "rows": [
+        {
+          "item": "수분 (LOD)",
+          "ebr": "PASS",
+          "ext": "PASS",
+          "unit": ""
+        },
+        {
+          "item": "함량",
+          "ebr": "PASS",
+          "ext": "PASS",
+          "unit": ""
+        },
+        {
+          "item": "붕해",
+          "ebr": "PASS",
+          "ext": "PASS",
+          "unit": ""
+        }
+      ]
+    }
+  ],
+  "reconSign": {
+    "signedText": "검토 — 이수진(QA-0011) · QA · 2026-10-13 14:30 KST · Reviewed by",
+    "exampleValue": true
+  }
+}

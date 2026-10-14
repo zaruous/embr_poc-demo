@@ -1,0 +1,197 @@
+{
+  "v": 1,
+  "area": "archive",
+  "packages": [
+    {
+      "pkgId": "ARC-2026-0007",
+      "batchId": "BR-2026-0412",
+      "finalizedAt": "2026-04-30",
+      "retainUntil": "2029-05-31",
+      "medium": "WORM-01",
+      "pkgHash": "947a9c03cbc4765610bfc5f3149b1ecc3400b982a1e74c5c017adca8856e125d",
+      "files": [
+        {
+          "name": "batch-record.pdf",
+          "kind": "PDF/A-2b",
+          "size": "1.8 MB",
+          "recordedHash": "125321d18e9093ce60067de7eabfe0614633cdfb79912873974d1dd9ec7c50e9",
+          "content": "{\"batchId\":\"BR-2026-0412\",\"ver\":1,\"kind\":\"mock-content\",\"part\":\"pdf-a-text-layer\",\"pages\":42}"
+        },
+        {
+          "name": "data-package.json",
+          "kind": "JSON",
+          "size": "412 KB",
+          "recordedHash": "851ee545dc0edcde7e1a11d08f3a58582f45e2b9862891039159726ff75a6610",
+          "content": "{\"batchId\":\"BR-2026-0412\",\"ver\":1,\"kind\":\"mock-content\",\"part\":\"data\",\"steps\":18,\"values\":412}"
+        },
+        {
+          "name": "audit-trail.json",
+          "kind": "JSON",
+          "size": "96 KB",
+          "recordedHash": "c57468f89b27c7aa618370b9c3056f652f56ad35b5af87a5f6042fbb9b786237",
+          "content": "{\"batchId\":\"BR-2026-0412\",\"ver\":1,\"kind\":\"mock-content\",\"part\":\"audit\",\"events\":960}"
+        }
+      ],
+      "checks": [
+        {
+          "at": "2026-04-30",
+          "kind": "이관 시 점검",
+          "result": "pass"
+        },
+        {
+          "at": "2026-10-01",
+          "kind": "정기",
+          "result": "pass"
+        }
+      ],
+      "state": "kept",
+      "nextCheck": "2027-01-01"
+    },
+    {
+      "pkgId": "ARC-2026-0011",
+      "batchId": "BR-2026-0533",
+      "finalizedAt": "2026-06-12",
+      "retainUntil": "2029-06-30",
+      "medium": "WORM-01",
+      "pkgHash": "3761813bb3aa46d90e5316d9542cc6511559c1235c134760c63ae0640af105f2",
+      "files": [
+        {
+          "name": "batch-record.pdf",
+          "kind": "PDF/A-2b",
+          "size": "1.8 MB",
+          "recordedHash": "be86118c97ddb856ae0cd6b97893b4c45ceb9e97ad47f70726aa723830d65f47",
+          "content": "{\"batchId\":\"BR-2026-0533\",\"ver\":1,\"kind\":\"mock-content\",\"part\":\"pdf-a-text-layer\",\"pages\":42}"
+        },
+        {
+          "name": "data-package.json",
+          "kind": "JSON",
+          "size": "412 KB",
+          "recordedHash": "2dbc44447ed472cadb781cde05d45fe20aa3b55d64a29b98d213c98046c8a935",
+          "content": "{\"batchId\":\"BR-2026-0533\",\"ver\":1,\"kind\":\"mock-content\",\"part\":\"data\",\"steps\":18,\"values\":412}"
+        },
+        {
+          "name": "audit-trail.json",
+          "kind": "JSON",
+          "size": "96 KB",
+          "recordedHash": "21327c6de6c66d93f54eadb63e213a53fef031cdc82e04fec5479e794f6c8265",
+          "content": "{\"batchId\":\"BR-2026-0533\",\"ver\":1,\"kind\":\"mock-content\",\"part\":\"audit\",\"events\":960}"
+        }
+      ],
+      "checks": [
+        {
+          "at": "2026-06-12",
+          "kind": "이관 시 점검",
+          "result": "pass"
+        },
+        {
+          "at": "2026-10-01",
+          "kind": "정기",
+          "result": "pass"
+        }
+      ],
+      "state": "kept",
+      "nextCheck": "2027-01-01"
+    },
+    {
+      "pkgId": "ARC-2026-0015",
+      "batchId": "BR-2026-0601",
+      "finalizedAt": "2026-07-20",
+      "retainUntil": "2029-07-31",
+      "medium": "WORM-02",
+      "pkgHash": "031433e0980c66d1cd819c3a28bbd0a3003f89cfebdaf6ecab740d5f8393adcc",
+      "files": [
+        {
+          "name": "batch-record.pdf",
+          "kind": "PDF/A-2b",
+          "size": "1.8 MB",
+          "recordedHash": "dc662605f0489962901991e345e6960de826c271cc80bb821f8d66264467c7a6",
+          "content": "{\"batchId\":\"BR-2026-0601\",\"ver\":1,\"kind\":\"mock-content\",\"part\":\"pdf-a-text-layer\",\"pages\":42}"
+        },
+        {
+          "name": "data-package.json",
+          "kind": "JSON",
+          "size": "412 KB",
+          "recordedHash": "e35ef96fc6c415ec0d841c9cc67218348a6f70f671670a6afe5198de1ea352f1",
+          "content": "{\"batchId\":\"BR-2026-0601\",\"ver\":1,\"kind\":\"mock-content\",\"part\":\"data\",\"steps\":18,\"values\":412}"
+        },
+        {
+          "name": "audit-trail.json",
+          "kind": "JSON",
+          "size": "96 KB",
+          "recordedHash": "89d9e05da77cd0bd1162c033e396fb94dcd39d5561de337be9dade3601eca165",
+          "content": "{\"batchId\":\"BR-2026-0601\",\"ver\":1,\"kind\":\"mock-content\",\"part\":\"audit\",\"events\":960}"
+        }
+      ],
+      "checks": [
+        {
+          "at": "2026-07-20",
+          "kind": "이관 시 점검",
+          "result": "pass"
+        },
+        {
+          "at": "2026-10-01",
+          "kind": "정기 (시뮬)",
+          "result": "fail"
+        }
+      ],
+      "state": "error",
+      "nextCheck": "2027-01-01"
+    },
+    {
+      "pkgId": "ARC-2026-0019",
+      "batchId": "BR-DEMO-0001",
+      "finalizedAt": "",
+      "retainUntil": "",
+      "medium": "",
+      "pkgHash": "",
+      "files": [],
+      "checks": [],
+      "state": "wait",
+      "nextCheck": ""
+    }
+  ],
+  "checkSign": {
+    "signedText": "확인 — 최민아(SV-0011) · SV · 2026-10-13 10:15 KST · Verified by",
+    "exampleValue": true
+  },
+  "backups": [
+    {
+      "jobId": "BK-20261013-01",
+      "kind": "일일 증분",
+      "start": "2026-10-13 02:00:00",
+      "end": "2026-10-13 02:07:41",
+      "target": "eBR DB · 감사",
+      "result": "ok",
+      "verify": "건수 · hash 대조"
+    },
+    {
+      "jobId": "BK-20261012-01",
+      "kind": "일일 증분",
+      "start": "2026-10-12 02:00:00",
+      "end": "2026-10-12 02:06:55",
+      "target": "eBR DB · 감사",
+      "result": "ok",
+      "verify": "건수 · hash 대조"
+    },
+    {
+      "jobId": "BK-20261006-W",
+      "kind": "주간 전체",
+      "start": "2026-10-06 01:00:00",
+      "end": "2026-10-06 01:48:12",
+      "target": "전체",
+      "result": "ok",
+      "verify": "건수 · hash 대조"
+    }
+  ],
+  "restoreTests": [
+    {
+      "testId": "RT-2026-Q3",
+      "at": "2026-09-28",
+      "env": "시험 환경 복원",
+      "checks": "레코드 수 일치 · 감사 사슬 연속 · 서명 연결 유지",
+      "result": "pass",
+      "reviewText": "검토 — 이수진(QA-0011) · QA · 2026-10-13 09:30 KST · Reviewed by",
+      "exampleValue": true
+    }
+  ]
+}

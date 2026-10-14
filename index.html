@@ -334,6 +334,44 @@
       ]
     },
     {
+      id: 'mockup',
+      title: '목업 (PoC 범위 밖)',
+      items: [
+        {
+          id: 'mock-offline',
+          label: '단말 오프라인 · 동기화 (S-49 · S-51)',
+          path: 's-ebr-offline-sync-mock.html',
+          badge: '목업',
+          badgeClass: 'warn',
+          note: 'DC-03 목업 · fixture offline v1 · embrMock.* 만 저장 · 동기화 · 서명 비활성'
+        },
+        {
+          id: 'mock-offline-exec',
+          label: '오프라인 실행 미리보기 (S-50)',
+          path: 's-ebr-offline-exec-mock.html',
+          badge: '목업',
+          badgeClass: 'warn',
+          note: 'DC-03 목업 · OI 정적 사본 · 수행 서명 · 다음 단계 비활성'
+        },
+        {
+          id: 'mock-archive',
+          label: '기록 아카이브 · 백업 (S-52 · S-53 · S-54)',
+          path: 's-ebr-archive-mock.html',
+          badge: '목업',
+          badgeClass: 'warn',
+          note: 'DC-03 목업 · 판독성 점검 = SHA-256 재계산 시뮬 · 이관 · 폐기 · 복원 비활성'
+        },
+        {
+          id: 'mock-interface',
+          label: '외부 시스템 연동 · 대사 (S-55 · S-56 · S-57)',
+          path: 's-ebr-interface-mock.html',
+          badge: '목업',
+          badgeClass: 'warn',
+          note: 'DC-03 목업 · ERP · LIMS · QMS · Historian 일반명 · 출하 게이트 조건 5 는 계속 N/A'
+        }
+      ]
+    },
+    {
       id: 'legacy',
       title: '레거시',
       collapsed: true,

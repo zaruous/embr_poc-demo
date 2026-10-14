@@ -40,7 +40,7 @@
   <nav class="nav">
     <a href="#tokens">토큰</a><a href="#title">타이틀</a><a href="#buttons">버튼</a><a href="#inputs">입력</a>
     <a href="#search">검색 영역</a><a href="#form">폼</a><a href="#grid">그리드</a><a href="#badge">배지</a>
-    <a href="#dialog">대화상자·알림</a><a href="#embr">eMBR 보조</a><a href="#shells">셸 골격</a>
+    <a href="#dialog">대화상자·알림</a><a href="#embr">eMBR 보조</a><a href="#shells">셸 골격</a><a href="#mock">목업 표지</a>
   </nav>
 
   <h1>Elephant UX PoC 스타일 가이드</h1>
@@ -581,6 +581,28 @@
           <div class="pda-buttons"><button class="btn normal">Delete</button><button class="btn normal primary">Complete</button></div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ 목업 표지 (DC-03, S-49 ~ S-57) -->
+  <h2 id="mock">12. 목업 표지 (PoC 범위 밖 · DC-03)</h2>
+  <div class="card">
+    <h3>제목 배지 · 목업 띠 · 비활성 이유 · 판정 배지 — 기존 클래스만 (.badge.warn · .bc-alam · disabled + title)</h3>
+    <div class="shell shell-ui ctx">
+      <div class="title-bar"><span class="title-left"><span class="main-title"><span class="mod-tag">EBR</span>화면 제목<span class="badge warn">목업</span></span></span>
+        <span class="breadcrumb"><span>목업 (PoC 범위 밖)</span><span class="sep">&rsaquo;</span><span class="current">영역</span></span></div>
+      <div class="demo-row bc-alam"><b>(!) 목업 화면</b> - 실제 {무엇} 없음. 표시 값은 고정 예시 (fixture {area} v1)<button class="btn search secondary" type="button">목업 초기화</button></div>
+      <div class="demo-row">
+        <button class="btn search" type="button" disabled title="목업 - PoC 범위 밖 (DC-03). 운영에서는 QA 승인 서명 가 필요한 동작">링크 &gt;</button>
+        <button class="btn search secondary" type="button" disabled title="목업 - PoC 범위 밖 (DC-03). 운영에서는 QA 승인 서명 가 필요한 동작">보조 (비활성)</button>
+        <button class="btn search primary" type="button">주 (시뮬)</button>
+      </div>
+      <div class="demo-row"><span class="muted">(i) 비활성 이유: {버튼} = {통제}가 PoC 범위 밖 (DC-03) - 툴팁에도 같은 문구</span></div>
+      <div class="demo-row">
+        <span class="badge ok">통과 · 일치 · 반영 · 정상 · 보존</span><span class="badge error">실패 · 오류 · 데드레터 · 불일치</span>
+        <span class="badge warn">경고 · 충돌 · OFFLINE</span><span class="badge muted">대기</span><span class="badge">N/A · 예시값(PoC)</span>
+      </div>
+      <div class="demo-row"><span class="muted">저장 = embrMock.* 키만 (assets/embr-mock.js — 다른 키는 mock_key_forbidden) · 인쇄 머리 "목업 - GMP 기록 아님" · &lt;title&gt; 끝 " (목업)"</span></div>
     </div>
   </div>
 </div>

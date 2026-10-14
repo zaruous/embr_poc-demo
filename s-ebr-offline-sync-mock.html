@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<!--
+  화면 id   : s-ebr-offline-sync-mock  (S-49 단말 오프라인 · 동기화 현황 + S-51 재연결 동기화 · 충돌 확인 팝업 #dlgMockSync) — 목업 (PoC 범위 밖, DC-03)
+  설계      : poc-deferred-mockups-design.md 개정 2 W1 · W3 (MK-05 · MK-13)
+  자산      : ./assets/mesui.css · ./assets/mesui.js · ./assets/embr-mock-fixtures.js · ./assets/embr-mock.js (ebr-*.js 로드 안 함)
+  저장      : embrMock.offline.v1 (시나리오 · 버퍼 추가) · embrMock.ui.v1 (조회 조건 · 선택 행) — ebr.* · ebmr.* 읽기 · 쓰기 없음
+  비활성    : 동기화 실행 · 서명 대기 큐 S-29 · 동기화 확정 (disabled + 안내 줄 + 툴팁)
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920">
+<title>단말 오프라인 · 동기화 현황 (S-49) — eBR PoC (목업)</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./assets/mesui.css">
+<style>
+  /* ---- 목업 공통 (S-49 ~ S-57, DC-03) — mesui.css 토큰만, hex · px 리터럴 없음 ---- */
+  html, body { margin: 0; overflow: hidden; background: var(--c-bg); }
+  body.fit-host { display: flex; align-items: flex-start; justify-content: flex-start; }
+  #shellScale.shell-scale { flex: 0 0 auto; }
+  .title-left .badge.warn { margin-left: var(--title-gap); }
+  .mock-band { flex: 0 0 var(--form-row-h); height: var(--form-row-h); display: flex; align-items: center; gap: var(--title-gap);
+    padding: var(--grid-cell-pad); border-left: var(--badge-gap) solid var(--c-warn); font-size: var(--fs-base); white-space: nowrap; overflow: hidden; }
+  .mock-band .spacer, .mock-line .spacer { flex: 1 1 auto; }
+  .title-row { display: flex; align-items: center; gap: var(--title-gap); }
+  .mock-notes { flex: 0 0 auto; display: flex; flex-direction: column; }
+  .mock-note { font-size: var(--fs-grid); color: var(--c-text-sub); line-height: 1.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mock-note.err { color: var(--c-error); font-weight: bold; }
+  .mock-note.ok { color: var(--c-ok); font-weight: bold; }
+  .mock-line { flex: 0 0 auto; display: flex; align-items: center; gap: var(--title-gap); min-height: var(--form-row-h); white-space: nowrap; overflow: hidden; }
+  .grid td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .grid tr.row-faulty td { background: var(--bc-faulty); }
+  .grid tr.row-alam td { background: var(--bc-alam); }
+  .mono { font-family: var(--font-mono); }
+  .grid-block.fixed-6 { flex: 0 0 auto; }
+  .grid-block.fixed-6 > .grid-wrap { flex: 0 0 auto; min-height: 0; height: calc(var(--grid-head-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h) + var(--grid-row-h)); }
+  .grid-block.auto-h { flex: 0 0 auto; }
+  .grid-block.auto-h > .grid-wrap { flex: 0 0 auto; min-height: 0; }
+  .shell-body > .grid-block.fill-rest { flex: 1 1 auto; min-height: 0; }
+  .dialog .grid-wrap { flex: 0 0 auto; min-height: 0; }
+  .dialog .mock-band { flex: 0 0 var(--form-row-h); }
+  .popup-title .text .badge.warn { margin-left: var(--title-gap); vertical-align: middle; }
+  .btn[disabled] { cursor: not-allowed; }
+  @media print {
+    html, body { height: auto; overflow: visible; }
+    body::before { content: '목업 - GMP 기록 아님'; position: fixed; top: 0; left: 0; right: 0; text-align: center; font-weight: bold; color: var(--c-error); }
+  }
+</style>
+</head>
+<body>
+<div class="shell-scale ui" id="shellScale" style="--scale:1"><div class="shell shell-ui">
+  <div class="title-bar">
+    <span class="title-left">
+      <span class="main-title"><span class="mod-tag">EBR</span>단말 오프라인 · 동기화 현황<span class="badge warn">목업</span></span>
+      <span class="sub-info"><i class="ic-info"></i>S-49 · 단말별 연결 · 로컬 버퍼 · 서명 대기 · 시계 점검 (EBR-08 · ES-08)</span>
+    </span>
+    <span class="breadcrumb"><span>목업 (PoC 범위 밖)</span><span class="sep">&rsaquo;</span><span class="current">오프라인</span></span>
+  </div>
+
+  <div class="shell-body">
+    <div class="mock-band bc-alam" role="note">
+      <span><b>(!) 목업 화면</b> - 실제 단말 연결 · 버퍼 · 동기화 없음. 표시 값은 고정 예시 (fixture offline v1)</span>
+      <span class="spacer"></span>
+      <button class="btn search secondary" type="button" id="btnMockReset">목업 초기화</button>
+    </div>
+
+    <div class="search-box cols-4" id="sb49">
+      <div class="search-control"><span class="label">라인</span>
+        <select class="input" id="schLine" aria-label="라인"><option value="">전체</option><option value="L-01">L-01</option><option value="-">미배정</option></select></div>
+      <div class="search-control"><span class="label">상태</span>
+        <select class="input" id="schState" aria-label="상태"><option value="">전체</option><option value="ok">정상</option><option value="warn">경고</option><option value="wait">대기</option></select></div>
+      <div class="search-control"><span class="label">작업실</span>
+        <span class="field"><input class="input" type="text" id="schRoom" placeholder="R-215" aria-label="작업실">
+          <label class="checkbox"><input type="checkbox" id="schHideZero"> 버퍼 0건 숨김</label></span></div>
+      <div class="search-actions"><button class="btn search secondary" type="button" id="btnSearch">조회</button></div>
+    </div>
+
+    <div class="grid-block fixed-6">
+      <div class="grid-title-area">
+        <div class="title-row"><span class="group-title">단말 목록</span><span class="sub-info" id="scLabel"></span></div>
+        <div class="grid-toolbar">
+          <span class="total-text" id="totTerm"></span>
+          <span class="vbar"></span>
+          <button class="btn search" type="button" id="btnQueue" data-mock-why="본인 재인증 · 서명 원장 (S-29 서명 대기 큐)">서명 대기 큐 S-29 &gt;</button>
+          <button class="btn search" type="button" id="btnExec">오프라인 실행 미리보기 &gt;</button>
+          <span class="spacer"></span>
+          <button class="btn search secondary" type="button" id="btnExcel49" data-mock-why="기록 반출 승인 · 반출 이력">엑셀 내보내기</button>
+          <button class="btn search secondary" type="button" id="btnCfg49" data-mock-why="화면 설정 변경 승인 · 설정 이력">설정 저장</button>
+          <select class="input" id="selScenario" aria-label="시나리오"></select>
+          <button class="btn search secondary" type="button" id="btnReconnect">재연결 시뮬</button>
+          <button class="btn search primary" type="button" id="btnSync" data-mock-why="단말 동기화 · 감독자 확인">동기화 실행</button>
+        </div>
+      </div>
+      <div class="grid-wrap">
+        <table class="grid selectable" id="grdTerm">
+          <colgroup><col style="width:var(--col-w-key)"><col style="width:var(--col-w-160)"><col style="width:var(--col-w-ts)"><col style="width:var(--col-w-200)"><col style="width:var(--col-w-240)"><col style="width:var(--col-w-160)"><col style="width:var(--col-w-160)"><col style="width:var(--col-w-key)"><col></colgroup>
+          <thead><tr><th>단말 ID</th><th>작업실</th><th>라인</th><th class="center">연결</th><th>마지막 동기화</th><th class="right">로컬 버퍼</th><th class="right">서명 대기</th><th class="center">시계 점검</th><th>상태</th></tr></thead>
+          <tbody id="grdTermBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="grid-block fill-rest">
+      <div class="grid-title-area">
+        <div class="title-row"><span class="group-title" id="detTitle">상세</span><span class="sub-info">서명 전 입력, 온라인 복귀 후 S-29 서명 대기 큐로</span></div>
+        <div class="grid-toolbar"><span class="total-text" id="totBuf"></span></div>
+      </div>
+      <div class="grid-wrap">
+        <table class="grid" id="grdBuf">
+          <colgroup><col style="width:var(--col-w-short)"><col style="width:var(--col-w-240)"><col style="width:var(--col-w-160)"><col style="width:var(--col-w-240)"><col style="width:var(--col-w-200)"><col style="width:var(--col-w-240)"><col style="width:var(--col-w-160)"><col></colgroup>
+          <thead><tr><th class="center">순번</th><th>배치</th><th>단계</th><th>항목</th><th class="right">값</th><th>입력 시각(단말)</th><th class="center">출처</th><th>처리</th></tr></thead>
+          <tbody id="grdBufBody"></tbody>
+        </table>
+        <div class="nodata hidden" id="bufNodata">로컬 버퍼가 비어 있습니다</div>
+      </div>
+      <div class="mock-notes">
+        <span class="mock-note">(i) 오프라인 중 전자서명 불가 - 입력만 버퍼, 서명은 재연결 후 본인 로그인 (ES-08) · 재연결 후 일괄 서명은 첫 서명에 모든 서명 요소 (21 CFR 11.200(a)(1)(i))</span>
+        <span class="mock-note">(i) 시계 점검 = 인터록 시계 차이 기준 (단말 날짜 &lt; 원장 승인 서명 날짜면 차단, 허용 0일 · fail-closed) · 다운타임 · 비상 양식은 실구현 범위 (S-15 · S-38, 출하 게이트 조건 7)</span>
+        <span class="mock-note">(i) 비활성 이유: 동기화 실행 · 서명 대기 큐 · 엑셀 내보내기 · 설정 저장 = 실제 단말 동기화 · 서명 원장 · 기록 반출 · 설정 저장이 PoC 범위 밖 (DC-03) - 툴팁에도 같은 문구</span>
+      </div>
+    </div>
+  </div>
+</div></div>
+
+<!-- S-51 재연결 동기화 · 충돌 확인 팝업 (T-10, 1100×700) -->
+<div class="dialog-backdrop" id="dlgMockSync">
+  <div class="dialog" role="dialog" aria-labelledby="dlgSyncTitle">
+    <div class="popup-title"><span class="text" id="dlgSyncTitle">재연결 동기화 · 충돌 확인<span class="badge warn">목업</span></span><button class="popup-close" type="button" data-dialog-close aria-label="닫기"></button></div>
+    <div class="shell-body">
+      <div class="mock-band bc-alam" role="note"><span><b>(!) 목업</b> - 실제 동기화 · 서버 값 변경 없음 (S-51)</span></div>
+      <div class="mock-line" id="syncHead"></div>
+      <div class="grid-block auto-h">
+        <div class="grid-toolbar"><span class="group-title">항목별 결과</span><span class="spacer"></span><span class="total-text" id="totSync"></span></div>
+        <div class="grid-wrap">
+          <table class="grid" id="grdSync">
+            <colgroup><col style="width:var(--col-w-qual)"><col style="width:var(--col-w-160)"><col style="width:var(--col-w-ts)"><col style="width:var(--col-w-ts)"><col style="width:var(--col-w-ts)"><col></colgroup>
+            <thead><tr><th class="center">순번</th><th>항목</th><th class="right">단말 값</th><th class="right">서버 값</th><th class="center">판정</th><th>처리 안</th></tr></thead>
+            <tbody id="grdSyncBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="mock-notes">
+        <span class="mock-note">(i) 충돌 값은 어느 쪽도 지우지 않고 둘 다 감사추적에 남김 - 확정은 감독자 (21 CFR 11.10(e), P1 이후 설계)</span>
+        <span class="mock-note">(i) 비활성 이유: 동기화 확정 = 감독자 서명 · 서버 반영이 PoC 범위 밖 (DC-03) - 툴팁에도 같은 문구</span>
+      </div>
+    </div>
+    <div class="dialog-footer">
+      <button class="btn search secondary" type="button" data-dialog-close>닫기</button>
+      <button class="btn search primary" type="button" id="btnSyncConfirm" data-mock-why="감독자 서명 · 서버 반영">동기화 확정</button>
+    </div>
+  </div>
+</div>
+
+<script src="./assets/mesui.js"></script>
+<script src="./assets/embr-mock-fixtures.js"></script>
+<script src="./assets/embr-mock.js"></script>
+<script>
+(function () {
+  'use strict';
+  var M = window.EmbrMock, U = M.ui, esc = U.esc, SCREEN = 's49';
+  var CONN = { OFFLINE: 'warn', ONLINE: 'ok' };
+  var STATE = { ok: ['ok', '정상'], warn: ['warn', '경고'], wait: ['muted', '대기'] };
+  var $ = function (id) { return document.getElementById(id); };
+  var view, selected = null;
+
+  function clockCell(c) { return c === 'na' ? U.badge('', 'N/A') : (c === 'block' ? U.badge('error', '차단') : '없음'); }
+  function filters() { return { line: $('schLine').value, state: $('schState').value, room: $('schRoom').value.trim(), hideZero: $('schHideZero').checked }; }
+  function renderTerms() {
+    view = M.offlineView();
+    var f = filters();
+    var rows = view.data.terminals.filter(function (t) {
+      return (!f.line || t.line === f.line) && (!f.state || t.state === f.state) && (!f.room || t.room.indexOf(f.room) >= 0) && (!f.hideZero || t.buffer > 0);
+    });
+    $('scLabel').textContent = '시나리오: ' + view.label;
+    $('totTerm').innerHTML = 'Total <b>' + rows.length + '</b>';
+    $('grdTermBody').innerHTML = rows.map(function (t) {
+      var s = STATE[t.state] || ['', t.state];
+      return '<tr data-id="' + esc(t.termId) + '"' + (t.termId === selected ? ' class="selected"' : '') + '><td>' + esc(t.termId) + '</td><td>' + esc(t.room) + '</td><td>' + esc(t.line) + '</td>' +
+        '<td class="center">' + U.badge(CONN[t.conn], t.conn) + '</td><td>' + esc(t.lastSync) + '</td><td class="right">' + t.buffer + '건</td><td class="right">' + t.signPending + '건</td>' +
+        '<td class="center">' + clockCell(t.clock) + '</td><td>' + U.badge(s[0], s[1]) + '</td></tr>';
+    }).join('');
+    if (!rows.some(function (t) { return t.termId === selected; })) selected = rows.length ? rows[0].termId : null;
+    Array.prototype.forEach.call($('grdTermBody').rows, function (tr) { tr.classList.toggle('selected', tr.getAttribute('data-id') === selected); });
+    renderBuf();
+  }
+  function renderBuf() {
+    var list = (selected && view.data.buffer[selected]) || [];
+    $('detTitle').textContent = '상세 - ' + (selected || '-') + ' 로컬 버퍼';
+    $('totBuf').innerHTML = 'Total <b>' + list.length + '</b>';
+    $('grdBufBody').innerHTML = list.map(function (b) {
+      return '<tr' + (b.proc.indexOf('충돌') === 0 ? ' class="row-alam"' : '') + '><td class="center">' + b.seq + '</td><td>' + esc(b.batchId) + '</td><td>' + esc(b.step) + '</td><td>' + esc(b.item) + '</td>' +
+        '<td class="right">' + esc(b.value + (b.unit ? ' ' + b.unit : '')) + '</td><td>' + esc(b.at) + '</td><td class="center"><span class="src-tag">' + esc(b.src) + '</span></td><td>' + esc(b.proc) + '</td></tr>';
+    }).join('');
+    $('bufNodata').classList.toggle('hidden', list.length > 0);
+    U.keepUi(SCREEN, { filters: filters(), selectedId: selected });
+  }
+  function renderSync() {
+    var sc = M.fixture('offline').scenarios.reconnect, t = sc.terminals[0], n = sc.conflicts.filter(function (c) { return c.verdict === 'conflict'; }).length;
+    $('syncHead').innerHTML = '<span>단말 <b>' + esc(t.termId) + '</b></span><span>재연결 ' + esc(sc.reconnectAt) + '</span><span>버퍼 ' + sc.conflicts.length + '건</span><span>충돌 <b>' + n + '</b>건</span><span>시계 차이 ' + clockCell(t.clock) + ' (허용 0일)</span>';
+    $('totSync').innerHTML = 'Total <b>' + sc.conflicts.length + '</b>';
+    $('grdSyncBody').innerHTML = sc.conflicts.map(function (c) {
+      var cf = c.verdict === 'conflict';
+      return '<tr' + (cf ? ' class="row-alam"' : '') + '><td class="center">' + c.seq + '</td><td>' + esc(c.item) + '</td><td class="right">' + esc(c.termValue) + '</td><td class="right">' + esc(c.serverValue) + '</td>' +
+        '<td class="center">' + (cf ? U.badge('warn', '충돌') : U.badge('ok', '반영 가능')) + '</td><td>' + esc(c.plan) + '</td></tr>';
+    }).join('');
+  }
+
+  function init() {
+    U.applyDisabled(document);
+    var keep = U.uiOf(SCREEN), f = keep.filters || {};
+    $('schLine').value = f.line || ''; $('schState').value = f.state || ''; $('schRoom').value = f.room || ''; $('schHideZero').checked = !!f.hideZero;
+    selected = keep.selectedId || null;
+    view = M.offlineView();
+    $('selScenario').innerHTML = view.scenarios.map(function (s) { return '<option value="' + s.key + '">시나리오: ' + esc(s.label) + '</option>'; }).join('');
+    $('selScenario').value = view.scenario;
+    $('selScenario').addEventListener('change', function () { M.setScenario(this.value); renderTerms(); MesUI.toast('시나리오 전환: ' + M.offlineView().label + ' (목업)', 'info'); });
+    $('btnSearch').addEventListener('click', renderTerms);
+    $('grdTermBody').addEventListener('click', function (e) { var tr = e.target.closest('tr'); if (!tr) return; selected = tr.getAttribute('data-id'); MesUI.selectRow(tr); renderBuf(); });
+    $('btnExec').addEventListener('click', function () { location.href = './s-ebr-offline-exec-mock.html'; });
+    $('btnReconnect').addEventListener('click', function () { M.setScenario('reconnect'); $('selScenario').value = 'reconnect'; renderTerms(); renderSync(); MesUI.openDialog('dlgMockSync'); });
+    $('btnMockReset').addEventListener('click', function () { var r = M.reset(); selected = null; $('selScenario').value = 'offline'; ['schLine', 'schState', 'schRoom'].forEach(function (k) { $(k).value = ''; }); $('schHideZero').checked = false; renderTerms(); MesUI.toast('목업 초기화 — 목업 상태 ' + r.removed.length + '건 삭제', 'info'); });
+    renderTerms(); renderSync();
+    if (U.param('open') === 'sync') MesUI.openDialog('dlgMockSync');
+  }
+  U.bindFit();
+  init();
+})();
+</script>
+</body>
+</html>
