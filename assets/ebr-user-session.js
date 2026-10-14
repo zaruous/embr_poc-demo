@@ -105,6 +105,14 @@
   BUILTIN_RULES['SM-REV-ILR'] = seedRuleB('SM-REV-ILR', 1, 'reviewed', 'interlock_rule', 'full_factor', false, '2026-10-12', '인터록 룰 세트 검토 (작성자 ≠ 검토자)', ['SV', 'QA']);
   BUILTIN_RULES['SM-APPR-ILR'] = seedRuleB('SM-APPR-ILR', 1, 'approved', 'interlock_rule', 'full_factor', false, '2026-10-12', '인터록 룰 세트 승인 (작성자 · 검토자 ≠ 승인자)', ['QA']);
   BUILTIN_RULES['SM-APPR-CTRL'] = seedRuleB('SM-APPR-CTRL', 1, 'approved', 'interlock_override', 'full_factor', false, '2026-10-12', 'Controlled 인터록 감독자 승인 (적중 시 수행자 ≠ 승인자)', ['SV']);
+  /* 프로세스 트리 실행 (트리 준수 설계 §6 · T1-07): 예외 경로 진입 SV · QA(종료 노드로 가는 경로는 QA만 — EbrTreeExec 이 좁힘), 건너뛰기 · 반복 한도 초과 QA */
+  var TREE_RULES = { ROUTE: 'SM-APPR-ROUTE', SKIP: 'SM-APPR-SKIP', REPEAT: 'SM-APPR-REPEAT' };
+  BUILTIN_RULES['SM-APPR-ROUTE'] = seedRuleB('SM-APPR-ROUTE', 1, 'approved', 'tree_route', 'full_factor', false, '2026-10-13', '예외 경로 진입 승인 (from 단계 수행자 ≠ 승인자)', ['SV', 'QA']);
+  BUILTIN_RULES['SM-APPR-SKIP'] = seedRuleB('SM-APPR-SKIP', 1, 'approved', 'tree_route', 'full_factor', false, '2026-10-13', '단계 건너뛰기 승인 (MBR 허용 노드만)', ['QA']);
+  BUILTIN_RULES['SM-APPR-REPEAT'] = seedRuleB('SM-APPR-REPEAT', 1, 'approved', 'tree_route', 'full_factor', false, '2026-10-13', '단계 반복 한도 초과 승인 (이전 회차 수행자 ≠ 승인자)', ['QA']);
+  /* 일탈 종결 (리뷰 X6): QA 만 · 보고자 ≠ 종결자(⑥ distinctFrom) · deviationId 봉인. 종결 판정(트리 보류 · 게이트 조건 2 · openCount)의 유일한 근거 */
+  var DEV_RULES = { CLOSE: 'SM-DEV-CLOSE' };
+  BUILTIN_RULES['SM-DEV-CLOSE'] = seedRuleB('SM-DEV-CLOSE', 1, 'approved', 'deviation_close', 'full_factor', false, '2026-10-14', '일탈 종결 승인 (QA · 보고자 ≠ 종결자)', ['QA']);
 
   var ROLE_DEFS = [
     { code: 'OP', name: '작업자', gmpSign: true }, { code: 'SV', name: '감독자', gmpSign: true },
@@ -152,6 +160,7 @@
     audit_error: '감사 기록을 저장하지 못해 진행할 수 없습니다 — 저장 공간을 확인한 뒤 다시 시도하세요.',
     ticket_closed: '서명 창이 이미 닫혔습니다 — [발행]을 다시 눌러 주세요.',
     ticket_closed_record: '서명 창이 이미 닫혔습니다 — 서명을 다시 시작하세요.',
+    restore_dedicated_path: '복원 확인 서명(SM-REV-RESTORE)은 출하 게이트 조건 12 전용 경로로만 할 수 있습니다.',
     statement_mismatch: '서명 문장이 바뀌었습니다 — 서명 창의 문장을 다시 확인하세요.',
     record_save_error: '서명이 취소되었습니다(저장 실패) — 상태는 바뀌지 않았습니다.',
     record_precheck: '서명 대상 기록이 서명 창을 연 뒤 바뀌었습니다 — 서명 창을 닫고 다시 여세요.',
@@ -321,6 +330,33 @@
      { v:1, auditCount, lastAuditId, lastAuditHash, esignCount, voidSeq, at, ackSignatureId?, ackedAt?, detectedAt? } — 감사 저장 성공 때 현재 값으로 갱신.
      현재 개수가 워터마크보다 작거나 워터마크 당시 마지막 감사 항목(lastAuditId · lastAuditHash)이 없거나 바뀌었으면 '복원 탐지' → 워터마크를 고정(갱신 안 함)하고 QA 확인(SM-REV-RESTORE) 때만 다시 맞춘다.
      한계: 워터마크도 localStorage — 저장소 전체를 통째로 되돌리면 함께 되돌아가 탐지 못 함 */
+  /* 리뷰 X9: 감사 행 해시 사슬 — 행마다 prevHash(앞 행의 link) · hash = sha256(stableStringify(행 − hash)) → act · detail · uid · at · tgt · batchId 등 모든 필드 봉인.
+     link(행) = hash, 사슬 이전 행(hash 없음)은 'L:' + 내용 해시. 검증 = 전체 사슬(워터마크 기준선 chainBase 이후) — 편집 · 삭제 · 끼워 넣기 = 'chain' → 복원 탐지(읽기 전용 · 조건 12).
+     사슬 이전(레거시) 행이 기준선 밖에 있으면 'chain_legacy' (실배치 fail-closed — QA 복원 확인으로만 기준선 설정, 데모는 초기화 · 재시드). 한계: 키 없는 해시라 전체 재계산 위조는 못 막음 */
+  function auditRowHash(r) { var c = {}; Object.keys(r || {}).forEach(function (k) { if (k !== 'hash') c[k] = r[k]; }); return sha256Hex(stableStringify(c)); }
+  function auditLink(r) { return r && r.hash ? r.hash : 'L:' + sha256Hex(stableStringify(r || null)); }
+  function baseDigest(list, n) { var h = ''; for (var i = 0; i < n; i++) h = sha256Hex(h + '|' + auditLink(list[i])); return h; }
+  var chainCache = { raw: null, base: null, res: null, n: 0 };
+  function auditChainCheck(base) {
+    var raw = readRaw(KEYS.AUDIT) || '[]', bkey = base ? base.n + ':' + base.digest : '';
+    if (chainCache.raw === raw && chainCache.base === bkey) return chainCache.res;
+    var list = readArr(KEYS.AUDIT), start = 0, res = { ok: true, why: null, at: -1 };
+    var bn = base && typeof base.n === 'number' ? base.n : 0;
+    if (bn > list.length || (bn && baseDigest(list, bn) !== base.digest)) res = { ok: false, why: 'chain', at: Math.min(bn, list.length) - 1 };
+    else {
+      start = bn;
+      /* 앞서 검증한 같은 기준선의 앞부분이 그대로면 새 행만 검증 (증분) */
+      if (chainCache.res && chainCache.res.ok && chainCache.base === bkey && chainCache.raw && chainCache.n > start && raw.indexOf(chainCache.raw.slice(0, -1)) === 0) start = chainCache.n;
+      for (var i = start; i < list.length; i++) {
+        var r = list[i];
+        if (!r || !r.hash) { res = { ok: false, why: 'chain_legacy', at: i }; break; }
+        if (r.prevHash !== (i === 0 ? '' : auditLink(list[i - 1])) || auditRowHash(r) !== r.hash) { res = { ok: false, why: 'chain', at: i }; break; }
+      }
+    }
+    chainCache = { raw: raw, base: bkey, res: res, n: list.length };
+    return res;
+  }
+  function chainBaseNow() { var l = readArr(KEYS.AUDIT); return { n: l.length, digest: baseDigest(l, l.length) }; }
   function integrityCurrent() {
     var a = readArr(KEYS.AUDIT), vr = readJson(KEYS.ESIGN_VOID, null);
     var last = a.length ? a[a.length - 1] : null;
@@ -354,15 +390,27 @@
   }
   function sigRefCount() { return sigRefs().reduce(function (a, x) { return a + x.n; }, 0); }
   function freshStore(c) { return !!(c && c.auditCount === 0 && c.esignCount === 0 && c.voidSeq === 0 && sigRefCount() === 0); }
+  /* 리뷰 X13: 워터마크 전체 내용 봉인 (키 없는 해시 — 재계산 위조는 PoC 한계) */
+  function wmSeal(o) { var b = clone(o) || {}; delete b.seal; return sha256Hex('WM1|' + stableStringify(b)); }
+  function sealWm(o) { o.seal = wmSeal(o); return o; }
+  /* 리뷰 X15 조건: 기준 없는 재봉인(INTEGRITY_REBASE detail.judgeBase none)이 한 번이라도 있었으면 경고 — 조건 12 · 게이트 화면 문구용 */
+  var RN_MSG = '주의: 워터마크 기준 없이 재봉인된 이력이 있습니다 — 그 이전 열린 일탈 · 트리 근거는 확인되지 않았습니다.';
+  function rebaseNoneWarning() {
+    var l = readArr(KEYS.AUDIT).filter(function (x) { return x && x.act === 'INTEGRITY_REBASE' && x.detail && x.detail.judgeBase === 'none'; });
+    if (!l.length) return { present: false, count: 0, message: '' };
+    var last = l[l.length - 1];
+    return { present: true, count: l.length, lastAt: last.at || '', signatureIds: l.map(function (x) { return x.detail.signatureId; }), message: RN_MSG + ' (' + l.length + '회, 마지막 ' + (last.at || '?') + ' · ' + (last.detail.signatureId || '') + ')' };
+  }
   function integrityState() {
     var raw = readRaw(KEYS.INTEGRITY), wm = null, cur = integrityCurrent(), unreadable = false;
     if (raw != null) { try { wm = JSON.parse(raw); } catch (e) { wm = null; } if (!wm || typeof wm !== 'object') { unreadable = true; wm = null; } }
-    var restored = false, why = [];
+    var restored = false, why = [], chainAt = -1;
     /* 워터마크 키만 지워 탐지를 피하는 경로 차단 (fail-closed): 감사 또는 서명이 1건 이상인데 워터마크가 없으면 'wm_missing',
        형식이 틀리면(v !== 1 · auditCount 숫자 아님 · {} 등) 'wm_invalid' → 복원 탐지와 같이 읽기 전용(조건 12 차단, QA 복원 확인 서명으로만 해제) */
     if (raw == null && (cur.auditCount >= 1 || cur.esignCount >= 1 || cur.voidSeq >= 1 || sigRefCount() > 0)) { restored = true; why.push('wm_missing'); }
     else if (wm && (wm.v !== 1 || typeof wm.auditCount !== 'number' || !isFinite(wm.auditCount) || typeof wm.esignCount !== 'number')) { restored = true; why.push('wm_invalid'); wm = null; }
     if (wm) {
+      if (wm.seal !== wmSeal(wm)) why.push('wm_seal');   /* 리뷰 X13: 평문 수정(protectedLinks 비우기 등) → 읽기 전용 */
       if (cur.auditCount < (wm.auditCount || 0)) why.push('audit');
       if (cur.esignCount < (wm.esignCount || 0)) why.push('esign');
       if (cur.voidSeq < (wm.voidSeq || 0)) why.push('void');
@@ -371,12 +419,34 @@
         var hit = readArr(KEYS.AUDIT).filter(function (x) { return x && x.auditId === wm.lastAuditId; })[0];
         if (!hit || (wm.lastAuditHash && sha256Hex(stableStringify(hit)) !== wm.lastAuditHash)) why.push('lastAudit');
       }
+      /* 리뷰 X9: 전체 행 사슬 검증 (기준선 chainBase 이후) */
+      var ch = auditChainCheck(wm.chainBase || null); if (!ch.ok) { why.push(ch.why); chainAt = ch.at; }
       restored = why.length > 0;
     }
     restored = restored || why.length > 0;
-    return { ok: !unreadable, unreadable: unreadable, restored: restored, why: why, watermark: wm ? clone(wm) : null, current: cur };
+    if (!wm && raw == null && !restored) { var ch0 = auditChainCheck(null); if (!ch0.ok) { why.push(ch0.why); chainAt = ch0.at; restored = true; } }
+    var rn = rebaseNoneWarning();
+    return { ok: !unreadable, unreadable: unreadable, restored: restored, why: why, watermark: wm ? clone(wm) : null, current: cur, chainAt: chainAt,
+             warnings: rn.present ? ['rebase_none'] : [], warning: rn.present ? rn : null };
   }
   /* allowCreate: 워터마크 최초 생성은 이번 기록 전 감사 · 서명 · 무효 사슬 모두 0건(새 저장소)일 때만 */
+  /* 리뷰 X12: 예약 act(DEVIATION_* · TREE_*) 행의 링크를 워터마크에 누적 고정 — 이름 바꾸기 · 삭제 · 내용 변경을 재봉인 때 탐지 */
+  function pinReserved(prevPins, from, list) {
+    var pins = Array.isArray(prevPins) ? prevPins.slice() : [], seen = {};
+    pins.forEach(function (x) { seen[x.link] = 1; });
+    for (var i = Math.max(0, from | 0); i < list.length; i++) {
+      var r0 = list[i]; if (!r0 || !r0.hash || auditRowHash(r0) !== r0.hash || !isReservedAct(r0.act)) continue;
+      var lk = auditLink(r0); if (seen[lk]) continue; seen[lk] = 1;
+      pins.push({ idx: i, act: String(r0.act), link: lk });
+    }
+    return pins;
+  }
+  /* 고정된 예약 행이 지금 사슬에 그대로(같은 링크 · 내용 해시 일치 · 같은 act) 있는지 → 없거나 바뀐 고정 행 목록 */
+  function pinnedMissing(pins, list) {
+    var byLink = {};
+    list.forEach(function (r0) { if (r0 && r0.hash && auditRowHash(r0) === r0.hash) byLink[r0.hash] = r0; });
+    return (Array.isArray(pins) ? pins : []).filter(function (x) { var r0 = byLink[x.link]; return !r0 || String(r0.act) !== x.act; });
+  }
   function touchWatermark(allowCreate) {
     try {
       var st = integrityState();
@@ -386,16 +456,132 @@
       var n = { v: 1, auditCount: c.auditCount, lastAuditId: c.lastAuditId, lastAuditHash: c.lastAuditHash, esignCount: c.esignCount, voidSeq: c.voidSeq, at: w.at || nowIsoLocal() };
       if (w.auditCount !== c.auditCount || w.esignCount !== c.esignCount || w.voidSeq !== c.voidSeq) n.at = nowIsoLocal();
       if (w.ackSignatureId) { n.ackSignatureId = w.ackSignatureId; n.ackedAt = w.ackedAt; }
-      ls().setItem(KEYS.INTEGRITY, JSON.stringify(n));
+      if (w.chainBase) n.chainBase = w.chainBase;
+      var al = readArr(KEYS.AUDIT);
+      n.protectedLinks = pinReserved(w.protectedLinks, typeof w.pinnedTo === 'number' && w.pinnedTo <= al.length ? w.pinnedTo : 0, al); n.pinnedTo = al.length;   /* 리뷰 X12 */
+      n.judge = judgmentSnapshot();   /* 리뷰 X13: 마지막 정상 기준 판정 집합 (재봉인 전후 비교의 before) */
+      ls().setItem(KEYS.INTEGRITY, JSON.stringify(sealWm(n)));
       return true;
     } catch (e) { return false; }
   }
   /* QA 확인 서명(SM-REV-RESTORE) 커밋 안에서만 — 워터마크를 현재 값으로 다시 맞춘다. 저장 실패 시 throw (커밋 원복) */
-  function integrityReset(ackSignatureId) {
-    var c = integrityCurrent(), at = nowIsoLocal();
-    var n = { v: 1, auditCount: c.auditCount, lastAuditId: c.lastAuditId, lastAuditHash: c.lastAuditHash, esignCount: c.esignCount, voidSeq: c.voidSeq, at: at, ackSignatureId: String(ackSignatureId || ''), ackedAt: at };
-    writeJson(KEYS.INTEGRITY, n, 'integrity');
-    return clone(n);
+  /* 리뷰 X10: 손상 행 목록 — 기준선 이후 hash 없음(legacy) · 내용 해시 불일치(edit) · prevHash 불일치(gap: 삭제 · 끼워 넣기) 행. 예약 act 여부 포함 */
+  /* 리뷰 X15: 데모 시드 서명 판정 한 곳 — seedOnly:true + 데모 배치(DEMO_SEED_BATCHES) + 유효(변조 · 무효화 아님). 트리 역대조(ledger_orphan) · X14 증거 제외가 같이 씀 */
+  var DEMO_SEED_BATCHES = ['BR-DEMO-0001', 'BR-DEMO-0421'];
+  function isDemoSeedSig(x) {
+    if (!x || x.seedOnly !== true || DEMO_SEED_BATCHES.indexOf(String(x.batchId || '')) < 0) return false;
+    try { return validity(x).state === 'valid'; } catch (e) { return false; }
+  }
+  /* 리뷰 X15: 시드 서명은 내부 경로만 — exec-sign 모듈이 적재 때 1회 claim (두 번째부터 거부 · 감사). 데모 배치만 */
+  var seedClaimed = false;
+  function claimSeedSigner(owner) {
+    if (seedClaimed || owner !== 'exec-sign-demo-seed') { tryAudit([{ act: 'SEED_SIGNER_CLAIM_REJECTED', why: seedClaimed ? 'already_claimed' : 'unknown_owner', tgt: String(owner || '—'), val: '데모 시드 서명 경로 요청 거부' }]); return null; }
+    seedClaimed = true;
+    return Object.freeze({ owner: owner, beginRecordSign: function (spec) {
+      spec = spec || {}; var f = spec.fields || {};
+      if (f.seedOnly !== true || DEMO_SEED_BATCHES.indexOf(String(f.batchId || '')) < 0) return guard('seed_not_demo', '데모 시드 서명은 데모 배치만 가능합니다.');
+      return beginRecordSignImpl(spec, null, true);
+    } });
+  }
+  /* 리뷰 X14: 일탈 · 트리 관련 서명 (데모 시드 seedOnly 단계 서명 제외) */
+  var TREE_DEV_RULES = ['SM-APPR-ROUTE', 'SM-APPR-SKIP', 'SM-APPR-REPEAT'];
+  function isTreeDevSig(x) {
+    if (!x) return false;
+    var rid = String(x.signRuleId || ''), rt = String(x.recordType || '');
+    if (TREE_DEV_RULES.indexOf(rid) >= 0 || /^SM-DEV-/.test(rid) || /^(tree_|deviation)/i.test(rt)) return true;
+    if ((rid === 'SM-PERF-STEP' || rid === 'SM-VERI-STEP') && x.stepKey && !isDemoSeedSig(x)) return true;   /* 트리 실행 단계 수행 · 확인 (리뷰 X15: 제외는 isDemoSeedSig 만) */
+    return false;
+  }
+  /* 리뷰 X14: 손상 행이 예약 act 였다는 증거 — act 키 또는 내용 흔적(일탈 ID · 트리 노드) */
+  function reservedEvidence(r0) {
+    if (!r0) return false;
+    if (isReservedAct(r0.act)) return true;
+    var d = r0.detail && typeof r0.detail === 'object' ? r0.detail : null;
+    return !!(d && (d.deviationId || d.nodeId || d.instId || d.edgeId));
+  }
+  function integrityDamage(opts) {
+    opts = opts || {};
+    var raw = readRaw(KEYS.INTEGRITY), wm = null; try { wm = raw ? JSON.parse(raw) : null; } catch (e) { wm = null; }
+    var base = wm && wm.chainBase ? wm.chainBase : null, list = readArr(KEYS.AUDIT), rows = [], bn = base && typeof base.n === 'number' ? base.n : 0, baseOk = true;
+    if (bn > list.length || (bn && baseDigest(list, bn) !== base.digest)) { baseOk = false; bn = 0; }
+    for (var j = 0; baseOk && j < bn; j++) { var rb0 = list[j]; if (rb0 && rb0.hash && auditRowHash(rb0) !== rb0.hash) baseOk = false; }   /* 리뷰 주의1: 기준선 안쪽 내용 변조 */
+    for (var i = baseOk ? bn : 0; i < list.length; i++) {
+      var r0 = list[i], kind = null;
+      if (!r0 || !r0.hash) kind = 'legacy'; else if (auditRowHash(r0) !== r0.hash) kind = 'edit'; else if (r0.prevHash !== (i === 0 ? '' : auditLink(list[i - 1]))) kind = 'gap';
+      if (kind) rows.push({ idx: i, kind: kind, auditId: r0 ? String(r0.auditId || '') : '', act: r0 ? String(r0.act || '') : '', storedHash: r0 ? String(r0.hash || '') : '', linkHash: auditLink(r0), reserved: reservedEvidence(r0) });
+    }
+    var pm = pinnedMissing(wm && wm.protectedLinks, list);
+    /* 리뷰 X13: 기준선 0 부터 다시 고정해 보고, 워터마크 당시(auditCount 이전) 온전한 예약 행이 저장된 핀에 없으면 핀 불완전 — 빈 핀을 믿지 않음 */
+    var bound = wm && typeof wm.auditCount === 'number' ? Math.min(wm.auditCount, list.length) : list.length, have = {};
+    ((wm && Array.isArray(wm.protectedLinks)) ? wm.protectedLinks : []).forEach(function (x) { have[x && x.link] = 1; });
+    var pinsLost = pinReserved(null, 0, list).filter(function (x) { return x.idx < bound && !have[x.link]; });
+    /* 리뷰 X14: 봉인 상태 · 기준 종류. 기준 없음(none = 워터마크 없음 · 형식 오류)이면 원장 증거 검사 */
+    var wmFmt = !!(wm && typeof wm === 'object' && wm.v === 1 && typeof wm.auditCount === 'number' && isFinite(wm.auditCount) && typeof wm.esignCount === 'number');
+    var sealBad = wmFmt && wm.seal !== wmSeal(wm), judgeBase = wmFmt ? 'sealed' : 'none', ledgerTD = [], auditLost = [], unverifiable = 0;
+    if (!wmFmt) {
+      var sigs = readArr(KEYS.ESIGN).filter(function (x) { return x && x.signatureId && x.signatureId !== opts.excludeSig; });
+      ledgerTD = sigs.filter(isTreeDevSig).map(function (x) { return x.signatureId; });
+      var vals = list.map(function (x) { return x ? String(x.val || '') + ' ' + String(x.tgt || '') : ''; }).join('\n');
+      auditLost = sigs.filter(function (x) { return vals.indexOf(x.signatureId) < 0; }).map(function (x) { return x.signatureId; });   /* 서명은 있는데 ESIGN_SIGNED 감사가 없음 = 감사 행 소실 */
+      unverifiable = rows.filter(function (x) { return x.kind !== 'gap'; }).length;   /* 고정 핀이 없어 내용 바뀐 행이 예약 행이었는지 알 수 없음 */
+    }
+    return { prevBase: base ? clone(base) : null, baseOk: baseOk, chainAt: rows.length ? rows[0].idx : -1, rows: rows,
+             reserved: rows.filter(function (x) { return x.reserved; }).length, gaps: rows.filter(function (x) { return x.kind === 'gap'; }).length,
+             pinned: (wm && Array.isArray(wm.protectedLinks)) ? wm.protectedLinks.length : 0, pinnedMissing: pm.map(function (x) { return clone(x); }), pinsIncomplete: pinsLost.map(function (x) { return clone(x); }),
+             sealBad: sealBad, judgeBase: judgeBase, ledgerTreeDev: ledgerTD.slice(0, 50), ledgerTreeDevCount: ledgerTD.length, auditLost: auditLost.slice(0, 50), auditLostCount: auditLost.length, unverifiable: unverifiable };
+  }
+  /* 재봉인 가능 여부: 손상 범위에 예약 act(DEVIATION_* · TREE_*) 또는 gap(지워진 행 내용 불명)이 있으면 거부 — 배치는 계속 차단 */
+  function rebaseBlocked(dm) {
+    if (dm.sealBad) return { why: 'wm_seal', message: '워터마크 봉인이 맞지 않습니다(평문 수정 의심) — 재봉인할 수 없습니다. 데모 초기화(서명 0건 저장소)만 가능.' };
+    if (dm.judgeBase === 'none' && dm.ledgerTreeDevCount) return { why: 'judgment_evidence_remains', message: '워터마크 기준이 없는데 서명 원장에 일탈 · 트리 관련 서명 ' + dm.ledgerTreeDevCount + '건이 있어 재봉인할 수 없습니다 — 열린 일탈 근거를 확인할 수 없음(데모 초기화만 가능).' };
+    if (dm.judgeBase === 'none' && dm.auditLostCount) return { why: 'audit_rows_lost', message: '서명 ' + dm.auditLostCount + '건의 서명 감사 행이 없습니다(감사 삭제 의심) — 워터마크 기준 없이 재봉인할 수 없습니다.' };
+    if (!dm.baseOk) return { why: 'base_tampered', message: '이전 기준선 자체가 변조되어 재봉인할 수 없습니다.' };
+    if (dm.reserved) return { why: 'reserved_rows_damaged', message: '손상 범위에 트리 · 일탈 감사(DEVIATION_* · TREE_*) ' + dm.reserved + '행이 있어 재봉인할 수 없습니다 — 해당 배치는 차단 유지(재발행 · 재실행).' };
+    if (dm.pinnedMissing && dm.pinnedMissing.length) return { why: 'protected_rows_damaged', message: '고정된 트리 · 일탈 감사 행 ' + dm.pinnedMissing.length + '개가 사라지거나 바뀌어(이름 변경 · 삭제 포함) 재봉인할 수 없습니다 — 해당 배치는 차단 유지.' };
+    if (dm.pinsIncomplete && dm.pinsIncomplete.length) return { why: 'pins_incomplete', message: '워터마크의 고정 목록에 없는 트리 · 일탈 감사 행 ' + dm.pinsIncomplete.length + '개가 있어(고정 목록 삭제 · 축소 의심) 재봉인할 수 없습니다.' };
+    if (dm.judgeBase === 'none' && dm.unverifiable) return { why: 'reserved_unverifiable', message: '워터마크 기준이 없어 내용이 바뀐 감사 행 ' + dm.unverifiable + '개가 트리 · 일탈 감사였는지 확인할 수 없습니다 — 재봉인할 수 없습니다.' };
+    if (dm.gaps) return { why: 'chain_gap', message: '감사 행이 지워지거나 끼워 넣어진 흔적(' + dm.gaps + '곳)이 있어 지워진 내용을 확인할 수 없습니다 — 재봉인할 수 없습니다.' };
+    return null;
+  }
+  /* 내부 전용 (공개 안 함): SM-REV-RESTORE 서명 커밋(signAndCommitRecord apply ctx.integrityReset)에서만.
+     ackSignatureId = 방금 커밋한 서명 — 원장에 있고 유효(무효화 · 변조 없음) · SM-REV-RESTORE · 서명자 QA 여야 함. 재봉인 거부 조건이면 throw (커밋 원복).
+     → { watermark, audit: INTEGRITY_REBASE 감사 항목(이전 기준선 · 손상 위치 · 손상 행 해시) } */
+  /* 리뷰 X12: 판정 원천 스냅샷 — 열린 일탈 ID 집합 · 유효 서명 ID 집합 · TREE_* 감사 링크 집합. 재봉인 전후에 하나라도 줄면 거부 */
+  function judgmentSnapshot() {
+    var D = global.Dev, dev = [];
+    if (D && typeof D.openSetAll === 'function') dev = D.openSetAll(); else if (D) throw rebaseErr('no_dev_snapshot');
+    var sigs = readArr(KEYS.ESIGN).filter(function (x) { return x && validity(x).state === 'valid'; }).map(function (x) { return x.signatureId; });
+    var tree = readArr(KEYS.AUDIT).filter(function (x) { return x && /^TREE_/.test(String(x.act || '')); }).map(function (x) { return auditLink(x); });
+    return { dev: dev, sigs: sigs, tree: tree };
+  }
+  function unionSnap(a, b) { var o = {}; ['dev', 'sigs', 'tree'].forEach(function (k) { var l = (b[k] || []).slice(); ((a && Array.isArray(a[k])) ? a[k] : []).forEach(function (x) { if (l.indexOf(x) < 0) l.push(x); }); o[k] = l; }); return o; }
+  function rebaseErr(why) { var e = new Error(why); e.why = why; return e; }
+  function shrunk(a, b) { var lost = {}; ['dev', 'sigs', 'tree'].forEach(function (k) { var l = a[k].filter(function (x) { return b[k].indexOf(x) < 0; }); if (l.length) lost[k] = l; }); return Object.keys(lost).length ? lost : null; }
+  function integrityReset(ackSignatureId, arm) {
+    if (!arm || arm.used !== false) throw rebaseErr('rebase_not_armed');   /* 리뷰 X11: 전용 복원 티켓 1회용 */
+    arm.used = true;
+    var sig = ESign.get(String(ackSignatureId || ''));
+    if (!sig || sig.signRuleId !== RESTORE_RULE_ID || ESign.validity(sig).state !== 'valid' || (rolesOf(sig.signerId) || []).indexOf('QA') < 0 || sig.signerRole !== 'QA') {
+      var e1 = new Error('rebase_bad_signature'); e1.why = 'rebase_bad_signature'; throw e1;
+    }
+    var dm = integrityDamage({ excludeSig: sig.signatureId }), bl = rebaseBlocked(dm); if (bl) throw rebaseErr(bl.why);   /* 호출 시점 손상 재검사 */
+    var wmB = null; try { wmB = JSON.parse(readRaw(KEYS.INTEGRITY) || 'null'); } catch (e) { wmB = null; }
+    /* 리뷰 X13: before = 봉인된 마지막 정상 기준. 형식이 맞는 워터마크면 봉인 · judge 필수(평문 위조 거부).
+       워터마크가 없거나 형식 오류(wm_missing · wm_invalid)면 기준이 없어 현재 값만 — 이때 고정 핀도 없으므로 온전한 예약 행이 하나라도 있으면 pins_incomplete 로 이미 거부됨 */
+    var wmFmt = !!(wmB && typeof wmB === 'object' && wmB.v === 1 && typeof wmB.auditCount === 'number' && isFinite(wmB.auditCount) && typeof wmB.esignCount === 'number');
+    if (wmFmt && (!wmB.judge || wmB.seal !== wmSeal(wmB))) throw rebaseErr('no_judgment_base');
+    var judgeBase = wmFmt ? 'sealed' : 'none';
+    var before = unionSnap(wmFmt ? wmB.judge : null, judgmentSnapshot()), wmRaw0 = readRaw(KEYS.INTEGRITY), wm0 = null; try { wm0 = wmRaw0 ? JSON.parse(wmRaw0) : null; } catch (e) { wm0 = null; }
+    var c = integrityCurrent(), at = nowIsoLocal(), nb = chainBaseNow(), al = readArr(KEYS.AUDIT);
+    var n = { v: 1, auditCount: c.auditCount, lastAuditId: c.lastAuditId, lastAuditHash: c.lastAuditHash, esignCount: c.esignCount, voidSeq: c.voidSeq, at: at, ackSignatureId: sig.signatureId, ackedAt: at,
+              chainBase: nb, protectedLinks: pinReserved(wm0 && wm0.protectedLinks, 0, al), pinnedTo: al.length };   /* QA 복원 확인 = 지금까지의 감사 행을 기준선으로 봉인 (이후 행은 사슬 검증) */
+    writeJson(KEYS.INTEGRITY, sealWm(n), 'integrity');
+    var after = judgmentSnapshot(), lost = shrunk(before, after);
+    if (!lost) { n.judge = after; writeJson(KEYS.INTEGRITY, sealWm(n), 'integrity'); }
+    if (lost) { restoreRaw(KEYS.INTEGRITY, wmRaw0); var e3 = rebaseErr('rebase_changes_judgment'); e3.lost = lost; throw e3; }   /* 재봉인은 판정을 바꾸지 않는다 */
+    var audit = { act: 'INTEGRITY_REBASE', tgt: KEYS.INTEGRITY, why: 'restore_ack', val: '감사 사슬 재봉인 · ' + sig.signatureId + ' · 손상 ' + dm.rows.length + '행' + (dm.chainAt >= 0 ? ' (첫 위치 ' + dm.chainAt + ')' : ''),
+                  detail: { signatureId: sig.signatureId, prevBase: dm.prevBase, newBase: nb, chainAt: dm.chainAt, damaged: dm.rows.slice(0, 50).map(function (x) { return { idx: x.idx, kind: x.kind, auditId: x.auditId, act: x.act, storedHash: x.storedHash, linkHash: x.linkHash }; }), damagedCount: dm.rows.length, pinned: n.protectedLinks.length, judgeBase: judgeBase } };
+    return { watermark: clone(n), audit: audit };
   }
   /* 복원 탐지 감사 INTEGRITY_RESTORE_DETECTED — 같은 워터마크(at)당 1회. → { ok, logged } */
   function integrityNoteDetected(screen) {
@@ -404,7 +590,8 @@
     if (wm && wm.detectedAt) return { ok: true, logged: false };
     var w = st.watermark || {}, c = st.current;
     if (!wm || typeof wm !== 'object') wm = { v: 0, missing: true };   /* wm_missing · wm_invalid: 탐지 표지만 남김 (형식이 틀린 채라 계속 차단) */
-    wm.detectedAt = nowIsoLocal();
+    var sealOk = wm.seal === wmSeal(wm);
+    wm.detectedAt = nowIsoLocal(); if (sealOk) sealWm(wm);   /* 봉인이 맞던 것만 다시 봉인 — 위조 워터마크는 위조 그대로(계속 차단) */
     try {
       ls().setItem(KEYS.INTEGRITY, JSON.stringify(wm));
       appendAudit([{ uid: getCurrentUserId() || 'SYSTEM', act: 'INTEGRITY_RESTORE_DETECTED', tgt: KEYS.INTEGRITY, why: st.why.join(','),
@@ -429,9 +616,12 @@
     var refs = sigRefs();
     if (!c.esignCount && !c.voidSeq && refs.length) return { ok: false, cleared: false, why: 'wipe_refs_remain', refs: refs, message: wipeRefsMessage(refs) };
     if (c.esignCount || c.voidSeq) return { ok: false, cleared: false, why: 'restore_ack_required', message: '서명 기록이 남아 있어 데모 초기화로 해제할 수 없습니다 — 출하 게이트 조건 12 QA 복원 확인 서명(SM-REV-RESTORE)이 필요합니다.' };
-    var n = { v: 1, auditCount: c.auditCount, lastAuditId: c.lastAuditId, lastAuditHash: c.lastAuditHash, esignCount: 0, voidSeq: 0, at: at, demoResetAt: at };
-    writeJson(KEYS.INTEGRITY, n, 'integrity');
-    appendAudit([{ uid: cu, act: 'INTEGRITY_DEMO_RESET', tgt: KEYS.INTEGRITY, why: (st.why || []).join(',') || (st.unreadable ? 'unreadable' : ''),
+    var dmd = integrityDamage();   /* 이전 기준선 · 손상 행 (새 워터마크 쓰기 전) */
+    var n = { v: 1, auditCount: c.auditCount, lastAuditId: c.lastAuditId, lastAuditHash: c.lastAuditHash, esignCount: 0, voidSeq: 0, at: at, demoResetAt: at, chainBase: chainBaseNow() };
+    var alD = readArr(KEYS.AUDIT); n.protectedLinks = pinReserved(null, 0, alD); n.pinnedTo = alD.length;   /* 리뷰 X12: 데모 초기화 = 고정 집합 새로 */
+    n.judge = judgmentSnapshot();
+    writeJson(KEYS.INTEGRITY, sealWm(n), 'integrity');
+    appendAudit([{ uid: cu, act: 'INTEGRITY_DEMO_RESET', tgt: KEYS.INTEGRITY, detail: { prevBase: dmd.prevBase, prevHead: st.watermark ? { lastAuditId: st.watermark.lastAuditId || '', lastAuditHash: st.watermark.lastAuditHash || '', auditCount: st.watermark.auditCount } : null, chainAt: dmd.chainAt, damaged: dmd.rows.slice(0, 50).map(function (x) { return { idx: x.idx, kind: x.kind, auditId: x.auditId, act: x.act, storedHash: x.storedHash, linkHash: x.linkHash }; }), damagedCount: dmd.rows.length, newBase: n.chainBase }, why: (st.why || []).join(',') || (st.unreadable ? 'unreadable' : ''),
                    val: '데모 초기화 — 서명 0건 저장소 워터마크 재설정 (탐지 ' + ((st.why || []).join(',') || (st.unreadable ? 'unreadable' : '없음')) + ')', before: st.watermark ? { at: st.watermark.at, auditCount: st.watermark.auditCount } : null, after: { at: at }, screen: screen }]);
     return { ok: true, cleared: true };
   }
@@ -441,7 +631,7 @@
       refs.map(function (r) { return (REF_STORE_NAME[r.key] ? REF_STORE_NAME[r.key] + ' ' : '') + r.key + ' ' + r.n + '건'; }).join(', ') + '. 조건 12 QA 복원 확인 서명(SM-REV-RESTORE)을 쓰세요.';
   }
   var Integrity = { KEY: KEYS.INTEGRITY, state: function () { return integrityState(); }, current: function () { return integrityCurrent(); },
-                    reset: integrityReset, noteDetected: integrityNoteDetected, demoReset: integrityDemoReset, sigRefs: function () { return sigRefs(); } };
+                    damage: function () { return integrityDamage(); }, rebaseNoneWarning: function () { return rebaseNoneWarning(); }, rebaseCheck: function () { var d = integrityDamage(), b = rebaseBlocked(d); return { ok: !b, why: b ? b.why : null, message: b ? b.message : '', damage: d }; }, noteDetected: integrityNoteDetected, demoReset: integrityDemoReset, sigRefs: function () { return sigRefs(); } };
 
   /* entries 를 한 번의 setItem 으로 append (원자적). 저장 실패 시 throw */
   function appendAudit(entries, stage) {
@@ -464,17 +654,48 @@
       ['detail', 'sodWarning', 'observedBy'].forEach(function (k) { if (e[k] !== undefined) rec[k] = e[k]; });   /* observedBy: 시스템 행위(uid SYSTEM) 때 화면 현재 사용자 */
       /* D1-8 감사 구조화 필드 (추가만, 값이 있을 때만 — 기존 tgt · val 문자열 불변) */
       STRUCT_KEYS.forEach(function (k) { if (e[k] != null && e[k] !== '') rec[k] = String(e[k]); });
+      rec.prevHash = list.length ? auditLink(list[list.length - 1]) : '';   /* 리뷰 X9 행 사슬 */
+      rec = JSON.parse(JSON.stringify(rec)); rec.hash = auditRowHash(rec);
       list.push(rec); out.push(rec);
     });
     writeJson(KEYS.AUDIT, list, stage || 'audit');
     touchWatermark(fresh);
     return out;
   }
+  /* 리뷰 X6 ②: 예약 행위(DEVIATION_* · TREE_*)는 공개 Audit.append/appendMany 로 쓸 수 없다 — 거부 + AUDIT_RESERVED_REJECTED 감사 + throw.
+     내부 writer 는 claimAuditWriter(owner) 로 한 번만 받는다(모듈 로드 시 · 먼저 받은 쪽만, 두 번째 요청 = null + 감사). 레코드 서명 apply 감사는 내부 경로라 허용 */
+  /* 리뷰 주의 1: 앞뒤 공백 제거 + 대문자로 정규화한 뒤, 어디에 들어 있든(xDEVIATION_y · xTREE_y · deviation_closed) 예약어면 거부 */
+  var RESERVED_ACT = /(DEVIATION_|TREE_)/;
+  /* 리뷰 주의 1 보강: NFKC → 제로폭 · 서식 · 제어 문자 제거 → trim → 로캘 무관 대문자(toUpperCase) */
+  var ZW_RE = /[\u0000-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0]/g;
+  function nfkc(x) { try { return x.normalize('NFKC'); } catch (e) { return x; } }
+  function normAct(a) { return nfkc(String(a == null ? '' : a)).replace(ZW_RE, '').trim().toUpperCase(); }
+  /* 판정용 키: 위 정규화 + 분음 기호 제거(NFKD · İ → I) + 영숫자 · _ 밖 문자 제거 → 어디든 DEVIATION_ · TREE_ 가 있으면 예약 */
+  function actKey(a) { var u = normAct(a); try { u = u.normalize('NFKD').replace(/[\u0300-\u036F]/g, ''); } catch (e) { /* 무시 */ } return u.replace(/[^A-Z0-9_]/g, ''); }
+  /* 리뷰 주의 3: 영문 코드형 act(ASCII 글자 · _ 포함)에 ASCII 밖 문자가 섞이면 거부(키릴 · 그리스 동형 문자 'DЕVIATION_' 등). 한글만 쓰는 화면 act('자재 스캔')는 그대로 */
+  function mixedNonAscii(a) { var x = String(a == null ? '' : a); return /[A-Za-z_]/.test(x) && /[^\x20-\x7E]/.test(x); }
+  function isReservedAct(a) { return RESERVED_ACT.test(actKey(a)) || mixedNonAscii(a); }
+  var AW_OWNERS = { 'tree-exec': /^TREE_[A-Z_]+$/, 'deviation': /^DEVIATION_[A-Z_]+$/, 'dispense-seed': /^(TREE_DEMO_SEED|DEVIATION_OPENED)$/, 'demo-seed': /^DEMO_TREE_[A-Z_]+$/ }, awClaimed = {};
+  function reservedGuard(entries) {
+    var bad = entries.filter(function (e) { return e && isReservedAct(e.act); });
+    if (!bad.length) return;
+    tryAudit([{ act: 'AUDIT_RESERVED_REJECTED', why: 'reserved_act', tgt: bad.map(function (e) { return String(e.act); }).join(', '), val: '공개 Audit 로 예약 행위 기록 거부 (' + bad.length + '건)' }]);
+    var err = new Error('audit_act_reserved'); err.why = 'audit_act_reserved'; throw err;
+  }
+  function claimAuditWriter(owner) {
+    var re = AW_OWNERS[owner];
+    if (!re || awClaimed[owner]) { tryAudit([{ act: 'AUDIT_WRITER_CLAIM_REJECTED', why: re ? 'already_claimed' : 'unknown_owner', tgt: String(owner || '—'), val: '내부 감사 writer 요청 거부' }]); return null; }
+    awClaimed[owner] = true;
+    function chk(list) { list.forEach(function (e) { var a = String((e && e.act) || ''); if (isReservedAct(a) && !(a === normAct(a) && re.test(a))) { var err = new Error('audit_act_reserved'); err.why = 'audit_act_reserved'; throw err; } }); return list; }
+    return Object.freeze({ owner: owner,
+      append: function (entry) { return clone(appendAudit(chk([entry]))[0]); },
+      appendMany: function (entries) { return clone(appendAudit(chk(Array.isArray(entries) ? entries : []))); } });
+  }
   var Audit = {
     KEY: KEYS.AUDIT,
-    append: function (entry) { return clone(appendAudit([entry])[0]); },
+    append: function (entry) { reservedGuard([entry]); return clone(appendAudit([entry])[0]); },
     /* 여러 건을 한 번의 setItem 으로 (원자적). 저장 실패 시 throw — 호출자가 상태를 되돌린다 */
-    appendMany: function (entries) { return clone(appendAudit(Array.isArray(entries) ? entries : [])); },
+    appendMany: function (entries) { var l = Array.isArray(entries) ? entries : []; reservedGuard(l); return clone(appendAudit(l)); },
     list: function (f) {
       f = f || {};
       return readArr(KEYS.AUDIT).filter(function (r) {
@@ -536,7 +757,7 @@
     try {
       if (readRaw(KEYS.INTEGRITY) != null) return false;
       var c = integrityCurrent(); if (!freshStore(c)) return false;
-      ls().setItem(KEYS.INTEGRITY, JSON.stringify({ v: 1, auditCount: 0, lastAuditId: null, lastAuditHash: null, esignCount: 0, voidSeq: 0, at: nowIsoLocal() }));
+      ls().setItem(KEYS.INTEGRITY, JSON.stringify(sealWm({ v: 1, auditCount: 0, lastAuditId: null, lastAuditHash: null, esignCount: 0, voidSeq: 0, at: nowIsoLocal(), judge: { dev: [], sigs: [], tree: [] } })));
       return true;
     } catch (e) { return false; }
   }
@@ -1344,8 +1565,32 @@
      signAndCommitRecord(ticket, {userId, password, comment, …}) → 판정 ①–⑥ → precheck → esign 저장 → apply → 감사(ESIGN_SIGNED + apply 감사, 1회 쓰기)
        실패 시 esign + spec.keys 원본 복원, rollbackAct 감사(why save_error, detail 단계) — 상태는 바뀌지 않는다 (칭량 결정 W3)
      cancelRecordSign(ticket, {why, message}) → cancelAct 감사 (발행 cancelIssueSign 과 같은 규칙) */
+  /* 리뷰 X11: 일반 경로는 SM-REV-RESTORE 거부 — 복원 확인은 beginRestoreSign(전용, apply 없음) 만 */
   function beginRecordSign(spec) {
+    if (spec && String(spec.signRuleId || '') === RESTORE_RULE_ID) return guard('restore_dedicated_path', MSG.restore_dedicated_path);
+    /* 리뷰 X15: fields.seedOnly 는 beginRecordSignImpl 에서 거부 (시드 내부 경로만 허용) */
+    return beginRecordSignImpl(spec, null);
+  }
+  /* 복원 확인(SM-REV-RESTORE) 전용 — 호출자는 데이터만 넘긴다(apply 함수 받지 않음). 커밋 안에서 내부 apply 가 1회용으로 재봉인.
+     spec { tgt, val, recordType, screen, orderNo, statementKind, statementCtx, distinctFrom, fields, target, openAct, precheck(fn, 판정만), audits:[{act,tgt,val,...}] (val 앞에 서명 ID 붙음), result } */
+  function beginRestoreSign(spec) {
     spec = spec || {};
+    var arm = { used: false }, audits = clone(Array.isArray(spec.audits) ? spec.audits : []), result = clone(spec.result === undefined ? null : spec.result);
+    var inner = {};
+    ['tgt', 'val', 'recordType', 'screen', 'orderNo', 'statementKind', 'statementCtx', 'statementInputKeys', 'distinctFrom', 'fields', 'target', 'openAct', 'cancelAct', 'rollbackAct', 'meaningText', 'saveErrorMessage', 'qualTargets'].forEach(function (k) { if (spec[k] !== undefined) inner[k] = clone(spec[k]); });
+    if (typeof spec.precheck === 'function') inner.precheck = spec.precheck;
+    inner.signRuleId = RESTORE_RULE_ID; inner.keys = [KEYS.INTEGRITY];
+    inner.apply = function (sig) {
+      var rb = integrityReset(sig.signatureId, arm);
+      var out = audits.map(function (a) { var c = clone(a); c.val = sig.signatureId + (c.val ? ' · ' + c.val : ''); return c; });
+      var res = result && typeof result === 'object' ? Object.assign({}, result, { signatureId: sig.signatureId }) : { signatureId: sig.signatureId };
+      return { audits: out.concat([rb.audit]), result: res };
+    };
+    return beginRecordSignImpl(inner, arm);
+  }
+  function beginRecordSignImpl(spec, restoreArm, seedPath) {
+    spec = spec || {};
+    if (!seedPath && spec.fields && typeof spec.fields === 'object' && Object.prototype.hasOwnProperty.call(spec.fields, 'seedOnly')) return guard('seed_field_reserved', '서명 필드 seedOnly 는 데모 시드 내부 경로 전용입니다.');
     var roR = readOnlyGuard(spec.signRuleId); if (roR) return roR;
     var entered = spec.signerMode === 'entered';
     var cur = getCurrentUser();
@@ -1376,7 +1621,8 @@
     var id = 'RST-' + Date.now().toString(36) + '-' + (++ticketSeq);
     tickets[id] = { id: id, kind: 'record', open: true, spec: spec, rule: rule, meaning: meaning, meaningEn: gm.en, distinct: distinct, screen: screen, orderNo: orderNo,
                     tgt: spec.tgt, val: spec.val || '', openedBy: cur ? cur.userId : '', authStrength: authStrength, signerMode: entered ? 'entered' : 'current', struct: struct,
-                    statement: stmt0, statementKind: target.statementKind, statementCtx: clone(spec.statementCtx || null), statementInputKeys: target.statementInputKeys };
+                    statement: stmt0, statementKind: target.statementKind, statementCtx: clone(spec.statementCtx || null), statementInputKeys: target.statementInputKeys,
+                    restoreArm: restoreArm || null };
     return { ok: true, ticket: id, target: clone(target) };
   }
   function cancelRecordSign(ticket, opts) {
@@ -1420,7 +1666,8 @@
       return { ok: false, stage: 'precheck', why: 'precheck_changed', detail: pc.detail || 'changed', message: pc.message || MSG.record_precheck,
                closeDialog: true, clearPassword: true, locked: false, maxFail: MAX_FAIL };
     }
-    var keys = [KEYS.ESIGN].concat((spec.keys || []).filter(function (k) { return k && k !== KEYS.ESIGN && k !== KEYS.AUDIT && k !== KEYS.ESIGN_VOID; }));
+    if ((v.rule.id === RESTORE_RULE_ID) !== !!t.restoreArm) { closeTicket(t); return guard('restore_dedicated_path', MSG.restore_dedicated_path); }   /* 리뷰 X11 */
+    var keys = [KEYS.ESIGN].concat((spec.keys || []).filter(function (k) { return k && k !== KEYS.ESIGN && k !== KEYS.AUDIT && k !== KEYS.ESIGN_VOID && k !== KEYS.INTEGRITY; })).concat([KEYS.INTEGRITY]);   /* 워터마크는 항상 원복 대상 */
     if (v.rule.id === CORR_RULES.VERIFY) keys.push(KEYS.ESIGN_VOID);   /* 정정 확인: 내부 무효 기록도 같은 커밋으로 복원 */
     var orig = {}; keys.forEach(function (k) { orig[k] = readRaw(k); });
     var stage = 'esign', sig, applied = null, signer = v.user;
@@ -1444,8 +1691,10 @@
       writeJson(KEYS.ESIGN, esignList, 'esign');
       stage = 'apply';
       var actx = { input: scrub(input), at: at, signer: clone(signer), signerRole: v.signerRole };
+      if (t.restoreArm) actx.restoreSignatureId = sig.signatureId;   /* 리뷰 X11: 재봉인 함수는 apply 에 주지 않는다 — 전용 경로 내부 apply 만 */
       if (v.rule.id === CORR_RULES.VERIFY) actx.appendVoidRecords = function (list, o) { return appendVoidRecords(list, Object.assign({}, o || {}, { viaSignatureId: sig.signatureId, by: signer.userId, byName: signer.name })); };
       applied = spec.apply(clone(sig), actx) || {};
+      if (!t.restoreArm && readRaw(KEYS.INTEGRITY) !== orig[KEYS.INTEGRITY]) { var ew = new Error('integrity_write_forbidden'); ew.why = 'integrity_write_forbidden'; throw ew; }   /* 리뷰 X11: 워터마크는 내부 재봉인 경로만 */
       stage = 'audit';
       appendAudit([withStruct({ uid: signer.userId, act: 'ESIGN_SIGNED', tgt: t.tgt, val: t.val + ' · ' + sig.signatureId + ' · ' + v.signerRole, orderNo: t.orderNo, screen: t.screen, at: at,
                                 signerMode: t.signerMode === 'entered' ? 'entered' : undefined }, t.struct)]
@@ -1483,7 +1732,8 @@
   var STATEMENT_KINDS = ['weigh_perform', 'weigh_verify', 'reweigh_approve', 'batch_issue', 'balance_check', 'balance_check_fail',
     'exec_step', 'exec_step_verify', 'pack_step', 'pack_step_verify', 'pack_label_qa', 'pack_review', 'matqc_release', 'matqc_reject', 'matqc_legacy_confirm',
     'rbe_review', 'batch_review', 'batch_release', 'audit_review', 'mbr_review', 'mbr_approve', 'briefing_read',
-    'downtime_review', 'change_impact_review', 'control_eval_review', 'restore_ack', 'correction_perform', 'correction_verify', 'interlock_rule_review', 'interlock_rule_approve', 'interlock_override'];
+    'downtime_review', 'change_impact_review', 'control_eval_review', 'restore_ack', 'correction_perform', 'correction_verify', 'interlock_rule_review', 'interlock_rule_approve', 'interlock_override',
+    'tree_route_enter', 'step_skip', 'step_repeat_over', 'deviation_close'];
   var STATEMENT_ALIAS = { perform: 'weigh_perform', verify: 'weigh_verify', reweigh: 'reweigh_approve', issue: 'batch_issue', balchk: 'balance_check', balchk_fail: 'balance_check_fail' };
   function stPct(v, signed) { var x = Number(v); if (v == null || v === '' || !isFinite(x)) return '—'; var t = Math.abs(x).toFixed(2); return signed ? (x < 0 ? '-' : '+') + t : (x < 0 ? '-' : '') + t; }
   function str0(v) { return String(v == null ? '' : v).trim(); }
@@ -1550,7 +1800,12 @@
     if (k === 'interlock_rule_review') return '본인은 인터록 룰 세트 ' + stTxt(c.setId) + ' v' + stTxt(c.ver) + '(hash ' + stTxt(c.hash8) + ') 변경 ' + stTxt(c.n) + '건을 검토했습니다. (Reviewed by)';
     if (k === 'interlock_rule_approve') return '본인은 인터록 룰 세트 ' + stTxt(c.setId) + ' v' + stTxt(c.ver) + '(hash ' + stTxt(c.hash8) + ') 변경 ' + stTxt(c.n) + '건을 승인합니다. (Approved by)';   /* '변경 N건' 1회 (검토 문장과 같은 꼴) */
     if (k === 'interlock_override') return '본인은 배치 ' + stTxt(c.batchId) + ' 인터록 ' + stTxt(c.ruleId) + ' (' + stTxt(c.value) + ') 의 진행을 승인합니다. 사유: ' + stTxt(c.reasonCodeText) + (str0(c.reason) ? ' — ' + str0(c.reason) : '') + ' (Approved by)';
-    if (k === 'restore_ack') return '본인은 저장 데이터 복원 탐지(기준 ' + stTxt(c.wmAt) + ')를 확인하고 영향 범위를 검토했습니다. (Reviewed by)';
+    /* 프로세스 트리 실행 (§6): tree_route_enter { batchId, from, label, to, reason } · step_skip { batchId, node, reason } · step_repeat_over { batchId, node, iter, max, reason } */
+    if (k === 'deviation_close') return '본인은 배치 ' + stTxt(c.batchId) + ' 일탈 ' + stTxt(c.deviationId) + '의 조사 · 조치를 확인하고 종결을 승인합니다. 사유: ' + stTxt(c.reason) + ' (Approved by)';
+    if (k === 'tree_route_enter') return '본인은 배치 ' + stTxt(c.batchId) + ' ' + stTxt(c.from) + '에서 예외 경로 \'' + stTxt(c.label) + '\'(' + stTxt(c.to) + ') 진입을 승인합니다. 사유: ' + stTxt(c.reason) + ' (Approved by)';
+    if (k === 'step_skip') return '본인은 배치 ' + stTxt(c.batchId) + ' ' + stTxt(c.node) + ' 단계를 건너뛰는 것을 승인합니다. 사유: ' + stTxt(c.reason) + ' (Approved by)';
+    if (k === 'step_repeat_over') return '본인은 배치 ' + stTxt(c.batchId) + ' ' + stTxt(c.node) + '의 ' + stTxt(c.iter) + '회차 실행(한도 ' + stTxt(c.max) + '회 초과)을 승인합니다. 사유: ' + stTxt(c.reason) + ' (Approved by)';
+    if (k === 'restore_ack') return '본인은 저장 데이터 복원 탐지(기준 ' + stTxt(c.wmAt) + ')를 확인하고 영향 범위를 검토했습니다.' + (c.damaged ? ' 손상 감사 행: ' + stTxt(c.damaged) + '.' : '') + ' (Reviewed by)';
     return '';
   }
   /* 서명 레코드(또는 signRuleId) → 문장 kind ('' = 해당 없음) — 서명 내역 재구성용 */
@@ -1582,6 +1837,10 @@
     if (o.signRuleId === ILR_RULES.REVIEW) return 'interlock_rule_review';
     if (o.signRuleId === ILR_RULES.APPROVE) return 'interlock_rule_approve';
     if (o.signRuleId === ILR_RULES.CTRL) return 'interlock_override';
+    if (o.signRuleId === TREE_RULES.ROUTE) return 'tree_route_enter';
+    if (o.signRuleId === TREE_RULES.SKIP) return 'step_skip';
+    if (o.signRuleId === TREE_RULES.REPEAT) return 'step_repeat_over';
+    if (o.signRuleId === DEV_RULES.CLOSE) return 'deviation_close';
     if (o.signRuleId === EXEC_RULES.MBR_APPROVE) return 'mbr_approve';
     if (o.signRuleId === EXEC_RULES.BRIEFING) return 'briefing_read';
     return '';
@@ -1695,11 +1954,11 @@
     beginIssueSign: beginIssueSign, signAndCommitIssue: signAndCommitIssue, cancelIssueSign: cancelIssueSign,
     computeSnapshotHash: computeSnapshotHash, issueSignatureOf: issueSignatureOf, formatSignLine: formatSignLine, fmtKst: fmtKst,
     /* 레코드 서명 (칭량 등) */
-    beginRecordSign: beginRecordSign, signAndCommitRecord: signAndCommitRecord, cancelRecordSign: cancelRecordSign, computeValueHash: computeValueHash,
+    beginRecordSign: beginRecordSign, beginRestoreSign: beginRestoreSign, signAndCommitRecord: signAndCommitRecord, cancelRecordSign: cancelRecordSign, computeValueHash: computeValueHash,
     signStatement: signStatement, statementKindOf: statementKindOf, STATEMENT_KINDS: STATEMENT_KINDS.slice(),
     sha256Hex: sha256Hex, stableStringify: stableStringify, getCurrentUserId: getCurrentUserId,
     /* 저장소 */
-    ESign: ESign, Audit: Audit, nowIsoLocal: nowIsoLocal, voidSignature: voidSignature, VOID_REASON_MAX: VOID_REASON_MAX,
+    ESign: ESign, Audit: Audit, claimAuditWriter: claimAuditWriter, claimSeedSigner: claimSeedSigner, isDemoSeedSig: function (x) { return isDemoSeedSig(x); }, DEMO_SEED_BATCHES: DEMO_SEED_BATCHES.slice(), RESERVED_AUDIT_ACT: RESERVED_ACT.source, nowIsoLocal: nowIsoLocal, voidSignature: voidSignature, VOID_REASON_MAX: VOID_REASON_MAX,
     /* 서명 내역 조회 (D1-8, 읽기 전용) */
     signHistory: signHistory, AUDIT_STRUCT_KEYS: STRUCT_KEYS.slice(),
     /* 스모크 · 테스트 전용 */
@@ -1712,6 +1971,8 @@
   };
 
   global.EbrUserSession = API;
+  /* 먼저 로드된 모듈(ebr-p0-stores 등)이 남긴 내부 writer 요청 처리 — 로드 시 1회 */
+  (function () { var q = global.__ebrAuditClaims; global.__ebrAuditClaims = null; (Array.isArray(q) ? q : []).forEach(function (c) { try { c.take(claimAuditWriter(c.owner)); } catch (e) { /* 요청 쪽 실패 — writer 없음 = 예약 감사 불가(fail-closed) */ } }); })();
   /* 기획 §6 제안 이름 별칭 (ebr-p0-stores.js 는 수정하지 않음) */
   if (global.EbrP0 && typeof global.EbrP0 === 'object') {
     global.EbrP0.ESign = ESign; global.EbrP0.Audit = Audit;

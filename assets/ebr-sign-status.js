@@ -53,6 +53,7 @@
     function WG() { return opts.weigh || (global.EbrP0 && global.EbrP0.Weigh) || null; }
     function DS() { var d = opts.dispense || global.EbrDispense || null; return d && typeof d.summary === 'function' ? d : null; }
     function SN() { return opts.snapshot || global.EbrExecSnapshot || null; }
+    function TX() { return opts.treeExec || global.EbrTreeExec || null; }
 
     function issuedOf(batchId) {
       var list = readItems(KEYS.ISSUED); if (!list.length) { var o = readJson(KEYS.ISSUED, null); if (o && Array.isArray(o.batches)) list = o.batches; }
@@ -79,12 +80,44 @@
       if (sn && iss && typeof sn.buildPhasesFromSnapshot === 'function') {
         try {
           var ups = sn.buildPhasesFromSnapshot(iss);
-          if (ups) { ops = []; ups.forEach(function (u) { (u.steps || []).forEach(function (st) { if (!st.isWeigh) ops.push([st.id, st.name || st.id]); }); }); }
+          if (ups) { ops = []; ups.forEach(function (u) { (u.steps || []).forEach(function (st) { if (!st.isWeigh && st.phaseKind !== 'handoff') ops.push([st.id, st.name || st.id]); });   /* 포장 이관(kind handoff) = OP 서명 없음 */ }); }
         } catch (e) { ops = null; }
       }
       if (!ops || !ops.length) ops = PROD_FALLBACK;
+      /* 프로세스 트리 실행 T1-05 (게이트 3 원천): EbrTreeExec.requiredNodes — 진입하지 않은 예외 노드 제외, 반복은 최신 회차 stepKey(N-030#2),
+         건너뜀(na) · 건너뛰기 가능 노드는 슬롯 0. 트리 모듈이 없거나 스냅샷 트리를 못 읽으면 기존 목록 그대로 */
+      var tx = TX(), req = null;
+      if (tx && typeof tx.requiredNodes === 'function' && !tx.STUB && batchId) { try { req = tx.requiredNodes(batchId, 'prod'); } catch (e) { req = null; } }
+      if (req && req.ok) {
+        var byNode = {}; req.items.forEach(function (it) { byNode[it.nodeId] = it; });
+        ops = ops.filter(function (o) { return byNode[o[0]]; });
+      }
+      /* 리뷰 X1 · X2: 트리 무결성 차단(봉인 불일치 · 미검증 · 평문 건너뜀) → 아무도 서명할 수 없는 차단 단계 1개 추가 = 조건 3 block (phaseList 를 줄여도 대기 0 이 안 됨) */
+      var integ = req && !req.ok && req.integrity ? req.why : null;
+      /* D3 이슈 1: 무결성 차단 중에는 스냅샷 단계 목록을 내지 않는다 — 차단 단계 하나만(슬롯 수 숨김) */
+      if (integ) return [{ stepKey: 'TREE-INTEGRITY', stepNo: 1, name: '트리 무결성 차단 (' + integ + ')', desc: '', integrity: integ,
+        slots: [slot('perform', R.PERF, [], 'exec_step', false), slot('verify', R.VERI, [], 'exec_step_verify', false)],
+        detail: { why: integ, originalSteps: originalSteps(batchId, ops) } }];   /* 리뷰 주의 4: 검토자용 원래 단계 · 슬롯 상태 (판정에는 안 씀 — 참고 표시) */
+      var out = ops.map(function (o, i) {
+        var rn = req && req.ok ? byNode[o[0]] : null, noSlot = !!(rn && (rn.na || rn.skippable));
+        var st = { stepKey: rn ? rn.stepKey : o[0], stepNo: i + 1, name: o[1], desc: '', slots: noSlot ? [] : [slot('perform', R.PERF, ['OP', 'SV'], 'exec_step', false), slot('verify', R.VERI, ['OP', 'SV', 'QA'], 'exec_step_verify', false)] };
+        if (rn) { st.nodeId = rn.nodeId; st.iter = rn.iter; if (rn.na) st.na = true; }
+        return st;
+      });
+      return out;
+    }
+    /* 무결성 차단 시 참고: 스냅샷 단계마다 트리 저장소의 마지막 인스턴스 상태(변조됐을 수 있음 — 표시용) + 슬롯별 원장 서명 상태(sigState) */
+    function originalSteps(batchId, ops) {
+      var tree = readJson('ebr.treeExec.v1', null), items = tree && Array.isArray(tree.items) ? tree.items : [], s = S(), sigs = [];
+      try { sigs = s && s.ESign ? s.ESign.list({ batchId: batchId }) : []; } catch (e) { sigs = []; }
       return ops.map(function (o, i) {
-        return { stepKey: o[0], stepNo: i + 1, name: o[1], desc: '', slots: [slot('perform', R.PERF, ['OP', 'SV'], 'exec_step', false), slot('verify', R.VERI, ['OP', 'SV', 'QA'], 'exec_step_verify', false)] };
+        var last = null; items.forEach(function (it) { if (it && it.batchId === batchId && it.scope === 'prod' && it.nodeId === o[0]) last = it; });
+        var sk = last ? last.stepKey : o[0];
+        var slots = ['perform', 'verify'].map(function (sl) {
+          var g = null; sigs.forEach(function (x) { if (x && x.scope === 'prod' && x.stepKey === sk && x.slot === sl) g = x; });
+          var st = sigState(g ? g.signatureId : null); return { slot: sl, status: st.status, signatureId: g ? g.signatureId : null };
+        });
+        return { stepNo: i + 1, nodeId: o[0], name: o[1], stepKey: sk, treeState: last ? last.state : null, iter: last ? last.iter || 1 : null, slots: slots };
       });
     }
     function reservedLots(batchId) {
@@ -211,6 +244,11 @@
      * 게이트 1 · 3 · 4 · 8 · 9 판정 묶음 (+ 참고 2: Dev.openCount).
      * @returns {{ok, batchId, items:{'1'|'2'|'3'|'4'|'8'|'9': {no, st:'pass'|'block', basis, refs[]}}, blocked:number[]}}
      */
+    function closedDevSigs(dv, batchId) {
+      if (!dv || typeof dv.listByBatch !== 'function' || typeof dv.isClosedVerified !== 'function') return [];
+      var out = []; dv.listByBatch(batchId).forEach(function (d) { var g = null; try { g = dv.isClosedVerified(d); } catch (e) { g = null; } if (g && g.signatureId) out.push(g.signatureId); });
+      return out;
+    }
     function gateSignItems(batchId) {
       var gs = getSignStatus({ batchId: batchId }); if (!gs.ok) return gs;
       var items = {}, sorted = function (a) { return a.filter(Boolean).slice().sort(); };
@@ -222,14 +260,16 @@
       put(1, !g1bad.length, g1.length ? (g1bad.length ? '서명 없는 미결 예외 ' + g1bad.length + '건 — ' + g1bad.map(function (i) { return i.stepKey; }).join(', ') : '미결 예외 ' + g1.length + '건 모두 승인 (SM-REV-RBE ' + g1.map(function (i) { return i.signerId; }).join(', ') + ')') : '미결 예외 0건', ids(g1));
       /* 2 (참고 — 화면 기존 판정과 같은 원천) */
       var dv = DV(), openDev = dv ? dv.listOpen(gs.batchId) : null;
-      put(2, openDev ? !openDev.length : false, openDev ? (openDev.length ? '미종결 일탈 ' + openDev.length + '건' : '미종결 일탈 0건') : 'Dev 미로드 — 차단(fail-closed)', (openDev || []).map(function (d) { return d.id; }));
+      put(2, openDev ? !openDev.length : false, openDev ? (openDev.length ? '미종결 일탈 ' + openDev.length + '건' : '미종결 일탈 0건') : 'Dev 미로드 — 차단(fail-closed)', (openDev || []).map(function (d) { return d.id; }).concat(closedDevSigs(dv, gs.batchId)));   /* + 종결 일탈의 SM-DEV-CLOSE 서명 ID */
       /* 3 = 생산 · 포장 실행 슬롯 + 칭량 줄 */
       var g3 = byGate(3), w = weighSignSummary(gs.batchId);
       var p3 = g3.filter(function (i) { return i.status === 'pending'; }).length, inv3 = g3.filter(function (i) { return i.status === 'invalid'; }).length;
       var parts = [], rep3 = g3.filter(function (i) { return i.status === 'replaced'; });
       var openCor = corrections(gs.batchId).filter(function (c) { return c.state === 'DRAFT' || c.state === 'PERFORMED'; });
       if (openCor.length) parts.push('대체 대기 ' + openCor.length + ' (정정 ' + openCor.map(function (c) { return c.correctionId; }).join(', ') + ')');
-      if (p3) parts.push('실행 슬롯 대기 ' + p3); if (inv3) parts.push('무효 ' + inv3); if (w.pending) parts.push('칭량 줄 미검증 ' + w.pending + '/' + w.lines); if (w.invalid) parts.push('칭량 무효 ' + w.invalid);
+      var integ3 = g3.filter(function (i) { return i.stepKey === 'TREE-INTEGRITY'; })[0];
+      if (integ3) { parts.length = 0; parts.push('트리 무결성 차단 — 실행 슬롯 판정 보류'); p3 = 1; }   /* D3 이슈 1: 차단 중 슬롯 수 숨김 */
+      else if (p3) parts.push('실행 슬롯 대기 ' + p3); if (inv3) parts.push('무효 ' + inv3); if (w.pending) parts.push('칭량 줄 미검증 ' + w.pending + '/' + w.lines); if (w.invalid) parts.push('칭량 무효 ' + w.invalid);
       var repTxt = rep3.length ? ' · 대체 서명 ' + rep3.length + '건 (정정 ' + rep3.map(function (i) { return i.replacedBy.correctionId; }).filter(function (v, k, a) { return a.indexOf(v) === k; }).join(', ') + ')' : '';
       put(3, !openCor.length && !p3 && !inv3 && !w.pending && !w.invalid, parts.length ? parts.join(' · ') : '실행 슬롯 ' + g3.length + '건 유효' + repTxt + (w.noPlan ? ' · 칭량 계획 없음' : ' · 칭량 ' + w.verified + '/' + w.lines),
           ids(g3).concat(rep3.map(function (i) { return i.replacedBy.verifySignatureId; })));

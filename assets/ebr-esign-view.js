@@ -30,7 +30,8 @@
   var RECORD_TYPE_LABEL = { batch_issue: '배치 발행', weigh_value: '칭량 값', weigh_reweigh: '재칭량 승인', 'weigh_*': '칭량 (구분 불가)',
     step_value: '단계 실행 값', batch_review: '배치 기록 검토', rbe_exception: 'RBE 예외 검토', audit_trail: '감사추적 검토',
     release: '출하 승인', briefing: '변경점 브리핑', mbr_approval: 'MBR 승인', material_qc: '자재 QC 판정',
-    downtime_review: '다운타임 검토', change_impact: '변경 영향 검토', control_eval: '통제 강화 평가', integrity_ack: '복원 탐지 확인' };
+    downtime_review: '다운타임 검토', change_impact: '변경 영향 검토', control_eval: '통제 강화 평가', integrity_ack: '복원 탐지 확인',
+    tree_route: '트리 경로 승인', deviation_close: '일탈 종결' };
   /* 고아 서명 판정 대상 (실행 · 출하 서명) — 가리키는 기록(실행 · 출하 · MBR 서명 · LOT 판정)이 없으면 고아 */
   var ORPHAN_RECORD_TYPES = ['step_value', 'batch_review', 'rbe_exception', 'audit_trail', 'release', 'briefing', 'mbr_approval', 'material_qc'];
   var ORPHAN_LABEL = '실행 기록 없음(데모 초기화)';

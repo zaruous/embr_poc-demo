@@ -326,7 +326,8 @@
       'SM-APPR-ISSUE': ['SV', 'QA'], 'SM-APPR-REWEIGH': ['SV', 'QA'], 'SM-PERF-BALCHK': ['OP', 'SV'], 'SM-PERF-BALRECHK': ['SV'], 'SM-READ-BRIEF': ['OP', 'SV', 'QA', 'QP'], 'SM-REV-RBE': ['QA', 'QP'], 'SM-REV-AUDIT': ['QA', 'QP'],
       'SM-VERI-PKLAB': ['QA'], 'SM-REV-PACK': ['SV'], 'SM-APPR-MATQC': ['QA'], 'SM-REV-BATCH': ['QA'], 'SM-REV-MBR': ['QA', 'SV'],
       'SM-REV-DOWN': ['QA'], 'SM-REV-CHG': ['QA'], 'SM-REV-CTRL': ['QA'], 'SM-REV-RESTORE': ['QA'],
-      'SM-PERF-CORR': ['OP', 'SV'], 'SM-REV-ILR': ['SV', 'QA'], 'SM-APPR-ILR': ['QA'], 'SM-APPR-CTRL': ['SV']
+      'SM-PERF-CORR': ['OP', 'SV'], 'SM-REV-ILR': ['SV', 'QA'], 'SM-APPR-ILR': ['QA'], 'SM-APPR-CTRL': ['SV'],
+      'SM-APPR-ROUTE': ['SV', 'QA'], 'SM-APPR-SKIP': ['QA'], 'SM-APPR-REPEAT': ['QA'], 'SM-DEV-CLOSE': ['QA']
     };
     function S(id, ver, meaning, rec, auth, batch, status, upd, note) { return { id: id, ver: ver, meaning: meaning, recType: rec, auth: auth, batch: batch, samePerson: meaning !== 'performed' && meaning !== 'read_understood', status: status, upd: upd, note: note || '', author: '이수진', allowedRoles: (SIGN_ALLOWED[id] || []).slice() }; }
     var sign = [
@@ -341,6 +342,10 @@
       S('SM-APPR-REL', 2, 'approved', 'release', 'full_factor', false, 'effective', '2026-06-05', '개별 · 일괄 불가'),
       S('SM-APPR-OVR', 1, 'approved', 'interlock_override', 'full_factor', false, 'effective', '2026-07-15', 'Hard-QA override'),
       S('SM-APPR-CTRL', 1, 'approved', 'interlock_override', 'full_factor', false, 'effective', '2026-10-12', 'Controlled 인터록 감독자 승인 (적중 시 수행자 ≠ 승인자)'),
+      S('SM-APPR-ROUTE', 1, 'approved', 'tree_route', 'full_factor', false, 'effective', '2026-10-13', '예외 경로 진입 승인 (from 단계 수행자 ≠ 승인자)'),
+      S('SM-APPR-SKIP', 1, 'approved', 'tree_route', 'full_factor', false, 'effective', '2026-10-13', '단계 건너뛰기 승인 (MBR 허용 노드만)'),
+      S('SM-APPR-REPEAT', 1, 'approved', 'tree_route', 'full_factor', false, 'effective', '2026-10-13', '단계 반복 한도 초과 승인 (이전 회차 수행자 ≠ 승인자)'),
+      S('SM-DEV-CLOSE', 1, 'approved', 'deviation_close', 'full_factor', false, 'effective', '2026-10-14', '일탈 종결 서명(QA)'),
       S('SM-REV-ILR', 1, 'reviewed', 'interlock_rule', 'full_factor', false, 'effective', '2026-10-12', '인터록 룰 세트 검토 (작성자 ≠ 검토자)'),
       S('SM-APPR-ILR', 1, 'approved', 'interlock_rule', 'full_factor', false, 'effective', '2026-10-12', '인터록 룰 세트 승인 (작성자 · 검토자 ≠ 승인자)'),
       S('SM-APPR-EQC', 1, 'approved', 'eqclass_approval', 'full_factor', false, 'effective', '2026-07-02', '장비 클래스 승인 · 적격 목록 스냅샷 고정'),
@@ -403,7 +408,8 @@
   /* 시드 보충 (병합만): 저장된 S-39 sign 에 해당 id 행이 하나도 없을 때만 시드 행을 추가한다.
      기존 행(사용자 편집 포함)은 읽기만 하고 고치지 않는다 — 예: allowedRoles 를 비운 행은 그대로 둔다(서명은 fail-closed) */
   var BACKFILL_SIGN_IDS = ['SM-APPR-ISSUE', 'SM-APPR-REWEIGH', 'SM-PERF-BALCHK', 'SM-PERF-BALRECHK', 'SM-VERI-PKLAB', 'SM-REV-PACK', 'SM-APPR-MATQC', 'SM-REV-BATCH', 'SM-REV-MBR',
-    'SM-REV-DOWN', 'SM-REV-CHG', 'SM-REV-CTRL', 'SM-REV-RESTORE', 'SM-PERF-CORR', 'SM-APPR-CTRL', 'SM-REV-ILR', 'SM-APPR-ILR'];
+    'SM-REV-DOWN', 'SM-REV-CHG', 'SM-REV-CTRL', 'SM-REV-RESTORE', 'SM-PERF-CORR', 'SM-APPR-CTRL', 'SM-REV-ILR', 'SM-APPR-ILR',
+    'SM-APPR-ROUTE', 'SM-APPR-SKIP', 'SM-APPR-REPEAT', 'SM-DEV-CLOSE'];
   MS.backfillSign = function (db) {
     if (!db || !Array.isArray(db.sign)) return 0;
     var seedSign = null, n = 0;

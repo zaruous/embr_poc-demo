@@ -131,11 +131,12 @@
       var net = num(c.net), lo = num(c.lo), hi = num(c.hi), out = !isNaN(net) && (net < lo || net > hi);
       return { hit: out && Number(c.attempt) >= Number(p.maxAttempts), value: c.net, vars: { attempt: c.attempt, net: c.net, lo: c.lo, hi: c.hi } }; } },
     'step.sequence': { label: '순서', points: ['exec.step', 'exec.order', 'pack.step'], params: [], ev: function (p, c) {
-      /* 순서 판정은 공정 트리 실행(EbrTreeExec.canStart) 소관 — 있으면 그 결과, 없으면 ctx.prevDone/prevSigned */
+      /* 순서 판정은 공정 트리 실행 소관 (트리 준수 설계 X1 — 어댑터): EbrTreeExec.interlockAdapter 위임, 없으면 ctx.prevDone/prevSigned. 위임 중 예외 = 적중(fail-closed) */
       var T = global.EbrTreeExec, r = null;
-      if (T && typeof T.canStart === 'function' && c.batchId && c.nodeId) { try { r = T.canStart(c.batchId, c.scope, c.nodeId); } catch (e) { r = { ok: false }; } }
-      var ok = r ? !!r.ok : (c.prevDone !== false && c.prevSigned !== false);
-      return { hit: !ok, value: ok ? '' : '선행 단계 미완료', vars: {} }; } },
+      if (T && !T.STUB && typeof T.interlockAdapter === 'function' && c.batchId && c.nodeId) { try { r = T.interlockAdapter({ batchId: c.batchId, scope: c.scope || (c.point === 'pack.step' ? 'pack' : 'prod'), nodeId: c.nodeId }); } catch (e) { r = { hit: true, why: 'tree_snapshot_missing' }; } }
+      if (r && r.na) r = null;
+      var ok = r ? !r.hit : (c.prevDone !== false && c.prevSigned !== false);
+      return { hit: !ok, value: ok ? '' : (r && r.msg ? r.msg : '선행 단계 미완료'), vars: r && r.why ? { treeWhy: r.why } : {} }; } },
     'eq.qualified': { label: '장비 적격', points: ['exec.step'], params: [{ key: 'opIds', label: '대상 OP', type: 'string[]', min: 1, max: 20, pattern: '^OP\\d-\\d$', required: true }], ev: function (p, c) {
       if ((p.opIds || []).indexOf(str(c.opId)) < 0) return { hit: false, value: '', vars: {} };
       var bad = (c.equipment || []).filter(function (e) { return e && e.ops && e.ops.indexOf(str(c.opId)) >= 0 && (e.qualified === false || (daysUntil(e.calDue, c.today) != null && daysUntil(e.calDue, c.today) < 0)); })[0];

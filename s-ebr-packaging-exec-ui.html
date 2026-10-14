@@ -209,6 +209,7 @@
   .badge.role-qp { background: var(--bc-offpump); } .badge.role-qp::before { background: var(--c-navy); }
   #dlgRecSign [hidden] { display: none; }   /* QA 대행 배지 등 — .badge display 보다 우선 */
   body.p0-no-user .p0-gated { opacity: .4; cursor: not-allowed; }
+  [hidden] { display: none !important; }   /* hidden 속성이 .badge · .grid-block display 에 덮이지 않게 (화면 한정) */
 </style>
 </head>
 <body>
@@ -332,9 +333,11 @@
 <script src="./ilr-ui-wire.js"></script>   <!-- 인터록 연결 지점 (IlApi → EbrInterlock, 없으면 fail-closed) -->
 <script src="./assets/ebr-qual-store.js"></script>   <!-- 교육 · 자격 (window.EbrQual) — ⑦ 요구 자격 이름 (읽기만) -->
 <script src="./assets/ebr-exec-sign-store.js"></script>   <!-- 포장 단계 서명 래퍼 (window.EbrExecSign) -->
-<script src="./assets/ebr-sign-status.js"></script>   <!-- 포장 서명 상태 (window.EbrSignStatus) -->
+<script src="./assets/ebr-sign-status.js"></script>
+<script src="./assets/ebr-tree-exec.js"></script>   <!-- 프로세스 트리 준수 판정 (window.EbrTreeExec — 포장 선형 8단계) -->
+<script src="./tree-ui-wire.js"></script>   <!-- 트리 연결 지점 (TreeApi · TreeUi — 판정 불가 · fail-closed) -->   <!-- 포장 서명 상태 (window.EbrSignStatus) -->
 <script src="./exec-sign-ui.js"></script>
-<script src="./assets/ebr-correction-store.js"></script>   <!-- D1 정정 store (window.EbrCorrection) -->
+<script src="./assets/ebr-correction-store.js"></script>   <!-- 정정 store (window.EbrCorrection) -->
 <script src="./assets/ebr-correction-ui.js"></script>   <!-- 정정 공통 팝업 (window.CorrUI) -->
 <script>
 (function () {
@@ -492,6 +495,7 @@
     { k: 'clrE', name: '종료 라인 클리어런스', desc: '잔여 자재 회수 · 데이터 삭제 · 이송', slots: [] },
     { k: 'rev', name: '포장 기록 검토', desc: '서명 · 감사추적 · 예외 검토', slots: [] }
   ];
+  function packLabels() { var m = {}; STEPS.forEach(function (x) { m[x.k] = x.name; }); return m; }   /* 차단 팝업 표시 이름 — 포장 단계 키 → 화면 이름 (store 는 키만 줌) */
   var EQ = [
     { id: 'BL-0201', nm: '블리스터 포장기', cls: 'EC-BLISTER v2', ras: '가동 가능', cmms: ['—', ''], cfms: ['적격 ~2027-02-28', 'ok'], fmt: 'FP-PTP10-A01 성형·실링 금형' },
     { id: 'VS-0201', nm: '정제 비전 검사기', cls: 'EC-VISION v1', ras: '가동 가능', cmms: ['교정 ~2027-01-15', 'ok'], cfms: ['적격 ~2027-05-31', 'ok'], fmt: '레시피 VIS-TA10-03' },
@@ -624,12 +628,17 @@
 
   function activeIdx() { for (var i = 0; i < STEPS.length; i++) if (!stepDone(i)) return i; return STEPS.length; }
   function locked(i) { var f = STEPS[i].slots[0]; return stepDone(i) || !!(f && sig(STEPS[i].k, f.id)) || S.handed; }
-  function waiting(i) { return i > activeIdx(); }
+  /* PT-06: 포장 선형 트리 store 판정 — 판정 가능하면 EbrTreeExec.canStart 를 더해 막기만 함(화면 판정을 풀지 않음), 판정 불가면 화면 판정 + '판정 불가' 표시 */
+  var PTREE = { ok: false, res: null };
+  function ptreeRefresh() { var a = TreeApi.available(packBatchId(), 'pack'); PTREE.ok = a.ok; PTREE.blocked = a.blocked; PTREE.res = a.res; }
+  function ptreeGate(i) { if (PTREE.blocked && STEPS[i] && !stepDone(i)) return PTREE.res; if (!PTREE.ok || !STEPS[i] || stepDone(i)) return null; var r = TreeApi.canStart(packBatchId(), 'pack', STEPS[i].k); return r && r.ok ? null : r; }
+  function waiting(i) { return i > activeIdx() || !!ptreeGate(i); }
   function editable(i) { return !waiting(i) && !locked(i); }
   function userNm(uid) { var u = window.EbrUserSession && EbrUserSession.getUser ? EbrUserSession.getUser(uid) : null; return u ? u.name : (uid || '—'); }
   /* 화면 감사 → ebr.audit.v1 (헬퍼 Audit.append). 행위자 = 현재 사용자(없으면 넘긴 ID · SYSTEM) */
   function log(uid, act, tgt, val, why) {
     var cur = window.P0Ui && P0Ui.current() ? P0Ui.current().userId : null;
+    if (/^(TREE_|DEVIATION_)/.test(String(act || ''))) { if (window.console) console.warn('[audit] 예약 감사는 화면에서 쓰지 않음 — ' + act); return; }   /* 트리 · 일탈 감사는 store 전용 */
     try { window.EbrUserSession.Audit.append({ uid: cur || uid || 'SYSTEM', act: act, tgt: tgt || '', val: val || '', why: why || '', batchId: packBatchId(), screen: 'S-EBR-PACK-EXEC' }); }
     catch (e) { if (window.console) console.error('[audit]', e); MesUI.toast('감사 기록 저장 실패 — ' + act, 'error'); }
   }
@@ -777,6 +786,7 @@
 
   /* ======================= 렌더: 좌측 · 요약 · 안내 ======================= */
   function renderNav() {
+    ptreeRefresh();
     var a = activeIdx(), h = '';
     STEPS.forEach(function (st, i) {
       var done = stepDone(i), cls = done ? 'done' : i === a ? (hasBlock(i) ? 'blocked' : 'active') : 'wait', meta;
@@ -789,7 +799,7 @@
     h += '<div class="step ' + (S.handed ? 'done' : all ? 'active handoff' : 'wait') + '" data-step="7"><span class="no">' + (S.handed ? '' : '→') + '</span><span class="name">출하 게이트 인계<small>QA 배치 검토 · 출하 승인(S-32)</small></span><span class="meta">' + (S.handed ? S.handedAt.slice(11, 16) : all ? '인계 가능' : '대기') + '</span></div>';
     $('stepList').innerHTML = h;
     var nd = 0; for (var i = 0; i < STEPS.length; i++) if (stepDone(i)) nd++;
-    $('stepTotal').innerHTML = '완료 <b>' + nd + '</b> / ' + STEPS.length;
+    $('stepTotal').innerHTML = '완료 <b>' + nd + '</b> / ' + STEPS.length + (PTREE.ok ? '' : ' ' + (PTREE.blocked ? TreeUi.blockChip(PTREE.res) : TreeUi.pendingChip(PTREE.res)));
   }
   function renderMini() {
     var x = exeCounts(), a = activeIdx(), st;
@@ -842,6 +852,7 @@
       MesUI.toast('EbrP0 Dev API 없음 — ebr-p0-stores.js 로드 확인', 'warn');
       return null;
     }
+    if (!(window.P0Ui && P0Ui.current())) { MesUI.toast('현재 사용자를 선택하세요 — 일탈 보고자가 없으면 일탈을 등록할 수 없습니다 (종결 서명 보고자 ≠ 종결자 확인)', 'warn', 4000); return null; }
     var bid = packBatchId();
     var item = Dev.create({
       batchId: bid,
@@ -883,7 +894,7 @@
 
   /* ======================= 렌더: 우측 공통 ======================= */
   function head(i, extra) {
-    var badge = S.handed ? '<span class="badge ok">확정 · 읽기 전용</span>' : stepDone(i) ? '<span class="badge ok">완료 🔒</span>' : waiting(i) ? '<span class="badge muted">대기 — 이전 단계 미완료</span>' : locked(i) ? '<span class="badge">수행 서명됨 · 확인 대기</span>' : hasBlock(i) ? '<span class="badge error">차단</span>' : '<span class="badge">진행 중</span>';
+    var badge = S.handed ? '<span class="badge ok">확정 · 읽기 전용</span>' : stepDone(i) ? '<span class="badge ok">완료 🔒</span>' : waiting(i) ? '<span class="badge muted" title="' + esc(ptreeGate(i) ? TreeApi.msgOf(ptreeGate(i)) : '이전 단계 미완료') + '">대기 — ' + (ptreeGate(i) ? '순서 차단' : '이전 단계 미완료') + '</span>' : locked(i) ? '<span class="badge">수행 서명됨 · 확인 대기</span>' : hasBlock(i) ? '<span class="badge error">차단</span>' : '<span class="badge">진행 중</span>';
     return '<div class="pane-head"><span class="group-title">' + (i + 1) + '. ' + esc(STEPS[i].name) + '</span>' + badge + '<span class="sub-info">' + esc(STEPS[i].desc) + '</span><span class="spacer"></span>' + (extra || '') + '</div>';
   }
   function signBar(i) {
@@ -1161,6 +1172,15 @@
     if (!sl) { MesUI.toast('서명 슬롯 정의를 찾을 수 없습니다 (저장소 단계 정의 확인)', 'error'); return; }
     if (st.slots[0] && sl.id !== st.slots[0].id && ilPerformOnly(i)) { MesUI.alert('Controlled 인터록 — 감독자 승인 전에는 수행 서명만 할 수 있습니다.', 'Warning'); return; }
     var bid = packBatchId();
+    ptreeRefresh();
+    if (PTREE.ok && !stepDone(i)) {   /* 단계 시작 = EbrTreeExec.start (진행 전이면 서명 창 전에 — store 재판정) */
+      var rvS = TreeApi.rowState(bid, 'pack', st.k);
+      if (rvS && rvS.ok && rvS.state !== 'in_progress') {
+        var stS = TreeApi.start(bid, 'pack', st.k);
+        if (!stS || !stS.ok) { TreeUi.blockDialog(stS, { node: st.k, nodeName: st.name, batchId: bid, path: STEPS.map(function (x) { return x.k; }).join(' → '), labels: packLabels(), onGo: function (nd) { var j = STEPS.findIndex(function (x) { return x.k === nd; }); if (j >= 0) { S.sel = j; renderAll(); } } }); return; }
+        log(null, '단계 시작', stepLabel(i), (stS.instance && stS.instance.stepKey) || st.k, '');
+      }
+    }
     var values = signValues(i).map(function (r, j) { return { key: st.k + '.' + (j + 1), label: r[0], value: r[1], judge: ({ ok: '적합', ng: '부적합', wn: '주의', wt: '대기' })[r[2]] || r[2] }; });
     RecSign.open({
       meaning: SLOT_CLS[sl.id] || 'performed',
@@ -1172,6 +1192,10 @@
       okText: stepLabel(i) + ' — ' + sl.m + ' 서명 완료',
       onDone: function () {
         loadPackSig();
+        if (stepDone(i) && PTREE.ok) {   /* 슬롯 서명 모두 끝 → EbrTreeExec.complete (다음 단계 ready) */
+          var cr = TreeApi.complete(bid, 'pack', st.k);
+          if (!cr || !cr.ok) MesUI.toast(TreeApi.msgOf(cr), 'warn', 4000);
+        }
         if (stepDone(i) && i < STEPS.length - 1) { S.sel = i + 1; log(null, '단계 시작', stepLabel(i + 1), '', ''); }
         renderAll();
       }
@@ -1259,7 +1283,13 @@
     if ((v = t.getAttribute('data-pm'))) { var q = v.split(':'), o = S.rec.pm[q[0]][+q[1]]; S.rec.pm[q[0]][+q[1]] = num(t.value); log('OP-0101', '정산 값 수정', q[0], o + ' → ' + num(t.value), '재계수'); renderAll(); }
   });
   pane.addEventListener('keydown', function (e) { if (e.target.id === 'scanIn' && e.key === 'Enter') { e.preventDefault(); scan(e.target.value); } });  /* preventDefault: 스캐너 Enter 가 알림 OK 버튼까지 눌러 닫지 않도록 */
-  $('stepList').addEventListener('click', function (e) { var s = e.target.closest('[data-step]'); if (s) { S.sel = +s.getAttribute('data-step'); renderAll(); } });
+  $('stepList').addEventListener('click', function (e) {
+    var s = e.target.closest('[data-step]'); if (!s) return;
+    ptreeRefresh(); var i = +s.getAttribute('data-step'), tg = ptreeGate(i);   /* store 판정 차단 → PT-03 공용 팝업 (보기 선택은 유지) */
+    S.sel = i; renderAll();
+    if (tg && !TreeApi.pending(tg)) TreeUi.blockDialog(tg, { node: STEPS[i].k, nodeName: STEPS[i].name, batchId: packBatchId(), path: STEPS.map(function (x) { return x.k; }).join(' → '), labels: packLabels(),
+      onGo: function (nd) { var j = STEPS.findIndex(function (x) { return x.k === nd; }); if (j >= 0) { S.sel = j; renderAll(); } } });
+  });
   if ($('btnDevDraft')) $('btnDevDraft').addEventListener('click', function () { createPackDeviationDraft(); });
   $('btnCopy').addEventListener('click', function () { MesUI.toast('화면 링크를 복사했습니다.', 'info'); });
   $('btnPoCv').addEventListener('click', function () { MesUI.toast('포장 지시 코드뷰 팝업(연동)', 'info'); });

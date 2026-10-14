@@ -125,7 +125,9 @@
 <script src="./assets/ebr-user-session.js"></script>
 <script src="./assets/ebr-qual-store.js"></script>
 <script src="./assets/ebr-sign-status.js"></script>   <!-- 단계 정의 (EbrSignStatus.stepsFor — 포장 단계 이름 조회, 읽기만) -->
-<script src="./assets/ebr-correction-store.js"></script>   <!-- D1 정정 store (window.EbrCorrection) -->
+<script src="./assets/ebr-correction-store.js"></script>   <!-- 정정 store (window.EbrCorrection) -->
+<script src="./assets/ebr-tree-exec.js"></script>   <!-- 반복 회차 키 해석 (EbrTreeExec.parseStepKey — X4 N-030#2) -->
+<script src="./tree-ui-wire.js"></script>
 <script src="./assets/ebr-correction-ui.js"></script>     <!-- 공통 팝업 window.CorrUI -->
 <!-- ==== P0 UI-04 현재 사용자 선택기 · 역할 배지 — EbrUserSession(UI-09) 어댑터 (공통 블록, 배치 발행과 동일 — S-47 재사용.) ==== -->
 <script>
@@ -271,7 +273,7 @@
       return (nm || t.stepKey || '') + (t.valueIndex != null ? ' 값 #' + (t.valueIndex + 1) : '') + (t.valueLabel ? ' ' + t.valueLabel : '');
     }
     if (lb) return lb;
-    return t.kind === 'weigh_record' ? (t.recId || '') + ' ' + (t.field || '') : (t.stepKey || '') + (t.valueIndex != null ? ' 값 #' + (t.valueIndex + 1) : '') + (t.valueLabel ? ' ' + t.valueLabel : '');   /* 내부 키(stepKey · valueKey) 표시 안 함 */
+    return t.kind === 'weigh_record' ? (t.recId || '') + ' ' + (t.field || '') : (window.TreeUi ? TreeUi.stepKeyText(t.stepKey) : (t.stepKey || '')) + (t.valueIndex != null ? ' 값 #' + (t.valueIndex + 1) : '') + (t.valueLabel ? ' ' + t.valueLabel : '');   /* 내부 키(stepKey · valueKey) 표시 안 함 */
   }
   function sigText(c) {
     if (c.state === 'VERIFIED') return (c.performed && c.performed.userId || '') + ' / ' + (c.verified && c.verified.userId || '');

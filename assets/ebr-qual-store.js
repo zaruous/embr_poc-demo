@@ -103,6 +103,11 @@
   var CORR_REQS = [['SIGN:SM-PERF-CORR', ['QD-EXEC'], '값 정정 수행'], ['SIGN:SM-VERI-CORR', ['QD-REVBATCH'], '정정 QA 확인']];
   /* 인터록 서명 3종 (인터록 설계 §4 · K-9): 세트 검토 · 승인 → QD-REVBATCH, Controlled 감독자 승인 → QD-EXEC-VERI */
   var ILR_REQS = [['SIGN:SM-REV-ILR', ['QD-REVBATCH'], '인터록 룰 세트 검토'], ['SIGN:SM-APPR-ILR', ['QD-REVBATCH'], '인터록 룰 세트 승인'], ['SIGN:SM-APPR-CTRL', ['QD-EXEC-VERI'], 'Controlled 인터록 감독자 승인']];
+  /* 프로세스 트리 실행 서명 3종 (트리 준수 설계 §6 · T1-07): 예외 경로 진입 → QD-ROUTE-QA (리뷰 A1), 건너뛰기 · 반복 한도 초과 → QD-REVBATCH */
+  /* 리뷰 A1: 경로 진입 승인 전용 자격 QD-ROUTE-QA (QD-EXEC-VERI 를 주면 실행 확인 · 포장 검토 · Controlled 승인까지 열림) */
+  var ROUTE_QUAL_DEFS = [['QD-ROUTE-QA', '예외 경로 진입 승인 (트리 경로 전용)', ['CRS-EBR-USE']]];
+  var TREE_REQS = [['SIGN:SM-APPR-ROUTE', ['QD-ROUTE-QA'], '예외 경로 진입 승인'], ['SIGN:SM-APPR-SKIP', ['QD-REVBATCH'], '단계 건너뛰기 승인'], ['SIGN:SM-APPR-REPEAT', ['QD-REVBATCH'], '단계 반복 한도 초과 승인'],
+    ['SIGN:SM-DEV-CLOSE', ['QD-REVBATCH'], '일탈 종결 승인 (리뷰 X6)']];
   var SEED_BACKFILLS = [
     { id: 'BF-SV0003-REWEIGH', userId: 'SV-0003', qualId: 'QD-REWEIGH', expiresOffset: 200 },
     { id: 'BF-EXEC-DEFS', defs: EXEC_QUAL_DEFS },
@@ -110,6 +115,10 @@
     { id: 'BF-GATE-REQS', reqs: GATE_REQS },
     { id: 'BF-CORR-REQS', reqs: CORR_REQS },
     { id: 'BF-ILR-REQS', reqs: ILR_REQS },
+    { id: 'BF-ROUTE-DEFS', defs: ROUTE_QUAL_DEFS },
+    { id: 'BF-TREE-REQS', reqs: TREE_REQS },
+    /* 이미 BF-TREE-REQS(옛 값 QD-EXEC-VERI)를 받은 store: 값이 옛 값 그대로일 때만 교체 (사용자가 바꾼 매핑은 유지) */
+    { id: 'BF-ROUTE-REQ', reqSet: ['SIGN:SM-APPR-ROUTE', ['QD-EXEC-VERI'], ['QD-ROUTE-QA']] },
     { id: 'BF-EXEC-OP0101', userId: 'OP-0101', qualId: 'QD-EXEC', expiresOffset: 200, train: true },
     { id: 'BF-EXEC-SV0003', userId: 'SV-0003', qualId: 'QD-EXEC-VERI', expiresOffset: 200, train: true },
     { id: 'BF-EXEC-OP0102', userId: 'OP-0102', qualId: 'QD-EXEC', expiresOffset: 12, train: true },
@@ -117,6 +126,11 @@
     { id: 'BF-EXEC-SV0011', userId: 'SV-0011', qualId: 'QD-EXEC-VERI', expiresOffset: 200, train: true },
     { id: 'BF-EXEC-QA0011-MATQC', userId: 'QA-0011', qualId: 'QD-MATQC', expiresOffset: 200, train: true },
     { id: 'BF-EXEC-QA0011-REV', userId: 'QA-0011', qualId: 'QD-REVBATCH', expiresOffset: 200, train: true },
+    /* 리뷰 A1: 경로 진입 승인(SM-APPR-ROUTE → QD-ROUTE-QA) — SV 2명 · QA-0011(종료 노드 경로는 QA만). 옛 BF-TREE-QA0011-VERI 부여(QD-EXEC-VERI)는 회수 */
+    { id: 'BF-ROUTE-SV0003', userId: 'SV-0003', qualId: 'QD-ROUTE-QA', expiresOffset: 200, train: true },
+    { id: 'BF-ROUTE-SV0011', userId: 'SV-0011', qualId: 'QD-ROUTE-QA', expiresOffset: 200, train: true },
+    { id: 'BF-ROUTE-QA0011', userId: 'QA-0011', qualId: 'QD-ROUTE-QA', expiresOffset: 200, train: true },
+    { id: 'BF-ROUTE-QA0011-UNVERI', revokeOf: 'BF-TREE-QA0011-VERI', userId: 'QA-0011', qualId: 'QD-EXEC-VERI' },
     { id: 'BF-EXEC-QA0013-REV', userId: 'QA-0013', qualId: 'QD-REVBATCH', expiresOffset: 200, train: true },
     { id: 'BF-EXEC-QP0001-REL', userId: 'QP-0001', qualId: 'QD-REL', expiresOffset: 200, train: true },
     { id: 'BF-EXEC-QA0012-REL', userId: 'QA-0012', qualId: 'QD-REL', expiresOffset: -2, train: true },
@@ -127,7 +141,7 @@
   /* 보충 본체 (메모리만). → { grants:[uq…], trainings:[tr…], changed } */
   function applyBackfills(o) {
     if (!Array.isArray(o.backfills)) o.backfills = [];
-    var out = { grants: [], trainings: [], changed: false }, at = nowIso(), T = toYmd(o.seedBase) || toYmd();
+    var out = { grants: [], trainings: [], revokes: [], reqChanges: [], changed: false }, at = nowIso(), T = toYmd(o.seedBase) || toYmd();
     SEED_BACKFILLS.forEach(function (b) {
       if (o.backfills.indexOf(b.id) >= 0) return;
       if (b.defs) {
@@ -141,6 +155,21 @@
         b.reqs.forEach(function (x) {
           if (o.requirements.some(function (r) { return r.target === x[0]; })) return;
           o.requirements.push({ reqId: nextId(o.requirements, 'RQ-', 'reqId', 2), target: x[0], qualIds: x[1].slice(), mode: 'block', note: x[2], updatedAt: at, updatedBy: 'SYSTEM' });
+        });
+        o.backfills.push(b.id); out.changed = true; return;
+      }
+      if (b.reqSet) {
+        var rr = o.requirements.filter(function (r) { return r.target === b.reqSet[0]; })[0];
+        if (rr && JSON.stringify((rr.qualIds || []).slice().sort()) === JSON.stringify(b.reqSet[1].slice().sort())) {
+          var bef = rr.qualIds.slice(); rr.qualIds = b.reqSet[2].slice(); rr.updatedAt = at; rr.updatedBy = 'SYSTEM'; out.reqChanges.push({ req: rr, before: bef, bf: b.id });
+        }
+        o.backfills.push(b.id); out.changed = true; return;
+      }
+      if (b.revokeOf) {   /* 그 보충이 준 부여(사유 표지로 식별)만 회수 — 사람이 준 같은 자격은 건드리지 않음 */
+        o.userQuals.forEach(function (u) {
+          if (normId(u.userId) === b.userId && u.qualId === b.qualId && u.status === 'active' && u.reason === '데모 시드 보충 (' + b.revokeOf + ')') {
+            u.status = 'revoked'; u.revokedAt = at; u.revokedBy = 'SYSTEM'; u.revokeReason = '데모 시드 보충 회수 (' + b.id + ') — 경로 승인 전용 자격 QD-ROUTE-QA 로 대체'; out.revokes.push(u);
+          }
         });
         o.backfills.push(b.id); out.changed = true; return;
       }
@@ -177,13 +206,17 @@
       try {
         writeStore(o);
         /* 부여 · 교육 기록 감사 (SYSTEM, 보충 1회 — 표지로 반복 안 됨). 감사 실패 시 저장도 되돌려 다음 로드에 함께 재시도 */
-        if (r.grants.length || r.trainings.length) {
+        if (r.grants.length || r.trainings.length || r.revokes.length || r.reqChanges.length) {
           var S = session();
           if (S && S.Audit && typeof S.Audit.appendMany === 'function') {
             S.Audit.appendMany(r.trainings.map(function (t) {
               return { uid: 'SYSTEM', userName: '시스템 (데모 시드 보충)', act: 'TRAINING_RECORDED', tgt: t.trId, val: t.courseId + ' · ' + t.sopId + ' v' + t.sopVer + ' · ' + t.userId + ' · pass', why: t.note, before: null, after: clone(t), screen: 'seedBackfill' };
             }).concat(r.grants.map(function (u) {
               return { uid: 'SYSTEM', userName: '시스템 (데모 시드 보충)', act: 'QUAL_GRANT', tgt: u.uqId, val: u.userId + ' · ' + u.qualId + ' · ~' + u.expiresAt, why: u.reason, before: null, after: clone(u), screen: 'seedBackfill' };
+            })).concat(r.revokes.map(function (u) {
+              return { uid: 'SYSTEM', userName: '시스템 (데모 시드 보충)', act: 'QUAL_REVOKE', tgt: u.uqId, val: u.userId + ' · ' + u.qualId + ' · ' + u.revokeReason, why: u.revokeReason, before: { status: 'active' }, after: { status: 'revoked', revokedAt: u.revokedAt, revokedBy: 'SYSTEM' }, screen: 'seedBackfill' };
+            })).concat(r.reqChanges.map(function (c) {
+              return { uid: 'SYSTEM', userName: '시스템 (데모 시드 보충)', act: 'QUAL_REQ_UPDATE', tgt: c.req.reqId, val: c.req.target + ' · ' + c.req.qualIds.join(','), why: '데모 시드 보충 (' + c.bf + ')', before: { qualIds: c.before }, after: { qualIds: c.req.qualIds.slice() }, screen: 'seedBackfill' };
             })));
           }
         }

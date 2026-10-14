@@ -1,9 +1,9 @@
 /* =============================================================================
- * 정정(부분 대체) 공통 팝업 — window.CorrUI  (D4 화면 전용 · C4-1 / CF-01 · CF-02 · CF-03 · CF-05)
+ * 정정(부분 대체) 공통 팝업 — window.CorrUI  (화면 전용 · C4-1 / CF-01 · CF-02 · CF-03 · CF-05)
  *  - #dlgCorrection  값 정정 요청 (T-10 1100 × 700)
  *  - #dlgCorrSign    정정 수행 서명 (공통 서명 창 #dlgRecSign 과 같은 마크업 · 공용 클래스)
  *  - #dlgCorrVerify  정정 QA 확인 · 반려
- *  판정 · 저장 · 문장 조립 = window.EbrCorrection (D1). 이 파일은 표시 · 입력 전달만.
+ *  판정 · 저장 · 문장 조립 = window.EbrCorrection (store). 이 파일은 표시 · 입력 전달만.
  *  저장소 키(ebr.correction.v1 · ebr.esignVoid.v1)를 직접 읽지 않는다.
  *  EbrCorrection 이 없거나 함수가 없으면 fail-closed — 안내 + 버튼 비활성, 오류 없음.
  *  스타일: Elephant CSS(mesui.css) 공용 클래스 + 토큰만 (hex · px 리터럴 없음).
@@ -62,7 +62,7 @@
   function toast(m, k, ms) { if (global.MesUI) MesUI.toast(m, k || 'info', ms || 3000); }
 
   /** CF-05 실패 문구 (설계 W5 7종 + ui-items §8-5 제안 문구) — 끝에 (why) */
-  /* 설계 §5.0 표시 문구 17종 (원문 그대로, 디자이너 검토 반영) — 화면 WHY 우선, 없으면 store message */
+  /* 설계 §5.0 표시 문구 17종 (원문 그대로) — 화면 WHY 우선, 없으면 store message */
   var WHY50 = {
     no_current_user: '현재 사용자가 없습니다 — 상단에서 사용자를 선택하세요.',
     role_restricted: '정정은 OP · SV 역할만 요청할 수 있습니다.',
@@ -303,7 +303,7 @@
   }
   function valText(v) { return v == null ? '' : (typeof v === 'object' ? String(v.value == null ? '' : v.value) + (v.uom ? ' ' + v.uom : '') : String(v)); }
   /* 단계 표시 이름: 생산 = stepKey(OP3-2 표시 코드), 포장 = target.stepName → 없으면(이전 기록) targetLabel → stepKey 폴백 (빈 이름 금지) */
-  function stepDisp(t, label) { t = t || {}; return t.scope === 'pack' ? (t.stepName || label || t.stepKey || '') : (t.stepKey || ''); }
+  function stepDisp(t, label) { t = t || {}; return t.scope === 'pack' ? (t.stepName || label || t.stepKey || '') : (global.TreeUi ? global.TreeUi.stepKeyText(t.stepKey) : (t.stepKey || '')); }   /* 반복 회차 N-030#2 → 'N-030 (반복 #2)' (X4) */
   function valLabel(op) { var l = op.t.target.valueLabel; if (l != null) return l; var v = op.v; return v && typeof v === 'object' ? (v.label || v.name || '') : ''; }
   function optLabel(op) {
     var t = op.t.target, sdp = stepDisp(t, op.t.targetLabel || op.t.label), base = op.t.stepLabel || (t.scope === 'pack' && /^포장 /.test(sdp) ? sdp : (t.scope === 'pack' ? '포장 ' : '생산 ') + sdp);   /* store label 은 valueKey(화면 해시일 수 있음)를 붙이므로 단계 라벨 + 값 라벨로 조립 */

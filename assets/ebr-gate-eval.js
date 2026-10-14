@@ -20,7 +20,7 @@
     1: '미결 RBE 예외', 2: '미종결 일탈(초안 포함)', 3: '실행 서명 대기 · 무효', 4: '감사추적 검토 서명', 5: '인터페이스 대사', 6: '히스토리안 기준선 · 샘플 밀도',
     7: '다운타임 검토 · 비상 양식 회수', 8: '그 밖 필요 서명 대기', 9: '자재 QC · 칭량물', 10: '개정 첫 배치 변경 영향 검토', 11: '통제 강화 후 기존 값 평가', 12: '복원 탐지 후 QA 확인'
   };
-  var SIGN_SOURCE = { 1: [KEYS.ESIGN], 2: [KEYS.DEV], 3: [KEYS.ESIGN, KEYS.EXEC], 4: [KEYS.ESIGN, KEYS.EXEC], 8: [KEYS.ESIGN, KEYS.EXEC], 9: [KEYS.MAT, KEYS.ESIGN] };
+  var SIGN_SOURCE = { 1: [KEYS.ESIGN], 2: [KEYS.DEV, KEYS.ESIGN, KEYS.VOID, KEYS.AUDIT], 3: [KEYS.ESIGN, KEYS.EXEC], 4: [KEYS.ESIGN, KEYS.EXEC], 8: [KEYS.ESIGN, KEYS.EXEC], 9: [KEYS.MAT, KEYS.ESIGN] };
   var NOS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
   var COND_SIGN_LABEL = { 7: '다운타임 검토', 10: '변경 영향 검토', 11: '통제 강화 평가', 12: '복원 확인' };
   /* §2 공통 문구 (개정 1.1) */
@@ -43,6 +43,22 @@
     opts = opts || {};
     function S() { return opts.session || global.EbrUserSession || null; }
     function SS() { return opts.signStatus || global.EbrSignStatus || null; }
+    /* 프로세스 트리 실행 (EbrTreeExec) — 주입 null = 사용 안 함, 미주입 = 전역 */
+    function devMod() { return opts.dev || (global.EbrP0 && global.EbrP0.Dev) || global.Dev || null; }
+    function TX() { return opts.treeExec !== undefined ? opts.treeExec : (global.EbrTreeExec || null); }
+    /**
+     * 조건 3 원천 확인 (설계 T1-05 · PT-15): EbrTreeExec.requiredNodes(batchId, 'prod').
+     * → null (모듈 없음 · ok · tree_snapshot_missing = 레거시 배치 → EbrSignStatus 결과 그대로) | { why, msg } (not_implemented · 그 밖 실패 · 잘못된 모양 → 차단, fail-closed)
+     */
+    function treeGate3Block(B) {
+      var tx = TX(); if (!tx) return null;
+      if (typeof tx.requiredNodes !== 'function') return { why: 'tree_bad_shape', msg: 'requiredNodes 없음' };
+      var r; try { r = tx.requiredNodes(B, 'prod'); } catch (e) { return { why: 'tree_error', msg: String(e && e.message || e) }; }
+      if (r && r.ok && Array.isArray(r.items)) return null;
+      if (r && !r.ok && r.why === 'tree_snapshot_missing') return null;
+      var why = (r && r.why) || 'tree_bad_shape';
+      return { why: why, msg: (r && (r.msg || r.message)) || (typeof tx.msgFor === 'function' ? tx.msgFor(why) : why) };
+    }
     function storage() { return opts.storage || global.localStorage; }
     function raw(k) { var s = storage(); return s ? s.getItem(k) : null; }
     /* → { ok, v } — 키 없음 ok:true v:null, 파싱 실패 ok:false */
@@ -194,7 +210,22 @@
     /* 복원 탐지 사유 표시 (조건 12 기준 · 근거 문구) */
     var DETECT_TEXT = { wm_missing: '워터마크 없음', wm_invalid: '워터마크 형식 오류', audit: '감사 건수 감소', esign: '서명 건수 감소', 'void': '무효 사슬 감소', lastAudit: '마지막 감사 해시 불일치' };
     function detectText(why) { return (why || []).map(function (w) { return (DETECT_TEXT[w] || w) + '(' + w + ')'; }).join(' · '); }
+    /* 리뷰 X16: 기준 없는 재봉인 이력 경고(Integrity.rebaseNoneWarning) — present 면 결과에 warning, 통과여도 basis · msg 에 문구 덧붙임 */
+    function rebaseNoneOf() {
+      var I = S().Integrity;
+      if (!I || typeof I.rebaseNoneWarning !== 'function') return null;
+      var w = I.rebaseNoneWarning();
+      return w && w.present ? String(w.message || '주의: 워터마크 기준 없이 재봉인된 이력이 있습니다.') : null;
+    }
     function cond12(B) {
+      var it = cond12core(B), wn = rebaseNoneOf();
+      if (!wn) return it;
+      it.warning = wn; it.warnings = ['rebase_none'];
+      it.basis = it.basis + ' · ' + wn;
+      it.msg = it.msg ? it.msg + ' ' + wn : wn;
+      return it;
+    }
+    function cond12core(B) {
       var s = S(), src = { source: [KEYS.VOID, KEYS.ESIGN, KEYS.INTEGRITY, KEYS.AUDIT] };
       var vs = s.ESign.voidState();
       if (!vs.intact) return item(12, 'block', '무효 사슬 불일치', Object.assign({ why: 'void_chain', refs: vs.mismatches.slice(), sign: signInfo(12, false), readOnly: true,
@@ -234,6 +265,17 @@
                      : item(n, 'block', '서명 원천 항목 없음 — 차단(fail-closed)', { why: 'eval_error', source: SIGN_SOURCE[n].slice(), msg: '조건 ' + n + ' 원천 항목이 없습니다.' });
         if (g.voidIntegrity && !g.voidIntegrity.intact) items[n].why = 'void_integrity';
       });
+      /* 조건 2 근거 = 검증된 종결 서명(SM-DEV-CLOSE, X6 — 판정은 Dev.isClosedVerified: 유효 서명 · 재개 없음). 열린 일탈 ID + 종결 서명 ID */
+      var dv = devMod();
+      if (dv && typeof dv.listByBatch === 'function' && typeof dv.isClosedVerified === 'function') {
+        try { items[2].refs = uniqSort(items[2].refs.concat(dv.listByBatch(B).map(function (d) { var g = dv.isClosedVerified(d); return g ? g.signatureId : null; }))); } catch (e) { /* refs 보강 실패 = 판정 그대로 */ }
+      }
+      var tb = treeGate3Block(B);
+      if (tb) {
+        var tbMsg = '공정 트리 필요 단계를 확인할 수 없어 출하를 막습니다 — ' + tb.msg + ' (' + tb.why + ')';
+        items[3] = item(3, 'block', '공정 트리 필요 단계 확인 불가 — 차단(fail-closed) · ' + items[3].basis,
+                        { why: items[3].why === 'void_integrity' ? 'void_integrity' : 'tree_unavailable', treeWhy: tb.why, refs: items[3].refs, source: items[3].source.concat(['ebr.treeExec.v1']), msg: tbMsg });
+      }
       items[5] = guarded(5, function () { return cond5(B); });
       items[6] = guarded(6, function () { return cond6(B); });
       [7, 10].forEach(function (n) {
@@ -339,7 +381,8 @@
       }
       var wm = it.detail.watermark || {}, dt = detectText(it.detail.why), basis = (wm.at ? '기준 ' + wm.at + ' · ' : '') + '탐지 ' + (dt || '—');
       return Object.assign(base, { key: String(wm.at || (it.detail.why || []).join(',')), label: '복원 탐지 확인', tgt: B + ' · 복원 탐지 확인', val: basis, detectReason: (it.detail.why || []).slice(),
-        statementCtx: { wmAt: wm.at || dt || '—' }, fields: { batchId: B, condNo: 12, wmAt: wm.at || null, statementKind: COND_KIND[12] } });
+        statementCtx: { wmAt: wm.at || dt || '—' }, fields: { batchId: B, condNo: 12, wmAt: wm.at || null, statementKind: COND_KIND[12] } },
+        it.warning ? { warning: it.warning, warnings: ['rebase_none'] } : {});
     }
 
     /** 화면 버튼 잠금용 (조건 12만 계산) → { readOnly, why:'restore_detected'|'void_chain'|'signature_mismatch'|'src_unreadable'|'eval_error'|null } */

@@ -346,14 +346,82 @@
     writeJson(DEV_KEY, o);
   }
 
-  function isOpenStatus(st) {
-    st = String(st || '');
-    return st === 'draft' || st === 'open';
+  /* 리뷰 X6: 종결 판정 = status(closed · cancelled) + 유효한 SM-DEV-CLOSE 서명(무효화 안 됨 · deviationId · batchId 일치)
+     + 감사 순서상 그 종결(DEVIATION_CLOSED, detail.signatureId) 뒤에 재개(DEVIATION_REOPENED)가 없음. 평문 status 만 = 열림(fail-closed).
+     EbrUserSession 이 없으면 모두 열림. 예약 감사(DEVIATION_*)는 공개 Audit 로 쓸 수 없고 이 모듈의 내부 writer(claimAuditWriter('deviation'))만 쓴다 */
+  var DEV_CLOSE_RULE = 'SM-DEV-CLOSE', DEV_DONE = ['closed', 'cancelled'];
+  var devAW = null;
+  (function () {
+    function take(w) { devAW = w || null; }
+    var U = global.EbrUserSession;
+    if (U && typeof U.claimAuditWriter === 'function') take(U.claimAuditWriter('deviation'));
+    else (global.__ebrAuditClaims = global.__ebrAuditClaims || []).push({ owner: 'deviation', take: take });
+  })();
+  function devU() { return global.EbrUserSession || null; }
+  function devCurUser() { var U = devU(); try { return U && U.getCurrentUserId ? U.getCurrentUserId() || '' : ''; } catch (e) { return ''; } }
+  function devAudit(entry) {
+    var U = devU();
+    try {
+      if (/^DEVIATION_/.test(entry.act)) { if (!devAW) return false; devAW.append(entry); return true; }
+      if (U && U.Audit) { U.Audit.append(entry); return true; }
+    } catch (e) { /* 감사 실패 */ }
+    return false;
   }
+  function closeSigOf(it, sigId) {
+    var U = devU(); if (!U || !U.ESign || !sigId) return null;
+    var g = null; try { g = U.ESign.list({}).filter(function (x) { return x && x.signatureId === sigId; })[0] || null; } catch (e) { return null; }
+    if (!g || g.signRuleId !== DEV_CLOSE_RULE || String(g.deviationId || '') !== String(it.id) || String(g.batchId || '') !== authBatch(it)) return null;   /* 원래 배치 = 생성 감사 */
+    try { return U.ESign.validity(g).state === 'valid' ? g : null; } catch (e) { return null; }
+  }
+  function closeProof(it) {
+    if (!it || DEV_DONE.indexOf(String(it.status || '')) < 0) return null;
+    var U = devU(); if (!U || !U.Audit) return null;
+    var last = null; try { U.Audit.list({}).forEach(function (a) { if (a && String(a.tgt) === String(it.id) && (a.act === 'DEVIATION_CLOSED' || a.act === 'DEVIATION_REOPENED')) last = a; }); } catch (e) { return null; }
+    if (!last || last.act !== 'DEVIATION_CLOSED') return null;
+    return closeSigOf(it, last.detail && last.detail.signatureId);
+  }
+  function isOpenItem(it) { return !closeProof(it); }
+  /* 감사 DEVIATION_OPENED 중 원래 batchId 가 bid 인 deviationId (감사 직접 편집은 워터마크 · read_only 가 잡음) */
+  function openedIds(bid) {
+    var U = devU(), out = [];
+    if (!U || !U.Audit) return out;
+    try { U.Audit.list({ act: 'DEVIATION_OPENED' }).forEach(function (a) { var d = a && a.detail; if (d && (bid == null || String(d.batchId) === bid) && d.deviationId && out.indexOf(String(d.deviationId)) < 0) out.push(String(d.deviationId)); }); } catch (e) { /* 읽기 실패 — 저장소 판정만 */ }
+    return out;
+  }
+  function devRoles(uid) { var U = devU(); try { return (U && U.rolesOf ? U.rolesOf(uid) : []) || []; } catch (e) { return []; } }
+  /* 리뷰 X8' · X9: 보고자 · 원래 배치는 저장소가 아니라 DEVIATION_OPENED 감사(행 해시 사슬로 봉인)에서 — 보고자 = 그 행의 uid. 생성 감사가 없으면 보고자 불명(fail-closed) */
+  /* 감사 사슬이 깨졌거나(chain · chain_legacy) 읽을 수 없으면 감사 내용을 믿지 않는다 */
+  function auditTrusted() {
+    var U = devU(); if (!U || !U.Integrity || typeof U.Integrity.state !== 'function') return false;
+    try { var st = U.Integrity.state(); return !st.unreadable && !(st.why || []).some(function (w) { return /^chain|^wm_/.test(w); }); } catch (e) { return false; }
+  }
+  function openedEntry(id) {
+    var U = devU(); if (!U || !U.Audit || id == null || !auditTrusted()) return null;
+    var hit = null; try { U.Audit.list({ act: 'DEVIATION_OPENED' }).some(function (a) { var d = a && a.detail; if (d && String(d.deviationId) === String(id)) { hit = a; return true; } return false; }); } catch (e) { return null; }
+    return hit;
+  }
+  function authBatch(it) { var e = it ? openedEntry(it.id) : null; return e ? String(e.detail.batchId || '') : String((it && it.batchId) || ''); }
+  function devReporter(it) { var e = it ? openedEntry(it.id) : null; return e ? String(e.uid || '') : ''; }
+  function devFail(why, message, it, extra) {
+    var r = { ok: false, why: why, message: message };
+    if (extra) Object.keys(extra).forEach(function (k) { r[k] = extra[k]; });
+    r.audited = devAudit({ act: 'DEVIATION_CLOSE_DENIED', why: why, tgt: it ? it.id : '—', val: (it ? it.id : '—') + ' · ' + why, batchId: it ? it.batchId || '' : '' });
+    return r;
+  }
+  function findDev(id) { var o = devLoad(); for (var i = 0; i < o.items.length; i++) if (o.items[i].id === id) return { o: o, i: i, it: o.items[i] }; return null; }
 
   var Dev = {
     KEY: DEV_KEY,
+    CLOSE_RULE: DEV_CLOSE_RULE,
+    /* 리뷰 X8: 보고자 = 현재 사용자 강제. partial.reportedBy 가 현재 사용자와 다르면 거부(fail-closed) + DEVIATION_CREATE_DENIED 감사, 같으면 무시.
+       리뷰 X7: 생성 = DEVIATION_OPENED 감사(내부 writer, detail.deviationId · batchId) — listOpen 역대조 원천 */
     create: function (partial) {
+      var cur0 = devCurUser();
+      if (partial && partial.reportedBy != null && partial.reportedBy !== '' && String(partial.reportedBy) !== cur0) {
+        var dr = { ok: false, why: 'reporter_mismatch', message: '일탈 보고자는 현재 로그인 사용자로만 기록됩니다 — 다른 보고자를 지정할 수 없습니다.' };
+        dr.audited = devAudit({ act: 'DEVIATION_CREATE_DENIED', why: 'reporter_mismatch', tgt: String((partial && partial.batchId) || '—'), val: '보고자 지정 거부 · ' + String(partial.reportedBy) + ' ≠ ' + (cur0 || '(없음)'), batchId: String((partial && partial.batchId) || '') });
+        return dr;
+      }
       var o = devLoad();
       var batchId = (partial && partial.batchId) || 'BR-UNKNOWN';
       var seq = o.items.length + 1;
@@ -363,6 +431,12 @@
           String(batchId).replace(/^BR-/, '').replace(/[^A-Za-z0-9-]/g, '') +
           '-' +
           String(seq).padStart(2, '0');
+      /* X9: ID 재사용 금지 — 저장소 · 감사 DEVIATION_OPENED 에 있는 ID 는 쓰지 않음(자동 ID 는 다음 번호, 호출자 지정 ID 는 거부 + 감사) */
+      var used = {}; o.items.forEach(function (x) { if (x && x.id != null) used[String(x.id)] = 1; }); openedIds(null).forEach(function (k) { used[k] = 1; });
+      if (used[id]) {
+        if (partial && partial.id) { var dr2 = { ok: false, why: 'id_in_use', message: '이미 쓰인 일탈 ID 입니다: ' + id }; dr2.audited = devAudit({ act: 'DEVIATION_CREATE_DENIED', why: 'id_in_use', tgt: String(id), val: '일탈 ID 재사용 거부 · ' + id, batchId: String(batchId) }); return dr2; }
+        while (used[id]) { seq++; id = id.replace(/-\d+$/, '-' + String(seq).padStart(2, '0')); }
+      }
       var item = {
         id: id,
         orderNo: (partial && partial.orderNo) || null,
@@ -373,7 +447,8 @@
         status: (partial && partial.status) || 'open',
         capaLink: partial && partial.capaLink != null ? partial.capaLink : null,
         createdAt: (partial && partial.createdAt) || nowIso(),
-        closedAt: (partial && partial.closedAt) || null
+        closedAt: (partial && partial.closedAt) || null,
+        reportedBy: cur0 || ''   /* 보고자 = 현재 사용자 (X8) — 종결 서명 SoD(보고자 ≠ 종결자) */
       };
       /* 칭량 L3: 연결 필드 (있을 때만 복사) — refType · refId · nodeId · lineId */
       ['refType', 'refId', 'nodeId', 'lineId'].forEach(function (k) {
@@ -381,6 +456,7 @@
       });
       o.items.push(item);
       devSave(o);
+      devAudit({ act: 'DEVIATION_OPENED', tgt: id, val: id + ' · ' + batchId + ' · ' + item.title, batchId: batchId, detail: { deviationId: id, batchId: batchId } });
       return item;
     },
     listByBatch: function (batchId) {
@@ -389,30 +465,95 @@
         return String(it.batchId) === bid;
       });
     },
+    /* 열린 일탈 = 검증된 종결(closeProof)이 없는 모든 일탈 (초안 · 평문 closed 포함)
+       + 리뷰 X7 역대조: 감사 DEVIATION_OPENED(원래 batchId)의 모든 ID — 저장소에 없으면(missing) · batchId 가 바뀌었으면(movedTo) 원래 배치의 열린 일탈.
+         옮겨진 항목은 원래 배치 기준으로 종결 서명(deviationId · batchId 봉인)을 확인한다 */
+    /* 리뷰 X12: 모든 배치의 열린 일탈 ID (무결성 표지 제외) — 재봉인 전후 판정 비교용 */
+    openSetAll: function () {
+      var bs = {}, out = [];
+      devLoad().items.forEach(function (it) { if (it && it.batchId != null) bs[String(it.batchId)] = 1; });
+      openedIds(null).forEach(function (k) { var e = openedEntry(k); if (e) bs[String(e.detail.batchId)] = 1; });
+      Object.keys(bs).forEach(function (b) { Dev.listOpen(b).forEach(function (x) { if (x && !x.integrity && out.indexOf(String(x.id)) < 0) out.push(String(x.id)); }); });
+      return out.sort();
+    },
     listOpen: function (batchId) {
-      return Dev.listByBatch(batchId).filter(function (it) {
-        return isOpenStatus(it.status);
+      /* 대상 = 저장소 ID ∪ 감사 DEVIATION_OPENED ID. 원래 배치 = 생성 감사(없으면 저장소). 원래 배치가 batchId 이거나 저장소가 batchId 로 옮겨 놓은 것.
+         저장소에 없으면 열림(missing), 저장소 batchId 가 원래와 다르면 movedTo 표시, 종결 = 원래 배치 기준 closeProof */
+      var bid = String(batchId || ''), all = devLoad().items, byId = {}, ids = [], out = [];
+      if (bid && !auditTrusted()) out.push({ id: '(감사 사슬 손상)', batchId: bid, status: 'integrity', integrity: true, title: '감사 행 사슬이 깨져 일탈 근거를 믿을 수 없음 — 차단(fail-closed)' });
+      all.forEach(function (it) { if (it && it.id != null) { var k = String(it.id); if (!byId[k]) { byId[k] = it; ids.push(k); } } });
+      openedIds(null).forEach(function (k) { if (ids.indexOf(k) < 0) ids.push(k); });
+      ids.forEach(function (k) {
+        var it = byId[k], e = openedEntry(k), ob = e ? String(e.detail.batchId) : String(it ? it.batchId : '');
+        if (ob !== bid && !(it && String(it.batchId) === bid)) return;
+        if (!it) { out.push({ id: k, batchId: ob, status: 'missing', missing: true, title: '(저장소에 없음 — 감사상 열린 일탈)' }); return; }
+        if (closeProof(it)) return;
+        if (String(it.batchId) !== ob) out.push({ id: k, batchId: ob, status: String(it.status || ''), movedTo: String(it.batchId || ''), title: it.title || '' });
+        else out.push(it);
       });
+      return out;
     },
     openCount: function (batchId) {
       return Dev.listOpen(batchId).length;
     },
-    setStatus: function (id, status) {
-      var o = devLoad();
-      var st = String(status || '');
-      for (var i = 0; i < o.items.length; i++) {
-        if (o.items[i].id === id) {
-          o.items[i].status = st;
-          if (st === 'closed' || st === 'cancelled') {
-            o.items[i].closedAt = nowIso();
-          } else {
-            o.items[i].closedAt = null;
-          }
-          devSave(o);
-          return o.items[i];
+    /* isClosedVerified(itemOrId) → 종결 서명 레코드 | null */
+    isClosedVerified: function (x) {
+      var it = typeof x === 'string' ? (findDev(x) || {}).it : x;
+      var g = closeProof(it); return g ? JSON.parse(JSON.stringify(g)) : null;
+    },
+    /* beginClose(id, {reason}) → EbrUserSession.beginRecordSign 결과(ticket) | {ok:false, why}.
+       현재 사용자 QA 만(아니면 role_denied + DEVIATION_CLOSE_DENIED 감사), 보고자 ≠ 종결자(distinctFrom ⑥), 보고자 불명 = 거부.
+       커밋 = EbrUserSession.signAndCommitRecord(ticket, {userId, password}) → status closed · closeSignatureId · DEVIATION_CLOSED 감사(서명 커밋과 같은 쓰기) */
+    beginClose: function (id, opt) {
+      opt = opt || {};
+      var U = devU(), f = findDev(String(id || ''));
+      if (!U || typeof U.beginRecordSign !== 'function') return { ok: false, why: 'no_session', message: '사용자 세션 헬퍼가 없습니다 — 종결할 수 없습니다.' };
+      if (!f) return devFail('not_found', '일탈을 찾을 수 없습니다.', null);
+      var it = f.it, cur = devCurUser();
+      if (!cur) return devFail('no_current_user', '현재 사용자를 선택하세요.', it);
+      if (devRoles(cur).indexOf('QA') < 0) return devFail('role_denied', '일탈 종결은 QA 만 할 수 있습니다.', it, { userId: cur });
+      if (closeProof(it)) return { ok: false, why: 'already_closed', message: '이미 종결된 일탈입니다.' };
+      var rep = devReporter(it);
+      if (!rep) return devFail('reporter_unknown', '일탈 보고자를 알 수 없어 종결자 분리를 확인할 수 없습니다 — 종결할 수 없습니다.', it);
+      if (rep === cur) return devFail('same_person', '일탈 보고자는 종결 서명을 할 수 없습니다.', it, { userId: cur });
+      var reason = String(opt.reason == null ? '' : opt.reason).trim();
+      if (!reason || Array.from(reason).length > 200) return { ok: false, why: 'reason_required', message: '종결 사유를 입력하세요 (1–200자).' };
+      var bid = authBatch(it), devId = String(it.id);   /* 원래 배치 = 생성 감사 (X9) */
+      return U.beginRecordSign({
+        signRuleId: DEV_CLOSE_RULE, recordType: 'deviation_close', tgt: devId + ' · ' + bid, val: '일탈 종결 · ' + reason, orderNo: it.orderNo || null,
+        screen: opt.screen, statementKind: 'deviation_close', statementCtx: { batchId: bid, deviationId: devId, reason: reason },
+        fields: { batchId: bid, deviationId: devId, statementKind: 'deviation_close', reportedBy: rep },
+        distinctFrom: [{ userId: rep, label: '일탈 보고자' }], keys: [DEV_KEY], cancelAct: 'DEV_CLOSE_SIGN_CANCEL', rollbackAct: 'DEV_CLOSE_ROLLBACK',
+        precheck: function () { var g = findDev(devId); if (!g) return { detail: 'not_found', message: '일탈이 사라졌습니다.' }; if (closeProof(g.it)) return { detail: 'already_closed', message: '이미 종결되었습니다.' }; return null; },
+        apply: function (sig, ctx) {
+          var g = findDev(devId); if (!g) throw new Error('dev_missing');
+          g.it.status = 'closed'; g.it.closedAt = ctx.at; g.it.closedBy = sig.signerId; g.it.closeSignatureId = sig.signatureId; g.it.closeReason = reason;
+          devSave(g.o);
+          return { audits: [{ act: 'DEVIATION_CLOSED', tgt: devId, val: devId + ' · ' + bid + ' · ' + sig.signatureId, batchId: bid, detail: { signatureId: sig.signatureId, deviationId: devId } }],
+                   result: { deviationId: devId, signatureId: sig.signatureId } };
         }
+      });
+    },
+    /* close(id, {reason, userId, password}) = beginClose + signAndCommitRecord (편의) */
+    close: function (id, opt) {
+      opt = opt || {};
+      var b = Dev.beginClose(id, opt); if (!b || !b.ok) return b;
+      return devU().signAndCommitRecord(b.ticket, { userId: opt.userId, password: opt.password, comment: opt.comment });
+    },
+    /* setStatus(id, status): 종결(closed · cancelled)은 서명 흐름(beginClose)에서만 — 여기서는 누구든 거부(QA 아니면 role_denied, QA 면 signature_required) + DEVIATION_CLOSE_DENIED 감사.
+       그 밖 상태(open · draft · investigating …)는 변경 + 감사(종결 → 다시 열면 DEVIATION_REOPENED, 아니면 DEVIATION_STATUS). 반환: 항목 | {ok:false, why} | null(없음) */
+    setStatus: function (id, status) {
+      var st = String(status || ''), f = findDev(id);
+      if (!f) return null;
+      if (DEV_DONE.indexOf(st) >= 0) {
+        var cur = devCurUser(), qa = cur && devRoles(cur).indexOf('QA') >= 0;
+        return devFail(qa ? 'signature_required' : 'role_denied', qa ? '일탈 종결은 종결 서명(SM-DEV-CLOSE)으로만 할 수 있습니다 — Dev.beginClose 를 쓰세요.' : '일탈 종결은 QA 의 종결 서명으로만 할 수 있습니다.', f.it, { userId: cur || '' });
       }
-      return null;
+      var wasClosed = !!closeProof(f.it), prev = String(f.it.status || '');
+      f.it.status = st; f.it.closedAt = null;
+      devSave(f.o);
+      devAudit({ act: wasClosed ? 'DEVIATION_REOPENED' : 'DEVIATION_STATUS', tgt: id, val: id + ' · ' + prev + ' → ' + st, batchId: f.it.batchId || '' });
+      return f.it;
     }
   };
 

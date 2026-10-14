@@ -199,8 +199,27 @@
   #rsDtSel { height: var(--ctrl-h-form); }
   #grdCondEf col.c-ef { width: var(--col-w-160); }
   #dlgGateCond .dialog-footer .sign-note, #dlgRestore .dialog-footer .sign-note { margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  /* 기준 없는 재봉인 이력 · 재봉인 거부 사유 · 원래 단계 펼침 (조건 12 · 조건 2/3 참고) */
+  .rg-x[hidden] { display: none !important; }
+  .rg-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .rg-flex { display: flex; align-items: center; gap: var(--badge-gap); min-width: 0; overflow: hidden; }
+  .rg-flex > .badge { flex: 0 0 auto; }
+  .badge.rg-dot { gap: 0; padding: 0 var(--paging-gap); cursor: help; }
+  .rg-ell { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #dlgRestore .form-grid .text.rg-wrap { white-space: normal; text-overflow: clip; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: var(--fs-input); overflow-wrap: anywhere; }
+  #dlgRestore .form-grid > .field.rg-wfield { align-items: center; }
+  .rg-steps { flex: 0 0 auto; }
+  .rg-steps > summary { cursor: pointer; font-size: var(--fs-grid); color: var(--c-text-sub); height: var(--grid-row-h); display: flex; align-items: center; }
+  .rg-steps .grid-wrap { max-height: calc(var(--grid-row-h) * 4 + var(--grid-head-h)); overflow: auto; }
   /* 미종결 일탈 팝업 */
   #dlgDev #devPanel { flex: 1 1 auto; min-height: 0; }
+  /* 미종결 일탈 표 — 표시(배지) 열 분리 · 셀 한 줄 말줄임 (.dialog.md 900 × 700) */
+  #grdDevOpen { table-layout: fixed; }
+  #grdDevOpen col.c-dv-id { width: var(--col-w-140); } #grdDevOpen col.c-dv-gr { width: var(--col-w-short); } #grdDevOpen col.c-dv-st { width: var(--col-w-short); }
+  #grdDevOpen col.c-dv-mk { width: var(--col-w-240); } #grdDevOpen col.c-dv-act { width: var(--col-w-200); }
+  #grdDevOpen td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #grdDevOpen td.dv-mk { text-overflow: clip; }
+  #grdDevOpen td.dv-mk .badge + .badge { margin-left: var(--badge-gap); }
   .release-block { color: var(--c-error); font-weight: bold; }
   /* ==== 서명 무효화 창 #dlgInvalidate ==== */
   #dlgInvalidate .shell-body { display: flex; flex-direction: column; gap: var(--split-gutter); }
@@ -249,7 +268,7 @@
     <div class="form-grid cols-2 readonly" id="frmSummary">
       <span class="label">배치</span><span class="field"><span class="text" id="smBatch"></span></span>
       <span class="label">MBR</span><span class="field"><span class="text" id="smMbr"></span></span>
-      <span class="label">상태</span><span class="field"><span class="text"><span class="badge" id="smStatus">검토</span><span class="muted" id="smStatusNote"></span></span></span>
+      <span class="label">상태</span><span class="field"><span class="text"><span class="badge" id="smStatus">검토</span><span class="muted" id="smStatusNote"></span> <span class="badge warn rg-x" id="smRebaseNone" hidden>기준 없는 재봉인 이력</span></span></span>
       <span class="label">건강도</span><span class="field"><span class="text"><span class="badge warn" id="smHealth">예외 3 · 미결 1</span></span></span>
       <span class="label">일탈</span><span class="field"><span class="text" id="smDev"></span></span>
       <span class="label">매니페스트</span><span class="field"><span class="text"><span class="lnk" onclick="MesUI.toast('매니페스트 MF-0412 조회 팝업(T-10) 열기', 'info')">MF-0412</span><span class="muted">값 128건 · 해시 체인 검증 정상</span></span></span>
@@ -266,7 +285,7 @@
           <span class="vbar"></span>
           <select class="input w-160" id="fltCat" title="카테고리"><option value="">카테고리 전체</option><option>WARNING_ACK</option><option>규격 이탈(IPC)</option><option>MANUAL_BY_DESIGN + 정정</option></select>
           <select class="input w-120" id="fltStatus" title="상태"><option value="">상태 전체</option><option>미결</option><option>검토 완료</option><option>QA 승인</option></select>
-          <label class="checkbox"><input type="checkbox" id="fltCritical"> critical만</label>
+          <label class="checkbox"><input type="checkbox" id="fltCritical"> 치명만</label>
           <span class="spacer"></span>
           <span class="tip" id="tipCorrect"><button class="btn search" type="button" id="btnCorrect" data-p0-edit>정정</button></span>
           <span class="tip" id="tipQaApprove"><button class="btn search secondary" type="button" id="btnQaApprove" data-p0-edit>QA 검토 서명</button></span>
@@ -331,7 +350,7 @@
             <span class="label">산출 · 담당</span><span class="field"><span class="text" id="cdJudge"></span></span>
             <span class="label">대상</span><span class="field"><span class="text" id="cdTarget"></span></span>
             <span class="label">필요 서명</span><span class="field"><span class="text" id="cdSign"></span></span>
-            <span class="label">근거 refs</span><span class="field"><span class="text" id="cdRefs"></span></span>
+            <span class="label">근거 참조</span><span class="field"><span class="text" id="cdRefs"></span></span>
           </div>
           <div class="cond-msg" id="cdMsg"><span id="cdMsgText"></span></div>
           <div class="cond-actions">
@@ -348,26 +367,40 @@
 
 <!-- 미종결 일탈 팝업 (게이트 2 대체 경로 · 화면 높이 안에 검토 · 체크리스트 분할을 남기려고 본문에서 팝업으로) -->
 <div class="dialog-backdrop" id="dlgDev">
-  <div class="dialog sm">
+  <div class="dialog md">
     <div class="popup-title"><span class="text">미종결 일탈</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
     <div class="shell-body">
       <div class="grid-block" id="devPanel">
         <div class="grid-toolbar">
-          <span class="group-title">미종결 일탈 (P0-4 · ebr.deviation.v1)</span>
+          <span class="group-title">미종결 일탈</span>
           <span class="spacer"></span>
-          <span class="sub-info" id="devOpenCount">open 0</span>
-          <button class="btn search secondary" type="button" id="btnRefreshDev">Refresh</button>
+          <span class="sub-info" id="devOpenCount">미종결 0</span>
+          <button class="btn search secondary" type="button" id="btnRefreshDev">새로고침</button>
         </div>
         <div class="grid-wrap" id="devWrap">
           <table class="grid" id="grdDevOpen">
-            <colgroup><col style="width:140px"><col><col style="width:90px"><col style="width:100px"><col style="width:160px"></colgroup>
-            <thead><tr><th>id</th><th>title</th><th>grade</th><th>status</th><th>액션</th></tr></thead>
+            <colgroup><col class="c-dv-id"><col><col class="c-dv-gr"><col class="c-dv-st"><col class="c-dv-mk"><col class="c-dv-act"></colgroup>
+            <thead><tr><th>일탈 ID</th><th>제목</th><th>등급</th><th>상태</th><th>표시</th><th>작업</th></tr></thead>
             <tbody id="grdDevOpenBody"></tbody>
           </table>
         </div>
       </div>
     </div>
     <div class="dialog-footer"><button class="btn search secondary" type="button" data-dialog-close>닫기</button></div>
+  </div>
+</div>
+
+<!-- 일탈 종결 사유 #dlgDevClose (.dialog.sm 600 × 480) — 사유 → Dev.beginClose → 공통 서명 창 #dlgRecSign (SM-DEV-CLOSE) -->
+<div class="dialog-backdrop" id="dlgDevClose">
+  <div class="dialog sm" role="dialog" aria-labelledby="dcTitle">
+    <div class="popup-title"><span class="text" id="dcTitle">일탈 종결 서명</span><button class="popup-close" type="button" data-dialog-close aria-label="Close"></button></div>
+    <div class="shell-body">
+      <div class="form-grid readonly" id="dcKv"></div>
+      <div class="form-grid"><span class="label required">종결 사유</span><span class="field"><input class="input" type="text" id="dcReason" maxlength="200" placeholder="1–200자 필수 — 조사 · 조치 결과" autocomplete="off"></span></div>
+      <div class="sign-err sub-info fc-fail" id="dcErr" role="alert"></div>
+      <div class="sub-info">QA 만 종결 서명 · 일탈 보고자는 종결자가 될 수 없습니다 (SM-DEV-CLOSE).</div>
+    </div>
+    <div class="dialog-footer"><span class="spacer"></span><button class="btn search secondary" type="button" data-dialog-close>닫기</button><button class="btn search primary" type="button" id="dcGo">종결 서명으로</button></div>
   </div>
 </div>
 
@@ -384,8 +417,10 @@
       </div>
       <span class="cond-msg-label" id="gcMsgLabel">근거</span>
       <div class="cond-msg" id="gcMsg"><span id="gcMsgText"></span></div>
+      <span class="sub-info rg-flex rg-x" id="gcRebaseNone" hidden><span id="gcRnBadge"></span><span class="rg-ell" id="gcRebaseNoneText"></span></span>
+      <span class="sub-info rg-line rg-x" id="gcRebaseCheck" hidden></span>
       <div class="grid-block">
-        <div class="grid-toolbar"><span class="group-title" id="gcGridTitle">근거 refs</span><span class="total-text" id="gcGridTotal"></span></div>
+        <div class="grid-toolbar"><span class="group-title" id="gcGridTitle">근거 참조</span><span class="total-text" id="gcGridTotal"></span></div>
         <div class="grid-wrap">
           <table class="grid" id="grdCondEf">
             <colgroup><col class="col-no"><col class="c-ef"><col></colgroup>
@@ -394,6 +429,15 @@
           </table>
         </div>
       </div>
+      <details class="rg-steps rg-x" id="gcOrigSteps" hidden>
+        <summary id="gcOrigSum">원래 단계 · 슬롯 상태 (참고 — 판정에는 쓰지 않음)</summary>
+        <div class="grid-wrap">
+          <table class="grid">
+            <thead><tr><th class="col-no">#</th><th>단계</th><th>트리 상태</th><th>수행</th><th>확인</th></tr></thead>
+            <tbody id="gcOrigBody"></tbody>
+          </table>
+        </div>
+      </details>
     </div>
     <div class="dialog-footer">
       <span class="lnk" id="gcLink"></span>
@@ -414,8 +458,10 @@
         <span class="label">상태</span><span class="field"><span class="text" id="rtSt"></span></span>
         <span class="label">배치</span><span class="field"><span class="text" id="rtBatch"></span></span>
         <span class="label">탐지 내용</span><span class="field"><span class="text" id="rtWhat"></span></span>
-        <span class="label">근거 refs</span><span class="field"><span class="text" id="rtRefs"></span></span>
+        <span class="label">근거 참조</span><span class="field"><span class="text" id="rtRefs"></span></span>
         <span class="label">해소</span><span class="field"><span class="text">QA 복원 확인 서명 뒤 재평가 · 잠금 해제</span></span>
+        <span class="label rg-x" id="rtRebaseNoneL" hidden><span id="rtRnBadge"></span></span><span class="field rg-x rg-wfield" id="rtRebaseNoneF" hidden><span class="text rg-wrap" id="rtRebaseNone"></span></span>
+        <span class="label rg-x" id="rtRebaseCheckL" hidden>재봉인 검사</span><span class="field rg-x rg-wfield" id="rtRebaseCheckF" hidden><span class="text rg-wrap" id="rtRebaseCheck"></span></span>
       </div>
       <span class="sub-info" id="rtLimit">PoC 한계 — 저장소 일부 되돌림만 탐지합니다. 저장소 전체를 통째로 복원하는 경우는 탐지하지 못합니다.</span>
     </div>
@@ -515,10 +561,12 @@
 <script src="./assets/ebr-exec-sign-store.js"></script>   <!-- 검토 · 출하 서명 래퍼 (window.EbrExecSign) -->
 <script src="./assets/ebr-gate-cond-store.js"></script>   <!-- 다운타임 · 비상 양식 회수 (window.EbrGateCond) -->
 <script src="./assets/ebr-gate-eval.js"></script>   <!-- 출하 게이트 12조건 판정 (window.EbrGateEval, 읽기 전용) -->
+<script src="./assets/ebr-exec-snapshot.js"></script>   <!-- 발행 스냅샷 실행 봉인 검증 (window.EbrExecSnapshot.verifyExec — 트리 판정 · 조건 3) -->
+<script src="./assets/ebr-tree-exec.js"></script>   <!-- 프로세스 트리 실행 (window.EbrTreeExec) — 조건 3 필요 단계 원천(requiredNodes, 읽기만) -->
 <script src="./assets/ebr-sign-status.js"></script>   <!-- 서명 상태 · 게이트 서명 항목 (window.EbrSignStatus) -->
 <script src="./exec-sign-ui.js"></script>
 <script src="./exec-sign-invalidate.js"></script>
-<script src="./assets/ebr-correction-store.js"></script>   <!-- D1 정정 store (window.EbrCorrection) -->
+<script src="./assets/ebr-correction-store.js"></script>   <!-- 정정 store (window.EbrCorrection) -->
 <script src="./assets/ebr-correction-ui.js"></script>   <!-- 정정 공통 팝업 (window.CorrUI — #dlgCorrection · #dlgCorrSign · #dlgCorrVerify) -->
 
 <script>
@@ -794,7 +842,7 @@
       var lab = GATE_BY[it.no] || {};
       var stv = it.status || it.st;   /* GateItem.st (status 별칭 허용) 'pass' | 'block' | 'na' */
       return { no: it.no, cond: it.cond || lab.cond || '', status: stv, st: ST_TEXT[stv] || stv, basis: it.basis || '', msg: it.msg || '',
-        source: it.source || [], refs: it.refs || [], sign: it.sign || null, ef: efRows(it.detail), detail: it.detail || null, comp: lab.comp || '', owner: lab.owner || '', link: lab.link || '' };
+        source: it.source || [], refs: it.refs || [], sign: it.sign || null, ef: efRows(it.detail), detail: it.detail || null, warning: it.warning == null ? null : it.warning, warnings: Array.isArray(it.warnings) ? it.warnings.slice() : null, comp: lab.comp || '', owner: lab.owner || '', link: lab.link || '' };
     });
   }
   function efRows(d) {   /* 조건 7 detail.ef → 표시 행 (판정 없음 · 원천 목록 그대로 분류) */
@@ -832,13 +880,13 @@
   function renderSummary() {
     $('smBatch').textContent = BATCH.id + ' · ' + BATCH.product + ' · ' + BATCH.size;
     $('smMbr').textContent = BATCH.mbr + ' (' + BATCH.mbrNote + ')';
-    if (REL) { MesUI.setBadge($('smStatus'), 'ok', '출하 완료'); $('smStatusNote').textContent = ' ' + (REL.signatureId || '') + ' · ' + (REL.releasedAt || '') + ' · manifest ' + String(REL.manifestHash || '').slice(0, 8); $('smStatusNote').title = REL.manifestHash || ''; }
+    if (REL) { MesUI.setBadge($('smStatus'), 'ok', '출하 완료'); $('smStatusNote').textContent = ' ' + (REL.signatureId || '') + ' · ' + (REL.releasedAt || '') + ' · 목록 해시 ' + String(REL.manifestHash || '').slice(0, 8); $('smStatusNote').title = REL.manifestHash || ''; }
     else { MesUI.setBadge($('smStatus'), '', '검토'); $('smStatusNote').textContent = ''; }
     var open = exceptions().filter(function (e) { return e.status === '미결'; }).length;
     var openDevN = Dev ? Dev.openCount(currentBatchId()) : 0;
     MesUI.setBadge($('smHealth'), open ? 'warn' : 'ok', '예외 ' + exList().length + ' · 미결 ' + open);
     var dev = $('smDev'); dev.innerHTML = '';
-    var a = document.createElement('span'); a.className = 'lnk'; a.textContent = '일탈 open ' + openDevN;
+    var a = document.createElement('span'); a.className = 'lnk'; a.textContent = '미종결 ' + openDevN;
     a.onclick = function () { renderDevPanel(); MesUI.openDialog('dlgDev'); };
     dev.appendChild(a);
     var t = document.createElement('span'); t.textContent = openDevN > 0 ? ' 미종결' : ' 종결';
@@ -911,7 +959,7 @@
     var tb = $('grdGateBody'); tb.innerHTML = '';
     var sel = null;
     exceptions().forEach(function (e) { if (e.id === state.selectedRbe) sel = e; });
-    var rows = gate();
+    var rows = gate(), rn = rebaseNone(); renderRebaseNone();
     if (!rows.some(function (g) { return g.no === state.condNo; })) { var fb = rows.filter(function (g) { return g.status === 'block'; })[0] || rows[0]; state.condNo = fb ? fb.no : null; }
     if (!rows.length) tb.innerHTML = '<tr><td colspan="4" class="sub-info">판정 원천을 읽을 수 없습니다 (' + esc(EV && EV.why || '') + ') — 재평가하세요.</td></tr>';
     rows.forEach(function (g) {
@@ -919,7 +967,7 @@
       tr.dataset.no = g.no;
       tr.innerHTML =
         '<td class="center">' + g.no + '</td>' +
-        '<td title="' + esc(g.cond) + '">' + esc(g.cond) + '</td>' +
+        '<td title="' + esc(g.cond) + '">' + (g.no === 12 && rn ? '<span class="rg-flex"><span class="rg-ell">' + esc(g.cond) + '</span>' + rnBadge(rn, 'dot') + '</span>' : esc(g.cond)) + '</td>' +
         '<td>' + stBadge(g) + '</td>' +
         '<td title="' + esc(g.basis) + '">' + esc(g.basis) + '</td>';
       if (g.status === 'block') tr.classList.add('blocked');
@@ -952,13 +1000,14 @@
     if (!g) { $('cdTitle').textContent = '조건 상세'; $('cdBadge').innerHTML = ''; return; }
     var t = '조건 상세 — ' + g.no + ' ' + g.cond;
     $('cdTitle').textContent = t; $('cdTitle').title = t;
-    $('cdBadge').innerHTML = stBadge(g);
+    $('cdBadge').innerHTML = stBadge(g) + (g.no === 12 ? rnBadge(rebaseNone()) : '');
     function set(id, html, tip) { $(id).innerHTML = html; $(id).title = tip == null ? $(id).textContent : tip; }
     set('cdSrc', esc(g.source.join(' · ') || '—'));
     set('cdJudge', esc(g.comp + ' · 담당 ' + g.owner));
     set('cdTarget', esc(BATCH.id + ' · ' + BATCH.mbr));
     set('cdSign', g.sign ? esc(signLine(g.sign)) + (g.sign.pending ? ' <span class="badge muted">대기</span>' : '') : '<span class="muted">조건 서명 없음</span>', g.sign ? signLine(g.sign) : '');
-    set('cdRefs', esc(g.refs.join(' · ') || '—'));
+    var dm2 = g.no === 2 ? devById() : {};
+    set('cdRefs', (g.refs.map(function (r) { return esc(r) + devMarks(dm2[r]); }).join(' · ') || '—'), g.refs.join(' · ') || '—');
     var blk = g.status === 'block';
     $('cdMsg').className = 'cond-msg' + (blk ? ' block' : '');
     var m = blk ? (g.msg || g.basis) : g.basis;
@@ -1002,7 +1051,8 @@
       f1: bid + ' · ' + BATCH.product, l2: '대상', f2: ['조건 ' + no + ' · ' + (g.refs.join(' · ') || g.cond), g.refs.join(' · ')],
       f6: cs.rec, valTitle: '검토 대상', rows: rows,
       note: '서명 뒤 게이트 재평가 · 조건 ' + no + ' 반영',
-      begin: function (x) { return GateApi.beginCondSign(x, bid, no, dtId); },
+      begin: function (x) { var b = GateApi.beginCondSign(x, bid, no, dtId); return no === 12 ? relabelReject(b) : b; },
+      commit: no === 12 ? function (t, inp) { var a = window.EbrExecSign; if (!a || typeof a.signAndCommit !== 'function') return { ok: false, why: 'not_implemented' }; return relabelReject(a.signAndCommit(t, inp)); } : undefined,
       okText: '검토 서명 완료',
       onDone: function () { MesUI.closeDialog('dlgGateCond'); MesUI.closeDialog('dlgRestore'); reevaluate(); }
     });
@@ -1026,20 +1076,25 @@
     $('gcSign').innerHTML = g.sign ? esc(signLine(g.sign)) + (g.sign.pending ? ' <span class="badge muted">대기</span>' : '') : '<span class="muted">조건 서명 없음</span>';
     $('gcMsgLabel').textContent = blk ? '차단 사유' : '근거';
     $('gcMsg').className = 'cond-msg' + (blk ? ' block' : '');
-    $('gcMsgText').textContent = (blk ? (g.msg || g.basis) : g.basis) || '—'; $('gcMsg').title = $('gcMsgText').textContent;
+    $('gcMsgText').textContent = (g.no === 12 ? stripRn((blk ? (g.msg || g.basis) : g.basis), rebaseNone()) : (blk ? (g.msg || g.basis) : g.basis)) || '—'; $('gcMsg').title = $('gcMsgText').textContent;
     var rows, miss = [];
     if (g.ef) {
       $('gcGridTitle').textContent = '비상 양식 (발행 기록)'; $('gcColA').textContent = 'EF 번호'; $('gcColB').textContent = '상태';
       rows = g.ef.map(function (e) { if (e.st === '미회수') miss.push(e.efNo); return [e.efNo, e.st === '미회수' ? '<span class="badge error">미회수</span>' : e.st === '회수' ? '<span class="badge ok">회수</span>' : '<span class="badge">사용</span>']; });
     } else {
-      $('gcGridTitle').textContent = '근거 refs'; $('gcColA').textContent = 'ref'; $('gcColB').textContent = '비고';
-      rows = g.refs.map(function (r) { return [esc(r), '']; });
+      $('gcGridTitle').textContent = '근거 참조'; $('gcColA').textContent = '참조'; $('gcColB').textContent = '비고';
+      var dm = g.no === 2 ? devById() : {};
+      rows = g.refs.map(function (r) { return [esc(r), devMarks(dm[r])]; });
     }
     var shown = rows.length > 9 ? rows.slice(0, 8) : rows;
     $('grdCondEfBody').innerHTML = shown.map(function (r, i) { return '<tr><td class="col-no">' + (i + 1) + '</td><td>' + (g.ef ? esc(r[0]) : r[0]) + '</td><td>' + r[1] + '</td></tr>'; }).join('')
       + (rows.length > 9 ? '<tr><td class="col-no">…</td><td colspan="2" class="sub-info">… 외 ' + (rows.length - 8) + '건</td></tr>' : '')
-      || '<tr><td class="col-no">—</td><td colspan="2" class="sub-info">표시할 refs 없음</td></tr>';
+      || '<tr><td class="col-no">—</td><td colspan="2" class="sub-info">표시할 참조 없음</td></tr>';
     $('gcGridTotal').textContent = '(' + rows.length + '건)';
+    var rn12 = g.no === 12 ? rebaseNone() : null;
+    $('gcRnBadge').innerHTML = rnBadge(rn12); showLine('gcRebaseNoneText', rn12 ? rn12.message : '', ['gcRebaseNone']);
+    showLine('gcRebaseCheck', g.no === 12 ? rebaseCheckLine() : null);
+    renderOrigSteps(g);
     var er = $('btnEfReturn'); er.hidden = !g.ef; er.disabled = !miss.length || ro; er.dataset.ef = miss.join(',');
     er.title = ro ? RO_TIP : miss.length ? '미회수 ' + miss.length + '매 회수 기록 (서명 없음 · 감사 EF_RETURNED)' : '미회수 비상 양식 없음';
     var sb = $('btnGcSign'), cs = COND_SIGN[g.no]; sb.hidden = !cs;
@@ -1049,14 +1104,106 @@
     $('gcLink').textContent = g.link ? g.link + ' 바로가기 ›' : ''; $('gcLink').onclick = function () { MesUI.closeDialog('dlgGateCond'); $('cdLink').click(); };
     MesUI.openDialog('dlgGateCond');
   }
+  /* ==== 기준 없는 재봉인 이력 · 재봉인 거부 사유 (EbrUserSession.Integrity — 없으면 배지 · 문구 없음, 오류 없음) ==== */
+  function integApi() { var u = window.EbrUserSession; return u && u.Integrity && typeof u.Integrity === 'object' ? u.Integrity : null; }
+  /* 우선: 조건 12 결과의 warnings · warning (판정 모듈) — 결과에 warnings 가 없을 때만 Integrity.state().warnings 로 대체.
+     문구: 결과 warning → rebaseNoneWarning().message → 기본 문구 */
+  var RN_DEFAULT = '워터마크 기준 없이 재봉인된 이력이 있습니다.';
+  function rnMsgOf(w) { return typeof w === 'string' ? w : w && typeof w === 'object' && w.message ? String(w.message) : ''; }
+  function rebaseNone() {
+    try {
+      var I = integApi(), g = null; try { g = itemOf(12); } catch (e) { g = null; }
+      var apiMsg = function () { var w = I && typeof I.rebaseNoneWarning === 'function' ? I.rebaseNoneWarning() : null; return rnMsgOf(w); };
+      if (g && Array.isArray(g.warnings)) {
+        if (g.warnings.indexOf('rebase_none') < 0) return null;
+        return { message: rnMsgOf(g.warning) || apiMsg() || RN_DEFAULT, src: 'result' };
+      }
+      if (!I || typeof I.state !== 'function') return null;
+      var st = I.state(); if (!st || !Array.isArray(st.warnings) || st.warnings.indexOf('rebase_none') < 0) return null;
+      return { message: apiMsg() || rnMsgOf(st.warning) || RN_DEFAULT, src: 'state' };
+    } catch (e) { if (window.console) console.warn('[Integrity] rebase_none', e); return null; }
+  }
+  /* short: '재봉인 이력' · 'dot': 점만(조건명 칸 — 조건명 전체 보이게, 이름은 aria-label · 전체 문구는 툴팁) */
+  function rnBadge(rn, short) { if (!rn) return '';
+    if (short === 'dot') return '<span class="badge warn rg-dot" data-rn role="img" aria-label="재봉인 이력" title="' + esc('재봉인 이력 — ' + rn.message) + '"></span>';
+    return '<span class="badge warn" data-rn title="' + esc(rn.message) + '">' + (short ? '재봉인 이력' : '기준 없는 재봉인 이력') + '</span>'; }
+  /* 같은 경고 문구가 따로 한 줄로 나오는 창에서는 근거 · 탐지 문구에서 뺀다 (한 번만 표시) */
+  function stripRn(t, rn) { t = String(t || ''); if (!rn || !rn.message) return t; var m = rn.message; return t.split(' · ' + m).join('').split(' ' + m).join('').split(m).join('').trim(); }
+  var REJECT_TEXT = {
+    seed_field_reserved: '예약 필드 거부 — 시드 전용 필드는 공개 경로로 기록할 수 없습니다',
+    seed_signer_unavailable: '시드 서명자 없음 — 데모 시드 서명 경로를 쓸 수 없습니다',
+    wm_seal: '워터마크 봉인 불일치 — 워터마크 내용이 봉인 값과 다릅니다',
+    judgment_evidence_remains: '판정 근거 남아 있음 — 열린 일탈 · 트리 서명이 남아 있어 기준 없이 재봉인할 수 없습니다',
+    audit_rows_lost: '서명 감사 행 소실 — 서명에 대응하는 감사 기록이 없어졌습니다',
+    reserved_unverifiable: '예약 행 검증 불가 — 내용이 바뀐 예약 행이 있습니다',
+    pins_incomplete: '예약 행 고정값 불완전 — 기준선부터 다시 계산한 고정값이 맞지 않습니다',
+    rebase_changes_judgment: '재봉인 시 판정 변경 — 재봉인하면 열린 일탈 · 유효 서명 · 트리 판정이 줄어듭니다'
+  };
+  var UNKNOWN_REASON = '알 수 없는 사유';
+  /* 모르는 코드: 화면엔 '알 수 없는 사유'만 (코드는 툴팁 · 콘솔 경고) */
+  function rejectText(code) { code = String(code || ''); return REJECT_TEXT[code] || UNKNOWN_REASON; }
+  /* 조건 12 서명 begin · commit 실패 결과의 사유 코드 → 한국어 (알려진 코드만 덮어씀, 그 밖은 공통 서명 창 문구 그대로) */
+  function relabelReject(r) {
+    if (!r || r.ok) return r;
+    if (!REJECT_TEXT[r.why]) {
+      if (r.message || r.why === 'not_implemented') return r;
+      if (window.console) console.warn('[조건 12 서명] 알 수 없는 사유 코드', r.why);
+      var y = {}; for (var j in r) y[j] = r[j]; y.message = '서명할 수 없습니다 — ' + UNKNOWN_REASON; return y;
+    }
+    var m = rejectText(r.why), o = r.message ? String(r.message) : '';
+    var x = {}; for (var k in r) x[k] = r[k]; x.message = m + (o && o !== m ? ' · ' + o : ''); return x;
+  }
+  function rebaseCheckLine() {
+    try {
+      var I = integApi(); if (!I || typeof I.rebaseCheck !== 'function') return null;
+      var c = I.rebaseCheck(); if (!c || c.ok) return null;
+      return { text: '재봉인 불가 — ' + rejectText(c.why), tip: '재봉인 불가 — ' + rejectText(c.why) + (REJECT_TEXT[c.why] ? '' : ' (사유 코드 ' + String(c.why || '없음') + ')') };
+    } catch (e) { if (window.console) console.warn('[Integrity] rebaseCheck', e); return null; }
+  }
+  function showLine(id, v, ids) { var t = v && typeof v === 'object' ? v.text : v, tip = v && typeof v === 'object' ? v.tip : v, on = !!t;
+    (ids || [id]).forEach(function (x) { $(x).hidden = !on; }); $(id).textContent = t || ''; $(id).title = tip || ''; }
+  function renderRebaseNone() { var rn = rebaseNone(), b = $('smRebaseNone'); if (!b) return; b.hidden = !rn; b.title = rn ? rn.message : ''; }
+  /* 원래 단계 (무결성 차단 시 참고 — detail.originalSteps) */
+  function origStepsOf(g) {
+    if (g && g.detail && Array.isArray(g.detail.originalSteps)) return g.detail.originalSteps;
+    var f = (SIG.items || []).filter(function (it) { return it && it.detail && Array.isArray(it.detail.originalSteps); })[0];
+    return g && (g.no === 2 || g.no === 3) && f ? f.detail.originalSteps : null;
+  }
+  var SLOT_TEXT = { signed: '서명됨', pending: '대기', invalid: '무효' };
+  var TREE_STATE_TEXT = { done: '완료', started: '진행 중', in_progress: '진행 중', ready: '시작 가능', pending: '대기', skipped: '건너뜀', superseded: '대체됨(반복)', terminal: '종료', blocked: '차단' };
+  function koOr(map, v, none) { if (v == null || v === '') return none; return map[v] || '알 수 없는 상태'; }
+  function renderOrigSteps(g) {
+    var os = origStepsOf(g), d = $('gcOrigSteps'); d.hidden = !(os && os.length); d.open = false;
+    if (!os || !os.length) { $('gcOrigBody').innerHTML = ''; return; }
+    $('gcOrigSum').textContent = '원래 단계 · 슬롯 상태 ' + os.length + '건 (참고 — 판정에는 쓰지 않음)';
+    function sl(x, k) { var z = (x.slots || []).filter(function (y) { return y && y.slot === k; })[0]; if (!z) return '<td>—</td>';
+      return '<td title="' + esc(String(z.status || '')) + '">' + esc(koOr(SLOT_TEXT, z.status, '—') + (z.signatureId ? ' · ' + z.signatureId : '')) + '</td>'; }
+    $('gcOrigBody').innerHTML = os.map(function (x, i) {
+      return '<tr><td class="col-no">' + esc(x.stepNo || i + 1) + '</td><td title="' + esc('노드 ' + (x.nodeId || '—') + (x.stepKey && x.stepKey !== x.nodeId ? ' · ' + x.stepKey : '')) + '">' + esc(x.name || '—') + '</td>'
+        + '<td title="' + esc(String(x.treeState || '')) + '">' + esc(koOr(TREE_STATE_TEXT, x.treeState, '기록 없음') + (x.iter > 1 ? ' · ' + x.iter + '회차' : '')) + '</td>' + sl(x, 'perform') + sl(x, 'verify') + '</tr>';
+    }).join('');
+  }
+  /* 일탈 표시 (bb7cf0b 역대조): missing = 저장소에 없음 · movedTo = 배치 변경 */
+  function devMarks(d) {
+    if (!d) return '';
+    return (d.missing === true ? ' <span class="badge error" title="저장소에 기록이 없지만 감사 기록상 열린 일탈입니다">기록 없음(열린 일탈로 간주)</span>' : '')
+      + (d.movedTo ? ' <span class="badge error" title="' + esc('현재 배치 ' + d.movedTo + ' — 원래 배치의 열린 일탈로 봅니다') + '">배치 변경됨</span>' : '');
+  }
+  var DEV_STATUS_TEXT = { open: '열림', draft: '초안', investigating: '조사 중', closed: '종결', cancelled: '취소', reopened: '재개', missing: '기록 없음' };
+  function devStatusText(v) { return koOr(DEV_STATUS_TEXT, v, '—'); }
+  function devById() { var m = {}; try { openDevs().forEach(function (d) { if (d && d.id) m[d.id] = d; }); } catch (e) { /* Dev 없음 */ } return m; }
   function openRestore() {
     var g = itemOf(12); if (!g) return;
     $('rtSt').innerHTML = stBadge(g) + ' <span class="muted">' + (isRO() ? '읽기 전용' : '잠금 해제') + '</span>';
     $('rtBatch').textContent = BATCH.id;
-    $('rtWhat').textContent = g.msg || g.basis; $('rtWhat').title = g.msg || g.basis;
+    var rnW = rebaseNone(), what = stripRn(g.msg || g.basis, rnW) || '—';
+    $('rtWhat').textContent = what; $('rtWhat').title = what;
     $('rtRefs').textContent = g.refs.join(' · ') || '—';
     $('rtS42').href = './s-ebr-esign-history-ui.html?batchId=' + encodeURIComponent(currentBatchId());
     $('btnRestoreSign').disabled = !canCondSign(g, true);
+    var rn = rnW; $('rtRnBadge').innerHTML = rnBadge(rn, true);
+    showLine('rtRebaseNone', rn ? rn.message : '', ['rtRebaseNoneL', 'rtRebaseNoneF']);
+    showLine('rtRebaseCheck', rebaseCheckLine(), ['rtRebaseCheckL', 'rtRebaseCheckF']);
     MesUI.openDialog('dlgRestore');
   }
   /* 조건 12 최소 잠금 (J4) — 편집 · 서명 버튼 비활성 + #snapBanner 자리 띠 (높이 불변). 조건 서명 메뉴의 12 만 예외 */
@@ -1099,7 +1246,7 @@
     function addBtn(text, fn) { var b = document.createElement('button'); b.type = 'button'; b.className = 'btn inner'; b.textContent = text; b.onclick = fn; n.appendChild(b); }
     if (REL) {
       n.classList.add('ok');
-      add('<span class="badge ok">출하 완료</span> ' + esc(REL.signatureId || '') + ' · ' + esc(REL.releasedAt || '') + ' · manifest <span class="mono" title="' + esc(REL.manifestHash || '') + '">' + esc(String(REL.manifestHash || '').slice(0, 8)) + '</span>');
+      add('<span class="badge ok">출하 완료</span> ' + esc(REL.signatureId || '') + ' · ' + esc(REL.releasedAt || '') + ' · 목록 해시 <span class="mono" title="' + esc(REL.manifestHash || '') + '">' + esc(String(REL.manifestHash || '').slice(0, 8)) + '</span>');
       addBtn('S-42 서명 보기', function () { location.href = './s-ebr-esign-history-ui.html?signatureId=' + encodeURIComponent(REL.signatureId || ''); });
     } else if (voidBroken) {
       n.classList.add('block');
@@ -1319,29 +1466,52 @@
     var tb = $('grdDevOpenBody');
     if (!tb) return;
     var rows = openDevs();
-    if ($('devOpenCount')) $('devOpenCount').textContent = 'open ' + rows.length;
+    if ($('devOpenCount')) $('devOpenCount').textContent = '미종결 ' + rows.length;
     tb.innerHTML = rows.length ? rows.map(function (d) {
       return '<tr data-id="' + esc(d.id) + '">' +
-        '<td class="mono">' + esc(d.id) + '</td>' +
-        '<td>' + esc(d.title || '') + '</td>' +
+        '<td class="mono" title="' + esc(d.id) + '">' + esc(d.id) + '</td>' +
+        '<td title="' + esc(d.title || '') + '">' + esc(d.title || '') + '</td>' +
         '<td>' + esc(d.grade || '') + '</td>' +
-        '<td>' + esc(d.status || '') + '</td>' +
+        '<td title="' + esc(String(d.status || '')) + '">' + esc(d.missing === true ? '—' : devStatusText(d.status)) + '</td>' +
+        '<td class="dv-mk">' + devMarks(d).replace(/^ /, '') + (/^(closed|cancelled)$/.test(String(d.status || '')) && !(Dev.isClosedVerified && Dev.isClosedVerified(d)) ? ' <span class="badge warn" title="상태는 종결이지만 유효한 종결 서명(SM-DEV-CLOSE)이 없어 열린 일탈로 판정합니다">종결 서명 없음</span>' : '') + '</td>' +
         '<td>' +
-          '<button class="btn inner" type="button" data-close-dev="' + esc(d.id) + '">종결 처리(데모)</button> ' +
+          '<button class="btn inner" type="button" data-close-dev="' + esc(d.id) + '">종결 서명 (QA)</button> ' +
           '<a class="lnk" href="#capa-stub" title="CAPA 추후">CAPA(추후)</a>' +
         '</td></tr>';
-    }).join('') : '<tr><td colspan="5" class="muted">미종결 일탈 없음</td></tr>';
+    }).join('') : '<tr><td colspan="6" class="muted">미종결 일탈 없음</td></tr>';
   }
   if ($('grdDevOpenBody')) {
     $('grdDevOpenBody').addEventListener('click', function (e) {
       var b = e.target.closest('[data-close-dev]');
       if (!b || !Dev) return;
-      var id = b.getAttribute('data-close-dev');
-      Dev.setStatus(id, 'closed');
-      MesUI.toast(id + ' 종결(closed)', 'ok');
-      renderDevPanel();
-      reevaluate('게이트 재평가 — 일탈 종결 후', 'ok');
+      openDevClose(b.getAttribute('data-close-dev'));
     });
+  }
+  /* 일탈 종결 서명: 사유 → Dev.beginClose(판정 · 문장 = store) → #dlgRecSign → EbrUserSession.signAndCommitRecord (표시 문장 = input.statement) */
+  function openDevClose(id) {
+    var d = (Dev.listByBatch(currentBatchId()) || []).filter(function (x) { return x.id === id; })[0];
+    if (!d) { MesUI.toast('일탈을 찾을 수 없습니다 — ' + id, 'error'); return; }
+    $('dcTitle').textContent = '일탈 종결 서명 — ' + d.id;
+    $('dcKv').innerHTML = [['일탈', d.id + ' · ' + (d.title || '')], ['등급 · 상태', (d.grade || '') + ' · ' + (d.status || '')], ['보고자', d.reportedBy || '—']].map(function (x) {
+      return '<span class="label">' + esc(x[0]) + '</span><span class="field"><span class="text" title="' + esc(x[1]) + '">' + esc(x[1]) + '</span></span>'; }).join('');
+    $('dcReason').value = ''; $('dcErr').textContent = '';
+    $('dcGo').onclick = function () {
+      var reason = $('dcReason').value.trim();
+      if (!reason) { $('dcErr').textContent = '종결 사유를 입력하세요 (1–200자).'; $('dcReason').focus(); return; }
+      var first = Dev.beginClose(id, { reason: reason, screen: 'S-EBR-RELEASE-GATE' });
+      if (!first || !first.ok) { $('dcErr').textContent = (first && first.message) || '종결 서명을 시작할 수 없습니다 (' + ((first && first.why) || 'unknown') + ')'; return; }
+      MesUI.closeDialog('dlgDevClose');
+      RecSign.open({ meaning: 'approved', title: '일탈 종결 승인', f1: d.batchId || currentBatchId(), f2: d.id + ' ' + (d.title || ''), f6: 'deviation_close (일탈 종결)', valTitle: '종결 대상',
+        rows: [{ k: '일탈', v: d.id + ' · ' + (d.title || '') }, { k: '보고자', v: d.reportedBy || '—' }, { k: '종결 사유', v: reason }], note: 'QA 종결 서명 · 보고자 ≠ 종결자 (SM-DEV-CLOSE)',
+        begin: function () { return first; },
+        commit: function (tk, inp) { return EbrUserSession.signAndCommitRecord(tk, inp); },
+        cancel: function (tk) { if (EbrUserSession.cancelRecordSign) EbrUserSession.cancelRecordSign(tk); },
+        okText: d.id + ' 종결 서명',
+        onDone: function () { renderDevPanel(); reevaluate('게이트 재평가 — ' + d.id + ' 종결 서명 후', 'ok'); } });
+      var ob = $('btnRecSign'); if (ob) ob.textContent = '종결 서명';
+    };
+    MesUI.openDialog('dlgDevClose');
+    setTimeout(function () { $('dcReason').focus(); }, 0);
   }
   if ($('btnRefreshDev')) $('btnRefreshDev').onclick = function () { renderDevPanel(); reevaluate('일탈 패널 갱신', 'info'); };
 

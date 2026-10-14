@@ -21,7 +21,8 @@
       "C6 IF 분기 후 합류: N-030 타정 IPC → [경도 불합격] → N-035 재타정 → N-036 IPC 재검 → seq → N-040 코팅 (본류 합류)",
       "C7 되돌아가기 2: N-050 PTP 포장 → [라벨 불일치] → N-055 라벨 폐기 · 재발행 → seq → N-050",
       "C8 조건 2개 이상 한 노드: N-010에 예외 2개(LOT 만료 · 재편차), N-025에 예외 1개 + seq 합류",
-      "X1 N-010: 작업 지시(본문 안 이미지 1 · 첨부 1) · 입력 항목 6(콤보 · 라벨 · 숫자 범위 · 일시 · 다중 · 텍스트) · OP 서명 없음(칭량은 줄마다 2인 서명, Q8)"
+      "X1 N-010: 작업 지시(본문 안 이미지 1 · 첨부 1) · 입력 항목 6(콤보 · 라벨 · 숫자 범위 · 일시 · 다중 · 텍스트) · OP 서명 없음(칭량은 줄마다 2인 서명, Q8)",
+      "C9 건너뛰기 가능 노드: N-045 코팅 후 외관 사진 기록 (참고) — execRule.skippable true, QA 승인 시 skipped (프로세스 트리 실행 설계 §5.2)"
     ]
   },
   "procedure": {
@@ -67,7 +68,8 @@
             "id": "OP-35",
             "name": "코팅",
             "phases": [
-              "N-040"
+              "N-040",
+              "N-045"
             ]
           }
         ]
@@ -386,7 +388,7 @@
       "type": "phase",
       "label": "코팅",
       "phaseRef": "PH-COAT-01",
-      "nextStep": "N-050",
+      "nextStep": "N-045",
       "esig": {
         "required": false,
         "meaning": "",
@@ -396,6 +398,39 @@
       "interlockRef": "",
       "equipmentClassRef": "EC-COT-01",
       "note": ""
+    },
+    {
+      "nodeId": "N-045",
+      "type": "phase",
+      "label": "코팅 후 외관 사진 기록 (참고)",
+      "phaseRef": "PH-PHOTO-REF",
+      "nextStep": "N-050",
+      "esig": {
+        "required": false,
+        "perform": false,
+        "verify": false
+      },
+      "interlockRef": "",
+      "equipmentClassRef": "",
+      "note": "건너뛰기 가능 (QA 승인) — 품질 판정 값 아님",
+      "inputs": [
+        {
+          "key": "photo",
+          "label": "외관 사진",
+          "type": "photo",
+          "required": false
+        },
+        {
+          "key": "memo",
+          "label": "메모",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "execRule": {
+        "skippable": true,
+        "maxRepeat": 1
+      }
     },
     {
       "nodeId": "N-050",
@@ -517,6 +552,12 @@
     },
     {
       "from": "N-040",
+      "to": "N-045",
+      "type": "seq",
+      "label": "다음"
+    },
+    {
+      "from": "N-045",
       "to": "N-050",
       "type": "seq",
       "label": "다음"

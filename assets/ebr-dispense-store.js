@@ -15,6 +15,14 @@
    ===================================================================== */
 (function (global) {
   'use strict';
+  /* 리뷰 X6 ② · X7: 내부 writer(TREE_DEMO_SEED · DEVIATION_OPENED 만 예약어 허용) — 로드 시 1회 */
+  var seedWriter = null;
+  (function () {
+    function take(w) { seedWriter = w || null; }
+    var U = global.EbrUserSession;
+    if (U && typeof U.claimAuditWriter === 'function') take(U.claimAuditWriter('dispense-seed'));
+    else (global.__ebrAuditClaims = global.__ebrAuditClaims || []).push({ owner: 'dispense-seed', take: take });
+  })();
 
   var KEYS = {
     DISPENSE: 'ebr.dispense.v1',
@@ -420,10 +428,10 @@
       t.meta = t.meta || {}; t.meta.seededBy = 'ensureSeeds'; t.meta.seededAt = nowIso(); t.meta.demoSeed = true;
       t.meta.note = '데모 시드 — 승인 절차(초안→검토→승인→효력 대기→효력) 생략 (데모 설정)';
       TD.saveLocal(t);
-      var audited = false, S = session();
-      if (S && S.Audit && typeof S.Audit.append === 'function') {
+      var audited = false;
+      if (seedWriter) {   /* 리뷰 X6 ②: TREE_* 는 공개 Audit 로 못 씀 — 로드 시 받은 내부 writer('dispense-seed', TREE_DEMO_SEED 만) */
         try {
-          S.Audit.append({ uid: 'SYSTEM', userName: '시스템 (데모 시드)', act: 'TREE_DEMO_SEED', why: 'demo_seed', tgt: t.id + ' v' + t.ver,
+          seedWriter.append({ uid: 'SYSTEM', userName: '시스템 (데모 시드)', act: 'TREE_DEMO_SEED', why: 'demo_seed', tgt: t.id + ' v' + t.ver,
                            val: '효력 트리 데모 시드 · 승인 절차 생략 (데모 설정) · contentHash ' + String(t.contentHash || '').slice(0, 8),
                            before: null, after: { status: 'effective', demoSeed: true }, screen: 'ensureSeeds' });
           audited = true;
@@ -817,7 +825,7 @@
       try {
         var w = writer();
         stage = 'audit';
-        c.S.Audit.appendMany(w.audits || []);
+        (seedWriter || c.S.Audit).appendMany(w.audits || []);   /* 내부 writer — 칭량 자동 일탈 DEVIATION_OPENED (리뷰 X7) */
         var out = { ok: true }; Object.keys(w.result || {}).forEach(function (k) { out[k] = w.result[k]; });
         return out;
       } catch (e) {
@@ -971,13 +979,14 @@
           devId = 'DEV-' + String(c.p.batchId).replace(/^BR-/, '').replace(/[^A-Za-z0-9-]/g, '') + '-' + pad(seq, 2);
           while (d.items.some(function (x) { return x.id === devId; })) { seq++; devId = devId.replace(/-\d+$/, '-' + pad(seq, 2)); }
           d.items.push({ id: devId, orderNo: c.p.orderNo || null, batchId: c.p.batchId, source: 'weighing', title: '칭량 허용오차 재이탈 — ' + r.lineId + ' ' + (r.materialName || r.materialId),
-                         grade: 'Hard-QA', status: 'open', capaLink: null, createdAt: at, closedAt: null,
+                         grade: 'Hard-QA', status: 'open', capaLink: null, createdAt: at, closedAt: null, reportedBy: uid || '',
                          refType: 'dispense', refId: r.dispenseId, nodeId: r.nodeId || '', lineId: r.lineId });
           d.v = 1;
           writeJson(KEYS.DEV, d, 'dev');
           r.deviationId = devId;
           move(r, 'DEVIATION', uid, 'auto_deviation', at);
           audits.push({ act: 'DISPENSE_DEVIATION', tgt: tgt, val: '재칭량 후 다시 허용 범위 밖 · ' + devId + ' (Hard-QA)', orderNo: c.p.orderNo, detail: { deviationId: devId } });
+          audits.unshift({ act: 'DEVIATION_OPENED', tgt: devId, val: devId + ' · ' + c.p.batchId + ' · 칭량 자동 일탈', orderNo: c.p.orderNo, batchId: c.p.batchId, detail: { deviationId: devId, batchId: c.p.batchId } });   /* 리뷰 X7: 서명 커밋 감사(내부 경로) */
         }
         seal(r);
         writeJson(KEYS.DISPENSE, o, 'dispense');

@@ -111,15 +111,18 @@
     var nodes = clone(tree.nodes || []);
     var allEdges = clone(tree.edges || []);
     var edges = allEdges.filter(function (e) { return !e.type || e.type === 'seq'; });
+    /* 프로세스 트리 실행 T1-01: 예외 간선을 버리지 않고 별도 배열로 (seq 배열 · 트리 contentHash 그대로). 이 필드가 없는 발행 기록 = 레거시 */
+    var exceptionEdges = allEdges.filter(function (e) { return e && e.type === 'exception'; });
     var phaseList = normalizePhaseList(nodes, tree.procedure, allEdges);
-    return {
+    return sealExec({
       processTreeId: tree.id || tree.processTreeId || '',
       ver: tree.ver != null ? tree.ver : '',
       contentHash: tree.contentHash || tree.hashFull || '',
       nodes: nodes,
       edges: edges,
+      exceptionEdges: exceptionEdges,
       phaseList: phaseList
-    };
+    });
   }
 
   /**
@@ -132,6 +135,7 @@
     /* Keep freeze pin fields authoritative; only fill exec payload */
     freeze.snapshot.nodes = exec.nodes;
     freeze.snapshot.edges = exec.edges;
+    freeze.snapshot.exceptionEdges = exec.exceptionEdges;
     freeze.snapshot.phaseList = exec.phaseList;
     /* 인터록 룰 세트 고정 (인터록 설계 §4 · I1-6): 정적 문자열 대신 실제 ruleSetFor 결과(id · ver · hash, 데모 모드면 ILR-DEMO 포함) */
     var IL = global.EbrInterlock;
@@ -140,7 +144,24 @@
       freeze.snapshot.manifest = Object.assign({}, freeze.snapshot.manifest || {}, { ILR: fm.ok ? fm.ILR : { error: fm.why } });
       if (!fm.ok) { freeze.ok = false; freeze.why = fm.why; freeze.message = fm.message; }   /* 규칙 세트를 못 읽으면 발행 불가 (fail-closed) */
     }
+    sealExec(freeze.snapshot);   /* 봉인은 pin(트리 id · ver · contentHash) 반영 뒤 */
     return freeze;
+  }
+
+  /* 실행 봉인 (리뷰 X2): 실행에 쓰는 필드 전부(노드 · execRule · 간선 · 예외 간선 · phaseList · 트리 id/ver/contentHash)의 sha256.
+     exceptionEdges 는 배열일 때만 포함(옛 봉인 = 레거시). 해시 모듈(EbrUserSession)이 없으면 '' → 실행 시 미검증으로 차단 */
+  function execHashOf(sn) {
+    var U = global.EbrUserSession; if (!sn || !U || typeof U.sha256Hex !== 'function' || typeof U.stableStringify !== 'function') return '';
+    var o = { processTreeId: sn.processTreeId || '', ver: sn.ver != null ? String(sn.ver) : '', contentHash: sn.contentHash || '',
+              nodes: sn.nodes || [], edges: sn.edges || [], phaseList: sn.phaseList || [] };
+    if (Array.isArray(sn.exceptionEdges)) o.exceptionEdges = sn.exceptionEdges;
+    return U.sha256Hex(U.stableStringify(o));
+  }
+  function sealExec(sn) { if (sn) sn.execHash = execHashOf(sn); return sn; }
+  /** 'ok' | 'unverified'(봉인 없음) | 'mismatch' */
+  function verifyExec(rec) {
+    var sn = rec && (rec.snapshot || rec); if (!sn || !sn.execHash) return 'unverified';
+    var h = execHashOf(sn); return h && h === sn.execHash ? 'ok' : 'mismatch';
   }
 
   function getPhaseList(rec) {
@@ -239,7 +260,14 @@
     return true;
   }
 
+  /** 레거시 판별 (T1-01): 발행 스냅샷에 exceptionEdges 배열이 없으면 true — 예외 경로 사용 불가(재발행 필요) */
+  function isLegacySnapshot(rec) {
+    var sn = rec && (rec.snapshot || rec);
+    return !(sn && Array.isArray(sn.exceptionEdges));
+  }
+
   global.EbrExecSnapshot = {
+    isLegacySnapshot: isLegacySnapshot, execHashOf: execHashOf, sealExec: sealExec, verifyExec: verifyExec,
     normalizePhaseList: normalizePhaseList,
     buildExecSnapshot: buildExecSnapshot,
     enrichFreezeSnapshot: enrichFreezeSnapshot,

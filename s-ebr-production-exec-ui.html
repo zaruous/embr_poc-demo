@@ -64,6 +64,40 @@
   }
   .phase-board .step.selected { outline: 2px solid var(--c-primary); outline-offset: -2px; }
   .phase-board .step.locked-skip { opacity: .85; }
+  /* 트리 준수 (PT-01) — 상태 기호 · 배지 (UI 문서 §2). 판정은 EbrTreeExec.rowState 결과만 */
+  .phase-board .step .tsym { display: inline-block; width: var(--fs-grid); margin-right: var(--title-gap); }
+  .phase-board .step.ts-locked .name, .phase-board .step.ts-super .name { color: var(--c-text-disabled); }
+  .phase-board .step.ts-skip { background: var(--bc-gray-light); }
+  .phase-board .step.ts-term { background: var(--bc-faulty); }
+  .phase-board .step.ts-term .tsym { color: var(--c-error); }
+  .phase-board .step.ts-done .tsym { color: var(--c-ok); }
+  .phase-board .step.ts-ready .tsym, .phase-board .step.ts-prog .tsym { color: var(--c-primary); }
+  .phase-board.tree .step { min-height: var(--grid-row-h); }
+  .phase-board.tree .op-head { display: flex; align-items: center; gap: var(--title-gap); height: var(--grid-row-h); padding-left: var(--body-gap); font-weight: bold; border-top: 1px solid var(--c-border-05); }
+  .phase-board.tree .step .no { background: none; color: inherit; width: auto; font-size: var(--fs-grid); }
+  .phase-board.tree .step.ts-done .no::after { display: none; }
+  .phase-board.tree .step.ts-exc-off .name, .phase-board.tree .step.ts-exc-off .no, .phase-board.tree .step.ts-exc-off .meta { color: var(--c-text-disabled); }
+  .phase-board.tree .step.ts-super { padding-left: calc(var(--body-gap) * 3); }
+  .phase-board.tree .step .exc-in { color: var(--c-warn); }
+  .phase-board.tree .step .tag { color: var(--c-text-sub); }
+  .phase-board.tree .step .meta { display: inline-flex; align-items: center; gap: var(--title-gap); }
+  [hidden] { display: none !important; }   /* hidden 속성이 .badge · .grid-block display 에 덮이지 않게 (화면 한정) */
+  #panePhaseSteps > .grid-toolbar { flex-wrap: nowrap; height: var(--toolbar-h); overflow: hidden; }   /* 툴바 28 · 한 줄 */
+  #panePhaseSteps > .grid-toolbar > * { white-space: nowrap; flex-shrink: 0; }
+  #panePhaseSteps > .grid-toolbar > .tree-legend { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #paneLotSide > .elig-block { min-height: calc(var(--toolbar-h) + var(--grid-row-h) * 3) !important; }   /* 적격성 블록 — 서명 블록과 겹치지 않는 최소 높이 (헤더 + 2행) */
+  #paneLotSide.tree-on #weighSumBlock { flex: 0 1 auto !important; min-height: calc(var(--toolbar-h) + var(--grid-row-h) * 2); }   /* 공정 로그를 펼치면 칭량 요약이 먼저 줄어듦 (안에서 스크롤) */
+  #paneLotSide.tree-on > .elig-block { min-height: calc(var(--toolbar-h) + var(--grid-row-h) * 2) !important; }   /* 트리 모드 — 헤더 + 1행까지 (안에서 스크롤) */
+  body.tree-on .shell-body > .grid-block.log-block:not(.collapsed) { flex-basis: calc(var(--toolbar-h) * 2 + var(--grid-row-h) * 3); }   /* 트리 모드에서 펼친 로그 = 툴바 · 헤더 · 3행 (오른쪽 pane 단계 상세 자리) */
+  .shell-body > .grid-block.log-block.collapsed { flex: 0 0 auto; }   /* 공정 로그 접힘 — 툴바만 */
+  .log-block.collapsed > :not(.grid-toolbar) { display: none; }
+  #treeDetail .form-grid .field .text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: var(--title-gap); min-width: 0; }
+  #treeDetail .grid-toolbar .group-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #paneLotSide.tree-on #weighSumBlock { max-height: calc(var(--grid-row-h) * 4) !important; }   /* 단계 상세(PT-02) 자리 — 칭량 요약은 안에서 스크롤, 화면 높이 1003 · 스크롤 0 유지 */
+  #dlgTreeRoute .tree-route-body { display: flex; flex-direction: column; gap: var(--body-gap); }
+  #dlgTreeRoute .tr-list { flex: 0 0 auto; }
+  #dlgTreeBlock .tree-block-body { display: flex; flex-direction: column; gap: var(--body-gap); }
+  #dlgTreeBlock .blkmsg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   .elig-row {
     display: grid; grid-template-columns: 110px 1fr 90px 90px 90px; gap: 0;
@@ -331,11 +365,15 @@
     <div class="split main-split" id="prodExecSplit">
       <div class="grid-block rs-pane" id="panePhaseSteps">
         <div class="grid-toolbar">
-          <span class="group-title">Phase / Step 보드</span>
-          <span class="muted" style="font-size:12px">ISA-88 · 순서 인터록(선행 완료 전 건너뛰기 불가)</span>
+          <span class="group-title" title="ISA-88 · 순서 인터록(선행 완료 전 건너뛰기 불가)">Phase / Step 보드</span>
+          <span class="tree-legend sub-info" id="treeLegend" title="범례 ● 완료 · ▶ 진행 · ○ 대기/잠금 · ◆ 예외 진입 · ◇ 예외 미진입 · ⊘ 건너뜀(승인) · ↻ 반복 #n · ■ 예외 종료" hidden>● 완료 ▶ 진행 ○ 대기 ◆ 예외 진입 ◇ 미진입 ⊘ 건너뜀 ↻ 반복 ■ 종료</span>
           <span class="spacer"></span>
+          <span id="treeStatus"></span>
+          <span class="badge" id="treeNoJudge" title="발행 기록 · 트리 스냅샷이 없는 데모 — 순서 판정을 하지 않습니다 (통과 아님)" hidden>공정 트리 판정 없음(데모)</span>
           <span class="muted" style="font-size:12px" id="phaseProgress">완료 0 / 진행 1 / 대기 7</span>
+          <button class="btn search secondary" type="button" id="btnStartStep" title="선택 단계 시작 (EbrTreeExec.start)" hidden>단계 시작</button>
           <button class="btn search" type="button" id="btnCompleteStep" title="현재 OP 완료">단계 완료</button>
+          <span class="sub-info" id="completeWhy" hidden></span>
           <button class="btn search" type="button" id="btnOpenOi" title="OI 단계 실행(개념)">OI 단계 실행</button>
         </div>
         <div class="grid-wrap">
@@ -346,6 +384,16 @@
       <button type="button" class="rs-gutter" id="gutterMain" aria-label="패널 폭 조절" title="드래그하여 폭 조절"></button>
 
       <div class="col rs-pane" id="paneLotSide" style="min-height:0; gap: var(--body-gap);">
+        <div class="grid-block" style="flex:0 0 auto;" id="treeDetail" hidden>   <!-- PT-02 단계 상세 — 트리 판정 가능할 때만 (EbrTreeExec route · rowState) -->
+          <div class="grid-toolbar">
+            <span class="group-title" id="tdTitle">단계 상세</span><span id="tdBadge"></span>
+            <span class="spacer"></span>
+            <a class="sub-info" id="tdS42" href="./s-ebr-esign-history-ui.html">S-42 서명 조회 ›</a>
+            <span class="tip" id="tipTreeRoute"><button class="btn search secondary" type="button" id="btnTreeRoute" data-p0-edit>예외 경로</button></span>
+            <span class="tip" id="tipTreeSkip"><button class="btn search secondary" type="button" id="btnTreeSkip" data-p0-edit>건너뛰기 요청</button></span>
+          </div>
+          <div class="form-grid cols-2 readonly" id="tdGrid"></div>
+        </div>
         <div class="grid-block" style="flex:0 0 auto; max-height:190px;" id="weighSumBlock">
           <div class="grid-toolbar">
             <span class="group-title">칭량 진행</span>
@@ -362,7 +410,7 @@
           </div>
         </div>
 
-        <div class="grid-block" style="flex:1 1 auto; min-height:0;">
+        <div class="grid-block elig-block" style="flex:1 1 auto; min-height:0;">
           <div class="grid-toolbar">
             <span class="group-title">장비 클래스 적격성</span>
             <span class="muted" style="font-size:12px">런타임 mock · RAS/CMMS/CFMS</span>
@@ -391,8 +439,9 @@
       </div>
     </div>
 
-    <div class="grid-block log-block">
+    <div class="grid-block log-block collapsed" id="logBlock">
       <div class="grid-toolbar">
+        <button class="btn inner secondary" type="button" id="btnLogToggle" aria-expanded="false" title="공정 로그 펼치기 / 접기">펼치기</button>
         <span class="group-title">칭량 · 공정 로그</span>
         <span class="total-text" data-total-for="grdLog"></span>
         <span class="vbar"></span>
@@ -512,8 +561,10 @@
 <script src="./assets/ebr-qual-store.js"></script>   <!-- 교육 · 자격 (window.EbrQual) — 서명 창 ⑦ 요구 자격 이름 (읽기만) -->
 <script src="./assets/ebr-exec-sign-store.js"></script>   <!-- 실행 · 출하 서명 래퍼 (window.EbrExecSign) -->
 <script src="./assets/ebr-sign-status.js"></script>   <!-- 서명 상태 읽기 (window.EbrSignStatus) -->
+<script src="./assets/ebr-tree-exec.js"></script>   <!-- 프로세스 트리 준수 판정 (window.EbrTreeExec) -->
+<script src="./tree-ui-wire.js"></script>   <!-- 트리 연결 지점 (TreeApi · TreeUi — 판정 불가 · fail-closed) -->
 <script src="./exec-sign-ui.js"></script>
-<script src="./assets/ebr-correction-store.js"></script>   <!-- D1 정정 store (window.EbrCorrection) -->
+<script src="./assets/ebr-correction-store.js"></script>   <!-- 정정 store (window.EbrCorrection) -->
 <script src="./assets/ebr-correction-ui.js"></script>   <!-- 정정 공통 팝업 (window.CorrUI) -->
 <script>
 (function () {
@@ -643,6 +694,11 @@
     execCtx.ver = DEMO_BATCH.ver;
     execCtx.contentHash = DEMO_BATCH.contentHash;
     BATCH = Object.assign({}, DEMO_BATCH);
+    try {   /* 데모 배치 발행 기록이 있으면 트리 스냅샷만 붙임 (데모 표지 기록만 · 실데이터 불변). 발행 기록이 없으면 만들지 않음 — 칭량 데모 계획 유지 */
+      var issRows = JSON.parse(localStorage.getItem(ISSUED_LS_KEY) || '[]');
+      var hasIss = Array.isArray(issRows) && issRows.some(function (r) { return r && (r.batchId || r.batchNo || r.id) === DEMO_BATCH.id; });
+      if (hasIss && window.EbrExecSign && EbrExecSign.seedDemoTreeSnapshot) EbrExecSign.seedDemoTreeSnapshot(DEMO_BATCH.id);
+    } catch (e) { if (window.console) console.error('[demo tree seed]', e); }
     resetPhaseBoardToFallback();
     if ($('schBatch')) $('schBatch').value = BATCH.id;
     if ($('schBatchDesc')) $('schBatchDesc').value = BATCH.product;
@@ -990,6 +1046,7 @@
   }
 
   function activeOpIndex() {
+    if (TREE && TREE.ok) { var tc = treeCur(true); if (!tc) return OP_ORDER.length; var ti = OP_ORDER.indexOf(tc.nodeId); return ti < 0 ? OP_ORDER.length : ti; }   /* 트리 판정 가능: 현재 = 진행 중(없으면 nextDue) */
     for (var i = 0; i < OP_ORDER.length; i++) {
       if (!state.opDone[OP_ORDER[i]]) return i;
     }
@@ -1054,6 +1111,7 @@
   }
 
   function completeCurrentOp() {
+    if (TREE && TREE.ok) return treeComplete();
     var act = activeOpIndex();
     if (act >= OP_ORDER.length) {
       MesUI.toast('모든 생산 단계 완료 — 포장으로 이관', 'ok');
@@ -1146,8 +1204,10 @@
         if (!assertEquipUsableFor(op).ok) break;
         var wg = weighGateFor(op);
         if (!wg.ok) break;
+        if (TREE.ok) { var tcw = treeCur(false); if (!tcw || tcw.nodeId !== op) break; }   /* 트리: 진행 중 칭량 단계만 */
         var ac = D.markOpAutoComplete(execCtx.batchId, wg.filter, { screen: 'S-EBR-PROD-EXEC' });
         if (!ac.ok) break;
+        if (TREE.ok) { var crw = TreeApi.complete(BATCH.id || '', 'prod', op); if (!crw.ok) break; }
         finishOp(op, act, { auto: true, gate: wg, trigger: trigger });
         done.push(op + ' ' + wg.verified + '/' + wg.total);
       }
@@ -1188,7 +1248,158 @@
     return '<span class="muted">' + esc(j) + '</span>';
   }
 
+  /* 트리 판정 가용성 (route) — 판정 불가(not_implemented · store 없음)면 화면 기존 순서 판정을 그대로 쓰고 '판정 불가' 표시 */
+  var TREE = { ok: false, blocked: false, res: null };
+  function treeRefresh() { var a = TreeApi.available(BATCH.id || ''); TREE.ok = a.ok; TREE.blocked = a.blocked; TREE.res = a.res; TR.route = a.ok ? a.res : null; return TREE; }
+  function findStep(id) { var f = null; (PHASES_TMPL || []).forEach(function (u) { (u.steps || []).forEach(function (x) { if (x.id === id) f = x; }); }); return f; }
+  function treeBlock(id, res, extra) {
+    TreeUi.blockDialog(res, Object.assign({ node: id, nodeName: (findStep(id) || {}).name || '', batchId: BATCH.id || '',
+      onGo: function (nd) { var g = canSelectStep(nd); if (!g.ok) return; state.selectedStep = nd; saveState(); renderPhases(); renderSigns(); renderKpi(); } }, extra || {}));
+  }
+  /* ===== 트리 모드 (PT-01 · 02 · 04 · 05) — 판정 · 상태 = EbrTreeExec 만, 화면은 표시 · 입력 전달 ===== */
+  var TR = { route: null, migrated: false };
+  function TB() { return BATCH.id || ''; }
+  function treeRoute() { if (!TR.route) { var rr = TreeApi.route(TB()); TR.route = rr && rr.ok ? rr : null; } return TR.route; }
+  /* 현재 단계: 진행 중 노드 (orNext = 없으면 nextDue) */
+  function treeCur(orNext) {
+    var n = TreeApi.nextDue(TB(), 'prod'); if (!n || !n.ok || !n.nodeId) return null;
+    var rv = TreeApi.rowState(TB(), 'prod', n.nodeId); if (!rv || !rv.ok) return null;
+    if (rv.state === 'in_progress' || orNext) return { nodeId: n.nodeId, stepKey: rv.stepKey, state: rv.state };
+    return null;
+  }
+  function sigKey(op) { if (!TREE || !TREE.ok) return op; var rv = TreeApi.rowState(TB(), 'prod', op); return rv && rv.ok ? rv.stepKey : op; }
+  function nodeLabel(id) { var R = treeRoute(); return R && R.nodes[id] ? R.nodes[id].label : ((findStep(id) || {}).name || ''); }
+  function treeMeta(id, v) {
+    var i = v.instance || {}, eb = i.enteredBy || {};
+    if (v.state === 'locked') return v.exception ? '(미진입)' : (v.canStart && v.canStart.ok ? '선행 완료 — 진행 가능' : '잠금');
+    if (v.state === 'skipped') return 'QA 승인 ' + (i.skipSignatureId || '') + (i.reason ? ' · 사유 ' + i.reason : '');
+    if (v.state === 'terminal') return '일탈 ' + (i.devId || '');
+    if (v.state === 'done') return v.skippable ? '실행 · 필요 서명 0' : '수행 · 확인 서명 유효';
+    if (v.state === 'ready') return eb.edgeFrom ? '선행 ' + eb.edgeFrom + ' 완료 후 진행 가능' : (v.derived ? '선행 완료 — 진행 가능' : '진행 가능');   /* derived ready = 시작 가능 · 미시작 (인스턴스 없음) */
+    if (v.state === 'in_progress') return '진행 중' + (i.startedBy ? ' · ' + i.startedBy : '');
+    return '';
+  }
+  function renderTree() {
+    var R = treeRoute(); if (!R) { $('phaseBoard').innerHTML = '<div class="nodata">트리를 읽을 수 없습니다</div>'; return; }
+    if (!TR.migrated) { var mg = TreeApi.migrateOpDone(TB(), state.opDone || {}); if (mg && mg.ok) { TR.migrated = true; if (mg.migrated) TREE = TreeApi.route(TB()); } }   /* 화면 키 opDone 이관 — 성공할 때까지 (사용자 선택 전이면 다음 렌더에 재시도 · store 가 판정) */
+    var all = TreeApi.list(TB(), 'prod'), sup = all && all.ok ? all.items.filter(function (x) { return x.state === 'superseded'; }) : [];
+    var cnt = { done: 0, in_progress: 0, ready: 0, exc: 0 }, html = '', lastUp = null, lastOp = null;
+    R.order.forEach(function (id) {
+      var n = R.nodes[id] || {}, v = TreeUi.rowView(TB(), 'prod', id); if (!v) return;
+      if (n.upId !== lastUp) { if (lastUp !== null) html += '</div>'; lastUp = n.upId; lastOp = null; html += '<div class="up-block"><div class="up-head"><span class="up-id">' + esc(n.upId || '') + '</span><span>' + esc(n.upName || '') + '</span></div>'; }
+      if (n.opId !== lastOp) { lastOp = n.opId; html += '<div class="op-head"><span>' + esc(n.opId || '') + '</span><span>' + esc(n.opName || '') + '</span></div>'; }
+      cnt[v.state] = (cnt[v.state] || 0) + 1; if (v.entered) cnt.exc++;
+      var meta = treeMeta(id, v), eb = (v.instance && v.instance.enteredBy) || {};
+      var metaHtml = (v.entered && eb.edgeType === 'exception' ? '<span class="exc-in">◆</span> 예외 진입 · SM-APPR-ROUTE ' + esc(eb.approvalSignatureId || '') : esc(meta));
+      if (v.skippable && (v.state === 'locked' || v.state === 'ready')) metaHtml = '<span class="tag">⊘ 건너뛰기 가능 (MBR) · 서명 없음</span>';
+      html += '<div class="step indent ' + v.cls + (state.selectedStep === id ? ' selected' : '') + '" data-step="' + esc(id) + '" role="button" tabindex="0">' +
+        '<span class="no">' + v.sym + '</span><span class="name" title="' + esc(v.stepKey + ' ' + n.label) + '">' + esc(v.stepKey) + ' ' + esc(n.label) + (v.iter > 1 ? ' <span class="sub-info">↻ #' + v.iter + '</span>' : '') + '</span>' +
+        '<span class="meta">' + v.badge + '<span title="' + esc(meta) + '">' + metaHtml + '</span></span></div>';
+      sup.filter(function (x) { return x.nodeId === id; }).sort(function (a, b) { return b.iter - a.iter; }).forEach(function (x) {
+        html += '<div class="step indent ts-super" data-super="' + esc(x.stepKey) + '"><span class="no">↻</span><span class="name">' + esc(x.stepKey) + ' ' + esc(n.label) + '</span><span class="meta">' + TreeUi.badge('superseded') + '<span>서명 유효 (이전 회차)</span></span></div>';
+      });
+    });
+    if (lastUp !== null) html += '</div>';
+    $('phaseBoard').innerHTML = html;
+    $('treeStatus').innerHTML = R.legacy ? '<span class="badge" title="exceptionEdges 없음 — 예외 경로 사용 불가 (재발행 필요)">레거시 스냅샷</span>' : '';
+    $('phaseProgress').textContent = '완료 ' + (cnt.done || 0) + ' / 진행 ' + (cnt.in_progress || 0) + ' / 대기 ' + (cnt.ready || 0) + (cnt.exc ? ' / 예외 진입 ' + cnt.exc : '');
+    var sv = state.selectedStep ? TreeUi.rowView(TB(), 'prod', state.selectedStep) : null;
+    var canS = !!(sv && sv.state !== 'in_progress' && sv.canStart && sv.canStart.ok), sgDone = !!(sv && (isWeighStep(state.selectedStep) ? weighGateFor(state.selectedStep).ok : sv.skippable ? true : (sigOf(state.selectedStep).perform && sigOf(state.selectedStep).confirm))), canC = !!(sv && sv.state === 'in_progress' && sgDone);   /* 필요 서명 모두 끝나야 [단계 완료] */
+    $('btnStartStep').disabled = !canS; $('btnCompleteStep').disabled = !canC;
+    $('btnStartStep').classList.toggle('primary', canS); $('btnStartStep').classList.toggle('secondary', !canS);   /* 영역 primary 1개 */
+    $('btnCompleteStep').classList.toggle('primary', !canS); $('btnCompleteStep').classList.toggle('secondary', canS);
+    $('btnStartStep').title = canS ? '선택 단계 시작' : (sv && sv.canStart && sv.canStart.msg) || '선택한 단계를 시작할 수 없습니다';
+    var cw = !sv ? '' : canC ? '' : sv.state !== 'in_progress' ? '시작 전' : isWeighStep(state.selectedStep) ? '칭량 줄 서명 대기' : '서명 대기';
+    $('completeWhy').textContent = cw; $('completeWhy').hidden = !cw;
+    $('btnCompleteStep').title = canC ? '진행 중 단계 완료 (완료 조건 = 서명 · 칭량 store 판정)' : sv && sv.state === 'in_progress' ? (isWeighStep(state.selectedStep) ? '칭량 줄 서명이 모두 끝나야 완료할 수 있습니다' : '수행 · 확인 서명이 모두 끝나야 완료할 수 있습니다') : '진행 중인 단계를 선택하세요';
+  }
+  function treeSelect(id) {
+    var v = TreeUi.rowView(TB(), 'prod', id);
+    if (v && (v.state === 'in_progress' || (v.canStart && v.canStart.ok))) { state.selectedStep = id; saveState(); renderAll(); return; }
+    var c = TreeApi.canStart(TB(), 'prod', id);
+    if (c && c.ok) { state.selectedStep = id; saveState(); renderAll(); return; }
+    pushLog({ ts: nowTs(), kind: '인터록', step: id, item: '단계 순서 차단', value: TreeApi.msgOf(c), equip: '—', src: 'AUTO', judge: 'WARN', sig: '—', user: 'SYS', hash: hash8('tree' + id + Date.now()) });
+    saveState(); renderLog();
+    var ex = {};
+    if (c && c.why === 'tree_repeat_limit') ex = { actText: '반복 승인 요청', onAct: function () { openRepeat(id); } };
+    treeBlock(id, c, Object.assign({ path: treePath(id), predText: c && c.pred ? c.pred + ' 미완료' : '' }, ex));
+  }
+  function treePath(id) {
+    var R = treeRoute(); if (!R) return '';
+    var i = R.main.indexOf(id); if (i >= 0) return R.main.slice(Math.max(0, i - 2), i + 1).join(' → ');
+    var f = (R.exceptionOf[id] || [])[0]; return f ? f + ' ─exception→ ' + id : id;
+  }
+  function treeStart() {
+    var id = state.selectedStep, r = TreeApi.start(TB(), 'prod', id);
+    if (!r || !r.ok) { treeBlock(id, r, { path: treePath(id) }); return; }
+    pushLog({ ts: nowTs(), kind: '공정', step: id, item: '단계 시작', value: (r.instance && r.instance.stepKey) || id, equip: '—', src: 'AUTO', judge: 'OK', sig: '—', user: (r.instance && r.instance.startedBy) || '', hash: hash8('start' + id + Date.now()) });
+    saveState(); renderAll(); MesUI.toast('단계 시작: ' + ((r.instance && r.instance.stepKey) || id), 'ok');
+  }
+  function treeComplete() {
+    var c = treeCur(false), B = TB();
+    if (!c) { MesUI.alert(TreeApi.msgOf({ ok: false, why: 'tree_not_started', msg: '진행 중인 단계가 없습니다 — [단계 시작]으로 먼저 시작하세요.' }), 'Warning'); return; }
+    var op = c.nodeId;
+    if (ilBlocked()) { MesUI.alert('인터록 활성 — 단계를 완료할 수 없습니다.\n\n' + ilTopMsg(), 'Warning'); return; }
+    var eu = assertEquipUsableFor(op);
+    if (!eu.ok) { state.eqBlock = { equipmentId: eu.equipmentId, msg: 'Absolute — ' + eu.reason }; saveState(); renderAll(); MesUI.alert('Absolute — 설비 사용 불가\n\n' + eu.reason, 'Error'); return; }
+    if (isWeighStep(op)) {
+      var wg = weighGateFor(op);
+      if (!wg.ok) { MesUI.alert('칭량 미완료 — 단계를 완료할 수 없습니다.\n\n' + wg.message, 'Warning'); return; }
+      var ac = window.EbrDispense.markOpAutoComplete(execCtx.batchId, wg.filter, { screen: 'S-EBR-PROD-EXEC' });
+      if (!ac.ok) { MesUI.alert('칭량 자동 완료 기록 실패 — ' + (ac.message || ac.why || ''), 'Error'); return; }
+    }
+    var rv = TreeApi.rowState(B, 'prod', op), devId = '';
+    if (rv && rv.terminalNode && Dev && Dev.listOpen) { var ds = Dev.listOpen(B) || []; devId = ds.length ? ds[ds.length - 1].id : ''; }   /* 예외 종료 = 열린 일탈 연결 (없으면 store 가 tree_terminal_no_dev) */
+    var r = TreeApi.complete(B, 'prod', op, { devId: devId });
+    if (!r || !r.ok) { MesUI.alert(TreeApi.msgOf(r), 'Warning'); return; }
+    state.opDone[op] = true;
+    var nx = (r.next || [])[0] || null;
+    pushLog({ ts: nowTs(), kind: '공정', step: op, item: r.terminal ? '예외 종료 · 배치 보류' : '단계 완료 · 다음 ' + ((r.next || []).join(', ') || '—'), value: (r.instance && r.instance.stepKey) || op, equip: '—', src: 'AUTO', judge: r.terminal ? 'FAIL' : 'OK', sig: '유효', user: (r.instance && r.instance.doneBy) || '', hash: hash8(op + 'done' + Date.now()) });
+    if (nx) state.selectedStep = nx;
+    saveState(); renderAll();
+    if (r.repeatBlocked && r.repeatBlocked.length) MesUI.toast(TreeApi.msgOf({ why: 'tree_repeat_limit', msg: window.EbrTreeExec.msgFor('tree_repeat_limit', { max: r.repeatBlocked[0].max, node: r.repeatBlocked[0].nodeId, iter: r.repeatBlocked[0].iter }) }), 'warn', 4000);
+    else MesUI.toast(op + ' 완료 → ' + (nx || (r.terminal ? '배치 보류' : '끝')), r.terminal ? 'warn' : 'ok');
+  }
+  function openRepeat(id) {
+    var c = TreeApi.canStart(TB(), 'prod', id);
+    TreeUi.reasonDialog({ kind: 'repeat', batchId: TB(), scope: 'prod', node: id, nodeName: nodeLabel(id), kv: [['대상', id + ' ' + nodeLabel(id) + (c && c.iter ? ' #' + c.iter : '')], ['한도', (c && c.max ? c.max + '회' : '—') + ' 초과 · QA 승인 (SM-APPR-REPEAT)']],
+      onDone: function () { state.selectedStep = id; saveState(); renderAll(); } });
+  }
+  function renderTreeDetail() {
+    var box = $('treeDetail'); box.hidden = !TREE.ok; $('paneLotSide').classList.toggle('tree-on', TREE.ok); document.body.classList.toggle('tree-on', TREE.ok); if (!TREE.ok) return;
+    var R = treeRoute(), id = state.selectedStep, v = R && id && R.nodes[id] ? TreeUi.rowView(TB(), 'prod', id) : null;
+    $('tdS42').href = './s-ebr-esign-history-ui.html?batchId=' + encodeURIComponent(TB());
+    if (!v) { $('tdTitle').textContent = '단계 상세 — 트리에서 단계를 선택하세요'; $('tdBadge').innerHTML = ''; $('tdGrid').innerHTML = ''; $('btnTreeRoute').disabled = true; $('btnTreeSkip').disabled = true; return; }
+    var i = v.instance || {}, eb = i.enteredBy || {}, NA = '<span class="badge">N/A</span>';
+    $('tdTitle').textContent = '단계 상세 · ' + v.stepKey + ' ' + nodeLabel(id); $('tdBadge').innerHTML = v.badge;
+    var eIn = R.edges.filter(function (e) { return e.to === id && e.from === eb.edgeFrom; })[0];
+    var entry = eb.edgeFrom ? esc(eb.edgeFrom + ' ─' + (eb.edgeType || 'seq') + '→ ' + id) + (eIn && eIn.label ? ' <span class="sub-info">' + esc(eIn.label) + '</span>' : '') : (eb.edgeType === 'start' ? '시작 노드' : '—');
+    var asg = eb.approvalSignatureId && window.EbrUserSession && EbrUserSession.ESign ? EbrUserSession.ESign.get(eb.approvalSignatureId) : null;
+    var appr = eb.edgeType === 'exception' ? '<span class="sign-dot approved"></span>SM-APPR-ROUTE · ' + (asg ? esc((asg.signerName || '') + '(' + asg.signerId + ') · ' + (EbrUserSession.fmtKst ? EbrUserSession.fmtKst(asg.signedAt) : asg.signedAt)) : esc(eb.approvalSignatureId || '')) : NA;
+    var predOk = v.state === 'in_progress' || v.state === 'done' || (v.canStart && v.canStart.ok);
+    var pred = '선행 ' + (predOk ? '<span class="badge ok">통과</span>' : '<span class="badge error" title="' + esc(v.canStart && v.canStart.msg) + '">차단</span>') +
+      ' 인터록 ' + (ilBlocked() ? '<span class="badge error">차단</span>' : '<span class="badge ok">통과</span>') + ' 스냅샷 ' + (R.legacy ? '<span class="badge" title="레거시 — exceptionEdges 없음">N/A</span>' : '<span class="badge ok">통과</span>');
+    var its = (PRODSIG.items || []).filter(function (x) { return x.stepKey === v.stepKey; });
+    var signs = v.skippable || isWeighStep(id) ? NA + ' <span class="sub-info">' + (v.skippable ? '서명 없음 (MBR)' : '칭량 줄 서명') + '</span>' : its.length ? its.map(function (x) { return SignView.slotHtml(x); }).join(' ') : '<span class="badge muted">대기</span>';
+    var outs = R.edges.filter(function (e) { return e.from === id; }).map(function (e) {
+      var term = R.terminal[e.to]; return esc(e.type + ' → ' + e.to + ' ' + nodeLabel(e.to)) + (e.type === 'exception' && term ? ' <span class="sub-info">QA만 승인</span>' : '');
+    });
+    var rep = v.iter > 1 || v.maxRepeat ? (v.iter > 1 ? '#' + v.iter + ' / 한도 ' + v.maxRepeat + '회' : '한도 ' + v.maxRepeat + '회') : NA;
+    var row = function (l, h, t) { return '<span class="label">' + l + '</span><span class="field"><span class="text" title="' + esc(t || '') + '">' + h + '</span></span>'; };
+    $('tdGrid').innerHTML = row('진입 경로', entry, eb.edgeFrom || '') + row('진입 승인', appr, eb.approvalSignatureId || '') + row('선행 조건', pred, v.canStart && v.canStart.msg) + row('필요 서명', signs, 'P0 = perform · verify 고정 (X3)') +
+      row('다음 경로', outs.join(' · ') || '—', outs.join(' · ').replace(/<[^>]+>/g, '')) + row('반복', rep, '');
+    var hasExc = R.edges.some(function (e) { return e.from === id && e.type === 'exception'; }), rOk = hasExc && !R.legacy && (v.state === 'in_progress' || v.state === 'done');
+    $('btnTreeRoute').disabled = !rOk;
+    $('tipTreeRoute').title = rOk ? '예외 경로 선택 · 진입 승인 (SM-APPR-ROUTE)' : R.legacy ? '레거시 스냅샷 — 예외 경로를 쓸 수 없습니다 (재발행 필요)' : !hasExc ? '이 단계에는 예외 경로가 없습니다' : '단계를 시작한 뒤 예외 경로를 고를 수 있습니다';
+    var sOk = v.skippable && v.state !== 'done' && v.state !== 'skipped' && v.canStart && v.canStart.ok;
+    $('btnTreeSkip').disabled = !sOk;
+    $('tipTreeSkip').title = sOk ? '건너뛰기 요청 · QA 승인 (SM-APPR-SKIP)' : !v.skippable ? window.EbrTreeExec.msgFor('tree_skip_not_allowed', { node: id }) : (v.canStart && v.canStart.msg) || '건너뛸 수 없는 상태입니다';
+  }
   function renderPhases() {
+    treeRefresh();
+    $('phaseBoard').classList.toggle('tree', TREE.ok); $('treeLegend').hidden = !TREE.ok; $('btnStartStep').hidden = !TREE.ok; if (!TREE.ok) $('completeWhy').hidden = true;
+    $('treeNoJudge').hidden = TREE.ok || !execCtx.demoMode;   /* 순수 ?demo=1 (발행 기록 없음) — 레거시 동작 · 중립 표지 */
+    if (TREE.ok) { renderTree(); return; }
     var html = '';
     var counts = { done: 0, active: 0, wait: 0, blocked: 0 };
     if (!PHASES_TMPL || !PHASES_TMPL.length) {
@@ -1205,17 +1416,20 @@
         var skip = st === 'wait' ? ' locked-skip' : '';
         var cls = 'step ' + st + (s.indent ? ' indent' : '') + sel + skip;
         var meta = stepMeta(s, st);
+        var tv = TREE.ok ? TreeUi.rowView(BATCH.id || '', 'prod', s.id) : null;   /* 트리 판정 가능할 때만 store 상태로 표시 */
+        if (tv) { cls += ' ' + tv.cls; if (tv.meta) meta = tv.meta; }
         var kindChip = s.phaseKind
           ? '<span class="eq-tag" title="kind">' + esc(s.phaseKind) + '</span>'
           : (s.eq ? '<span class="eq-tag" title="' + esc(s.eqName || s.eq) + '">' + esc(s.eq) + '</span>' : '');
         html += '<div class="' + cls + '" data-step="' + esc(s.id) + '" role="button" tabindex="0">' +
           '<span class="no">' + (st === 'done' ? '' : (s.kind === 'ph' ? 'P' : s.id.split('-').pop())) + '</span>' +
-          '<span class="name">' + esc(s.id) + ' ' + esc(s.name) + kindChip + '</span>' +
+          '<span class="name">' + (tv ? '<span class="tsym">' + tv.sym + '</span>' : '') + esc(tv && tv.iter > 1 ? tv.stepKey : s.id) + ' ' + esc(s.name) + kindChip + (tv ? ' ' + tv.badge : '') + '</span>' +
           '<span class="meta">' + esc(meta) + '</span></div>';
       });
       html += '</div>';
     });
     $('phaseBoard').innerHTML = html;
+    $('treeStatus').innerHTML = TREE.ok ? '' : TREE.blocked ? TreeUi.blockChip(TREE.res) : TreeUi.pendingChip(TREE.res);   /* 판정 불가 — 중립 표시 (통과 아님) */
     $('phaseProgress').textContent =
       '완료 ' + (counts.done || 0) + ' / 진행 ' + (counts.active || 0) +
       ' / 대기 ' + (counts.wait || 0) +
@@ -1310,6 +1524,7 @@
   }
 
   function currentOpForSign() {
+    if (TREE && TREE.ok) { var tc = treeCur(false); return tc ? tc.nodeId : resolveOp(state.selectedStep); }
     var op = resolveOp(state.selectedStep);
     var act = activeOpIndex();
     if (opIndex(op) !== act) op = OP_ORDER[act] || op;
@@ -1334,6 +1549,7 @@
     return hit;
   }
   function sigOf(op) {
+    op = sigKey(op);
     var p = slotItem(op, 'perform'), v = slotItem(op, 'verify');
     return { perform: !!(p && p.status === 'signed'), confirm: !!(v && v.status === 'signed'), p: p, v: v, ok: PRODSIG.ok };
   }
@@ -1556,6 +1772,8 @@
   }
 
   function renderAll() {
+    treeRefresh();
+    loadProdSig();   /* 서명 원장 먼저 — 트리 툴바 [단계 완료] 판정이 이전 렌더의 서명 목록을 쓰지 않게 */
     renderPhases();
     renderWeighSummary();
     renderElig();
@@ -1563,6 +1781,7 @@
     renderSigns();
     renderLog();
     renderKpi();
+    renderTreeDetail();
   }
 
   /* ---------- 이벤트 ---------- */
@@ -1588,9 +1807,13 @@
     var step = e.target.closest('[data-step]');
     if (!step) return;
     var id = step.getAttribute('data-step');
-    var gate = canSelectStep(id);
+    if (TREE.ok) { treeSelect(id); return; }
+    var tr = TREE.blocked ? TREE.res : null;   /* 트리 없음 판정(tree_snapshot_missing) = 실행 불가 (fail-closed) */   /* 순서 판정 = EbrTreeExec.canStart (판정 가능할 때) */
+    var gate = tr ? (tr.ok ? { ok: true } : { ok: false, reason: TreeApi.msgOf(tr) }) : canSelectStep(id);
     if (!gate.ok) {
-      MesUI.toast('순서 인터록: ' + gate.reason, 'warn');
+      var cur = OP_ORDER[activeOpIndex()] || '';
+      treeBlock(id, tr || { ok: false, why: '', msg: gate.reason, nextDue: cur },
+        tr ? {} : { whyText: '화면 순서 판정 — 트리 판정 불가', path: OP_ORDER.join(' → '), predText: cur ? cur + ' 미완료' : '—' });   /* PT-03 팝업 — 토스트 대체 */
       pushLog({
         ts: nowTs(), kind: '인터록', step: id,
         item: '단계 건너뛰기 차단', value: gate.reason,
@@ -1610,6 +1833,13 @@
   });
 
   $('btnCompleteStep').addEventListener('click', completeCurrentOp);
+  $('btnStartStep').addEventListener('click', treeStart);
+  $('btnLogToggle').addEventListener('click', function () {   /* 실행 중 기본 접힘 — 펼치면 200 */
+    var c = $('logBlock').classList.toggle('collapsed'); this.textContent = c ? '펼치기' : '접기'; this.setAttribute('aria-expanded', c ? 'false' : 'true');
+  });
+  $('btnTreeRoute').addEventListener('click', function () { var id = state.selectedStep; TreeUi.routeDialog({ batchId: TB(), from: id, route: treeRoute(), onDone: function () { TR.route = null; renderAll(); } }); });
+  $('btnTreeSkip').addEventListener('click', function () { var id = state.selectedStep; TreeUi.reasonDialog({ kind: 'skip', batchId: TB(), scope: 'prod', node: id, nodeName: nodeLabel(id), kv: [['대상', id + ' ' + nodeLabel(id)], ['근거', 'MBR 건너뛰기 허용 (execRule.skippable) · 필요 서명 0']],
+    onDone: function (rr) { var nx = rr && rr.next && rr.next[0]; if (nx) state.selectedStep = nx; saveState(); renderAll(); } }); });
   $('btnOpenOi').addEventListener('click', function () {
     MesUI.toast('OI 단계 실행(s-ebr-step-exec-oi) — 미구현 · 개념 링크', 'warn');
   });
@@ -1658,6 +1888,15 @@
     var values = state.logs.filter(function (r) { return r.step === op && r.kind !== '서명'; }).map(function (r) {
       return { key: r.hash, label: r.item, value: r.value, judge: r.judge && r.judge !== '—' ? r.judge : '', source: r.src };
     });
+    if (TREE && TREE.ok) {   /* 단계 시작 = EbrTreeExec.start (아직 진행 전이면 서명 창 전에 시작 — store 재판정) */
+      var rvS = TreeApi.rowState(bid, 'prod', op);
+      if (rvS && rvS.ok && rvS.state !== 'in_progress') {
+        var stS = TreeApi.start(bid, 'prod', op);
+        if (!stS || !stS.ok) { treeBlock(op, stS, { path: treePath(op) }); return; }
+        pushLog({ ts: nowTs(), kind: '공정', step: op, item: '단계 시작', value: (stS.instance && stS.instance.stepKey) || op, equip: '—', src: 'AUTO', judge: 'OK', sig: '—', user: (stS.instance && stS.instance.startedBy) || '', hash: hash8('start' + op + Date.now()) });
+        saveState(); renderAll();
+      }
+    }
     RecSign.open({
       meaning: slot === 'verify' ? 'verified' : 'performed',
       title: slot === 'verify' ? '공정 확인' : '공정 수행',
@@ -1665,7 +1904,7 @@
       f6: 'exec_step (생산 실행 단계)',
       valTitle: op + ' 기록 값',
       note: '서명 뒤 실행 기록 저장 · 출하 게이트 3 반영',
-      begin: function (x) { return x.beginStepSign({ batchId: bid, scope: 'prod', stepKey: op, slot: slot, values: values, screen: 'S-EBR-PROD-EXEC' }); },
+      begin: function (x) { var br = x.beginStepSign({ batchId: bid, scope: 'prod', stepKey: sigKey(op), slot: slot, values: values, screen: 'S-EBR-PROD-EXEC' }); if (br && br.treeBlock) treeBlock(op, br); return br; },   /* 서명 대상 = 트리 회차 stepKey · treeBlock 이면 순서 차단 팝업 */
       okText: meaning + ' 서명 완료',
       onDone: function () { saveState(); renderAll(); }
     });
