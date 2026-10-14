@@ -839,7 +839,7 @@
        조건 6 · 11: 근거 데이터로 통과시킬 수 없음 (6 = P0 고정 N/A, 11 = 서명 뒤 서명 규칙 버전 상승이 있어야 함 — 기준정보 변경) → 그대로 */
     var KEY_IFACE = 'ebr.ifaceMsg.v1';
     function seedDemoGateEvidence(batchId) {
-      var s = S(), ss = SS(), out = { iface: false, downtime: false };
+      var s = S(), ss = SS(), out = { iface: false, downtime: false };   /* 실패 때만 ok:false · why 를 붙임 (성공 형태는 그대로) */
       var iss = ss.issuedOf(batchId); if (!iss) return out;
       var raw = global.localStorage.getItem(KEY_IFACE), o = null; try { o = raw ? JSON.parse(raw) : null; } catch (e) { o = null; }
       if (raw == null || (o && typeof o === 'object')) {
@@ -851,7 +851,7 @@
         }
       }
       var GC = global.EbrGateCond, GEv = GE();
-      var has7 = false; try { var it7 = GEv && GEv.evaluate(batchId).items[6]; has7 = !!(it7 && it7.detail && it7.detail.downtimes && it7.detail.downtimes.length); } catch (e) { has7 = false; }
+      var has7 = false; try { var ev7 = GEv && GEv.evaluate(batchId), it7 = ev7 && Array.isArray(ev7.items) ? ev7.items.find(function (x) { return x && x.no === 7; }) : null; if (ev7 && !it7) { out.ok = false; out.why = 'cond7_missing'; return out; }   /* 조건 7 이 없으면(레지스트리 변경) fail-closed — 다운타임을 만들지 않고 실패 반환 */ has7 = !!(it7 && it7.detail && it7.detail.downtimes && it7.detail.downtimes.length); } catch (e) { has7 = false; }
       if (!has7 && GC && typeof GC.addDowntime === 'function' && str(iss.line) && iss.issuedAt) {
         var r = GC.addDowntime({ line: str(iss.line), from: iss.issuedAt, to: iss.issuedAt, reason: '데모 — 시스템 점검 정지', efUsed: [], screen: 'seedDemoReleaseReady' });
         out.downtime = !!(r && r.ok);
@@ -866,12 +866,13 @@
       var bf = backfillBranchIssue(batchId); if (!bf.ok) return { ok: false, why: bf.why, signed: 0, failed: [], blocked: null, blockedDetail: null };
       seedDemoTreeSnapshot(batchId);   /* 기존 데모 발행 기록에 스냅샷이 없으면 붙임 (실패해도 서명 시드는 트리 무관) */
       var ev0 = o.evidence === false ? null : seedDemoGateEvidence(batchId);
+      if (ev0 && ev0.ok === false) return { ok: false, why: ev0.why, evidence: ev0, signed: 0, failed: [], blocked: null, blockedDetail: null };   /* 조건 7 없음 등 → 서명 시드 전에 중단 */
       var m = seedDemoMatQcCore({ batchId: batchId, force: true }), r = seedSignedBatchCore(batchId, o);
       var mf = manifestOf(batchId), GE = global.EbrGateEval, ev = null;
       try { ev = GE && GE.evaluate ? GE.evaluate(batchId) : null; } catch (e) { ev = null; }
       /* 막힌 조건마다 이유 (데모 배치는 발행 기록이 없을 때만 데모 발행 기록을 만든다 — 이미 있는 불완전한 기록은 그대로 조건 7 · 10 차단) */
       var blockedDetail = mf.ok ? mf.blocked.map(function (no) {
-        var it = ev && ev.items ? ev.items[no - 1] : null;
+        var it = ev && Array.isArray(ev.items) ? ev.items.find(function (x) { return x && x.no === no; }) || null : null;
         return { no: no, why: it ? it.why || 'blocked' : 'blocked', basis: it ? it.basis || '' : '', message: it ? it.msg || it.basis || '' : '' };
       }) : null;
       var ok = m.ok && r.ok && mf.ok && !mf.blocked.length;
