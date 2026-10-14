@@ -7,7 +7,7 @@
   로직         : 판정 · 기록 · 서명 · 영향 범위는 모두 window.EbrBalanceCheck(ebr-balance-check-store.js) · EbrDispense · EbrUserSession API.
                  이 화면은 DOM 표시 · 이벤트 연결만 — 저장소 키(ebr.balanceCheck.v1 · ebr.dispense.v1)를 직접 읽지 않는다.
                  EbrBalanceCheck 가 아직 없으면(미배포) 어댑터(BCA)가 fail-closed: 점검 입력 · SIM · [불합격 확정] · [점검 서명] 비활성 + 안내.
-  기준 문서     : poc-balance-check-and-weigh-record-ui-items.md UI-01~UI-06 · 설계 개정 2 §2.3 · §4.1 (W1~W5) · J1~J9 권고안 확정
+  기준 문서     : docs/wiki/design/poc-balance-check-and-weigh-record-ui-items.md UI-01~UI-06 · 설계 개정 2 §2.3 · §4.1 (W1~W5) · J1~J9 권고안 확정
   레이아웃     : title-bar 36 → kpi-board 72 → #ilBanner 36(있을 때만) → 분할 2fr │ 6 │ 3fr (792 / 844) → tran-buttons 48
                  팝업(body 끝): #dlgBalanceFail 1100×700 (W3) · #dlgBalanceSign 1100×700 (T-11) · #dlgBalanceHistory 1100×700 (30일)
   이동 쿼리     : ?roomId=&balanceId=

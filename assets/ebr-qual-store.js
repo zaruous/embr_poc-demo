@@ -1,6 +1,6 @@
 /* =====================================================================
    ebr-qual-store.js — eBR · eMBR PoC 교육 · 자격 저장소 · 판정 (전역 EbrQual)
-   - 설계: poc-training-qualification-design.md 개정 4 (D1-01 ~ D1-06 · D1-13). 공개 API: training-qual-api-signatures.md
+   - 설계: docs/wiki/design/poc-training-qualification-design.md 개정 4 (D1-01 ~ D1-06 · D1-13). 공개 API: training-qual-api-signatures.md
    - 원칙: 역할 = 권한(authority), 자격 = 역량(competence) — 둘 다 충족해야 진행. 매핑 없는 대상은 fail-closed(qual_req_unset)
    - 저장 키: ebr.qual.v1 (단일 키, 한 번의 setItem) · 감사는 EbrUserSession.Audit (ebr.audit.v1)
    - 화면 독립: HTML 을 만들지 않는다. EbrUserSession 은 호출 시점에 찾는다(스크립트 로드 순서 무관)
