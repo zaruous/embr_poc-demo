@@ -838,6 +838,14 @@
        조건 7: 데모 발행 라인 · 발행 시각 구간 다운타임 1건 (EbrGateCond.addDowntime, 현재 사용자) — 그 배치에 걸친 다운타임이 없을 때만. QA 검토 서명은 seedSignedBatchCore 'cond' 가 함
        조건 6 · 11: 근거 데이터로 통과시킬 수 없음 (6 = P0 고정 N/A, 11 = 서명 뒤 서명 규칙 버전 상승이 있어야 함 — 기준정보 변경) → 그대로 */
     var KEY_IFACE = 'ebr.ifaceMsg.v1';
+    /* 게이트 판정 예외 감사 기록: 시작 전 거부(DEMO_SEED_REFUSED)와 구분해 DEMO_SEED_EVAL_ERROR (예약 행위 DEVIATION_ · TREE_ 아님 → 공개 Audit). 예외 메시지 원문은 남기지 않고 err.name 만 (비밀 유출 방지) */
+    var ERR_NAMES = ['Error', 'TypeError', 'RangeError', 'ReferenceError', 'SyntaxError'];   /* 허용 목록 밖 이름(사용자 정의 · 식별자 형태 비밀값)은 'Error' 로 */
+    function errName(e) { var n = e && typeof e.name === 'string' ? e.name : ''; return ERR_NAMES.indexOf(n) >= 0 ? n : 'Error'; }
+    function evalErrAudit(batchId, fn, e) {
+      try { S().Audit.append({ uid: curId() || 'SYSTEM', act: 'DEMO_SEED_EVAL_ERROR', tgt: str(batchId) || '—', val: fn + ' 게이트 판정 예외 — eval_error (' + errName(e) + ')', why: 'eval_error', screen: fn }); } catch (e2) { /* 감사 실패해도 실패 유지 */ }
+    }
+    var MSG_EVAL_ERR_EVIDENCE = '게이트 판정 중 오류가 나서 시드를 시작하지 않았어요. 다시 시도해 주세요';
+    var MSG_EVAL_ERR_FINAL = '시드는 진행됐고 판정만 실패했어요. 다시 판정해 주세요';
     function seedDemoGateEvidence(batchId) {
       var s = S(), ss = SS(), out = { iface: false, downtime: false };   /* 실패 때만 ok:false · why 를 붙임 (성공 형태는 그대로) */
       var iss = ss.issuedOf(batchId); if (!iss) return out;
@@ -851,7 +859,7 @@
         }
       }
       var GC = global.EbrGateCond, GEv = GE();
-      var has7 = false; try { var ev7 = GEv && GEv.evaluate(batchId), it7 = ev7 && Array.isArray(ev7.items) ? ev7.items.find(function (x) { return x && x.no === 7; }) : null; if (ev7 && !it7) { out.ok = false; out.why = 'cond7_missing'; return out; }   /* 조건 7 이 없으면(레지스트리 변경) fail-closed — 다운타임을 만들지 않고 실패 반환 */ has7 = !!(it7 && it7.detail && it7.detail.downtimes && it7.detail.downtimes.length); } catch (e) { has7 = false; }
+      var has7 = false; try { var ev7 = GEv && GEv.evaluate(batchId), it7 = ev7 && Array.isArray(ev7.items) ? ev7.items.find(function (x) { return x && x.no === 7; }) : null; if (ev7 && !it7) { out.ok = false; out.why = 'cond7_missing'; return out; }   /* 조건 7 이 없으면(레지스트리 변경) fail-closed — 다운타임을 만들지 않고 실패 반환 */ has7 = !!(it7 && it7.detail && it7.detail.downtimes && it7.detail.downtimes.length); } catch (e) { evalErrAudit(batchId, 'seedDemoGateEvidence', e); out.ok = false; out.why = 'eval_error'; return out; }   /* 게이트 판정 예외 → fail-closed (다운타임을 만들지 않고 실패 반환) */
       if (!has7 && GC && typeof GC.addDowntime === 'function' && str(iss.line) && iss.issuedAt) {
         var r = GC.addDowntime({ line: str(iss.line), from: iss.issuedAt, to: iss.issuedAt, reason: '데모 — 시스템 점검 정지', efUsed: [], screen: 'seedDemoReleaseReady' });
         out.downtime = !!(r && r.ok);
@@ -866,10 +874,14 @@
       var bf = backfillBranchIssue(batchId); if (!bf.ok) return { ok: false, why: bf.why, signed: 0, failed: [], blocked: null, blockedDetail: null };
       seedDemoTreeSnapshot(batchId);   /* 기존 데모 발행 기록에 스냅샷이 없으면 붙임 (실패해도 서명 시드는 트리 무관) */
       var ev0 = o.evidence === false ? null : seedDemoGateEvidence(batchId);
-      if (ev0 && ev0.ok === false) return { ok: false, why: ev0.why, evidence: ev0, signed: 0, failed: [], blocked: null, blockedDetail: null };   /* 조건 7 없음 등 → 서명 시드 전에 중단 */
+      if (ev0 && ev0.ok === false) return { ok: false, why: ev0.why, message: ev0.why === 'eval_error' ? MSG_EVAL_ERR_EVIDENCE : undefined, evidence: ev0, signed: 0, failed: [], blocked: null, blockedDetail: null };   /* 조건 7 없음 등 → 서명 시드 전에 중단 */
       var m = seedDemoMatQcCore({ batchId: batchId, force: true }), r = seedSignedBatchCore(batchId, o);
       var mf = manifestOf(batchId), GE = global.EbrGateEval, ev = null;
-      try { ev = GE && GE.evaluate ? GE.evaluate(batchId) : null; } catch (e) { ev = null; }
+      try { ev = GE && GE.evaluate ? GE.evaluate(batchId) : null; }
+      catch (e) {   /* 게이트 판정 예외 → fail-closed: 이미 만든 서명 수는 알리되 ok:true 로 보고하지 않음 (되돌리지 않음 — 다시 판정 안내) */
+        evalErrAudit(batchId, 'seedDemoReleaseReady', e);
+        return { ok: false, why: 'eval_error', message: MSG_EVAL_ERR_FINAL, issueCreated: !!di.created, evidence: ev0, signed: (m.signed || 0) + r.signed, failed: (m.failed || []).concat(r.failed || []), blocked: null, blockedDetail: null };
+      }
       /* 막힌 조건마다 이유 (데모 배치는 발행 기록이 없을 때만 데모 발행 기록을 만든다 — 이미 있는 불완전한 기록은 그대로 조건 7 · 10 차단) */
       var blockedDetail = mf.ok ? mf.blocked.map(function (no) {
         var it = ev && Array.isArray(ev.items) ? ev.items.find(function (x) { return x && x.no === no; }) || null : null;
