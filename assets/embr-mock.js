@@ -129,11 +129,18 @@
   var ui = {
     esc: function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); },
     badge: function (cls, text) { return '<span class="badge' + (cls ? ' ' + cls : '') + '">' + ui.esc(text) + '</span>'; },
-    /* [data-mock-why] 버튼 = disabled + title "목업 - PoC 범위 밖 (DC-03). 운영에서는 {통제} 가 필요한 동작" */
+    /* 주격 조사 이/가 — 끝 괄호 설명을 뺀 마지막 한글 글자의 받침으로 고름 (한글이 아니면 '이(가)') */
+    josa: function (text) {
+      var t = String(text || '').replace(/\s*\([^()]*\)\s*$/, '').trim(), c = t.charCodeAt(t.length - 1);
+      if (!(c >= 44032 && c <= 55203)) return '이(가)';
+      return (c - 44032) % 28 ? '이' : '가';
+    },
+    /* [data-mock-why] 버튼 = disabled + title "목업 - PoC 범위 밖 (DC-03). 운영에서는 {통제}이/가 필요한 동작" (받침에 따라 조사 선택) */
     applyDisabled: function (root) {
       Array.prototype.forEach.call((root || document).querySelectorAll('[data-mock-why]'), function (b) {
         b.disabled = true; b.setAttribute('aria-disabled', 'true');
-        b.title = '목업 - PoC 범위 밖 (DC-03). 운영에서는 ' + b.getAttribute('data-mock-why') + ' 가 필요한 동작' + (b.getAttribute('data-mock-sign') ? ' — 예: ' + b.getAttribute('data-mock-sign') : '');
+        var why = b.getAttribute('data-mock-why');
+        b.title = '목업 - PoC 범위 밖 (DC-03). 운영에서는 ' + why + ui.josa(why) + ' 필요한 동작' + (b.getAttribute('data-mock-sign') ? ' — 예: ' + b.getAttribute('data-mock-sign') : '');
       });
     },
     fit: function () {
