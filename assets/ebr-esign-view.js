@@ -505,7 +505,7 @@
       return { text: '\uFEFF' + head.concat(body).join('\r\n') + '\r\n', rowCount: list.length, guarded: guarded };
     }
     /* T-1: 파일 해시는 표준 SHA-256 (FIPS 180-4) 을 UTF-8 바이트(BOM 포함)에 적용 — 외부 도구(sha256sum 등)와 같은 값.
-       헬퍼 sha256Hex 는 상수 1개가 표준과 달라(K[26]) 외부 도구 값과 다르므로 파일 해시에는 쓰지 않는다 (서명 · 내용 해시는 헬퍼 그대로) */
+       헬퍼 sha256Hex 도 같은 표준 상수(K[26]=0xb00327c8)를 쓰므로 문자열 입력에서는 값이 같다. 파일 해시는 바이트 배열 입력을 받아 BOM·원문 바이트를 그대로 넣는다. */
     function utf8Bytes(s) {
       var out = [];
       for (var i = 0; i < s.length; i++) {
