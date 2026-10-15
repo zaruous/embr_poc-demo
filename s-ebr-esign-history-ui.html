@@ -142,6 +142,15 @@
   #dlgInvalidate .inv-row .input { height: var(--ctrl-h-form); }
   #dlgInvalidate .dialog { height: auto; }
   #dlgInvalidate .dialog .shell-body { flex: none; }
+  /* ==== CSV 내보내기 (DC-08 D4-8a~e) — 툴바 #btnCsv · 확인 창 #dlgCsv (.dialog.sm 600×480, 확정 D-12) ==== */
+  #btnCsvTip, #dlgCsv .tip { display: inline-flex; }
+  #dlgCsv .shell-body { display: flex; flex-direction: column; gap: var(--split-gutter); overflow: hidden; }
+  #dlgCsv .csv-kv { display: grid; grid-template-columns: var(--form-label-w) 1fr; row-gap: var(--split-gutter); column-gap: var(--split-gutter); line-height: 1.5; min-width: 0; }
+  #dlgCsv .csv-kv .v { min-width: 0; overflow-wrap: anywhere; }
+  #dlgCsv #csvCond .csv-ci { white-space: nowrap; }
+  #dlgCsv .csv-note { color: var(--c-text-sub); line-height: 1.6; }
+  #dlgCsv .csv-err { color: var(--c-error); line-height: 1.6; overflow-wrap: anywhere; }
+  #dlgCsv .popup-close:disabled { opacity:.4; cursor:default; pointer-events:none; }
 </style>
 </head>
 <body>
@@ -204,6 +213,7 @@
         <span class="badge warn" id="ulBadge" title="">(!) 미연결 화면 3</span>
         <button class="btn inner" type="button" id="btnUlMore">자세히</button>
         <button class="btn search" type="button" id="btnPrint">인쇄</button>
+        <span class="tip" id="btnCsvTip"><button class="btn search" type="button" id="btnCsv" disabled>CSV</button></span>
       </div>
       <div class="grid-wrap" id="gridWrap">
         <table class="grid selectable" id="grdSign">
@@ -317,6 +327,29 @@
       <span class="sub-info sign-note">감사 ESIGN_INVALIDATED 기록 · 게이트 재평가 (무효 슬롯은 차단)</span>
       <button class="btn search secondary" type="button" data-dialog-close>취소</button>
       <button class="btn search primary" type="button" id="btnInvalidate" disabled>무효화</button>
+    </div>
+  </div>
+</div>
+
+<!-- CSV 내보내기 확인 창 #dlgCsv (.dialog.sm 600×480 · 행 수 · 조건 요약 · 파일 이름 · 상한 · 생성 중 잠금) -->
+<div class="dialog-backdrop" id="dlgCsv">
+  <div class="dialog sm">
+    <div class="popup-title"><span class="text">CSV 내보내기</span><span class="tip" id="btnCsvXTip"><button class="popup-close" type="button" data-dialog-close aria-label="Close" id="btnCsvX"></button></span></div>
+    <div class="shell-body">
+      <div class="csv-kv">
+        <span class="k">내보낼 행</span><span class="v" id="csvRows"></span>
+        <span class="k">조건</span><span class="v" id="csvCond"></span>
+        <span class="k">파일 이름</span><span class="v mono" id="csvFile"></span>
+        <span class="k">형식</span><span class="v" id="csvFmt"></span>
+        <span class="k">포함</span><span class="v">무효 · 대조 불일치 서명 포함 (상태 · 연결 열)</span>
+      </div>
+      <div class="csv-note">내보내기는 감사추적에 기록됩니다.<br>=, +, -, @ 로 시작하는 값은 앞에 ' 를 붙입니다.</div>
+      <div class="csv-note is-hidden" id="csvBusy">생성 중…</div>
+      <div class="csv-err is-hidden" id="csvErr" role="alert"></div>
+    </div>
+    <div class="dialog-footer">
+      <span class="tip" id="btnCsvCancelTip"><button class="btn search" type="button" data-dialog-close id="btnCsvCancel">취소</button></span>
+      <span class="tip" id="btnCsvOkTip"><button class="btn search primary" type="button" id="btnCsvOk">내보내기</button></span>
     </div>
   </div>
 </div>
@@ -473,7 +506,7 @@
   var RES_CLS = { signed: 'ok', failed: 'error', locked: 'alarm', cancelled: 'warn', rolledback: 'warn' };   /* J3: 잠금 = .badge.alarm */
   var VER = { match: ['ok', '일치'], mismatch: ['error', '불일치'], unverifiable: ['warn', '검증 불가'] };
   var NO_ROLE_HINT = '조회 가능 역할: QA · QP · SV · OP(본인 것만) · ADMIN(읽기 전용)';
-  var st = { scope: null, page: 1, order: 'desc', sel: null, rows: [], total: 0, legacy: 0, lineId: '', signRuleId: '', signerId: null,
+  var st = { csv: { busy: false, total: 0, filter: null, okReady: false, okWhy: '' }, scope: null, page: 1, order: 'desc', sel: null, rows: [], total: 0, legacy: 0, lineId: '', signRuleId: '', signerId: null,
              band: false, bp: { page: 1, sel: null, rows: [], total: 0 }, detail: null, filter: null };
 
   if (!V || !US) {   /* 헬퍼 미배포: fail-closed — 조회 없이 안내만 */
@@ -595,6 +628,7 @@
     if (locked) { st.signerId = st.scope.userId; $('#fSigner').value = (st.scope.name || '') + ' (' + st.scope.userId + ')'; $('#fSigner').disabled = true; }
     else if (prevLocked) { st.signerId = null; $('#fSigner').value = ''; }
     show('#btnPrint', !!st.scope.canPrint); show('#btnSdPrint', !!st.scope.canPrint);
+    renderCsvBtn();
     return true;
   }
 
@@ -627,6 +661,7 @@
     $('#chipBar').innerHTML = chips.join('');
     $('#atArr').textContent = st.order === 'asc' ? '▲' : '▼';
     $('#thAt').title = st.order === 'asc' ? '오래된순 — 클릭: 최신순' : '최신순 — 클릭: 오래된순';
+    renderCsvBtn();
   }
 
   function rowHtml(r) {
@@ -929,6 +964,88 @@
   }
   function doPrint(builder) { if (!st.scope || !st.scope.canPrint) return; if (builder() == null) return; window.print(); }
 
+  /* ---------- DC-08 CSV 내보내기 (D4-8a~e) — 로직은 EbrSignView.exportRows · exportCsv (D1), 화면은 확인 창 · 파일 저장 · 알림만 ---------- */
+  var CSV_BUSY_MIN = 1000;   /* §8: 1,000행 이상이면 '생성 중…' 진행 줄 */
+  function csvMsg(r) { var M = V.CSV_MSG || {}; return (r && r.why && r.why !== 'too_many_rows' && M[r.why]) || (r && r.message) || M.no_helper || ''; }
+  function csvBlock() {   /* 사유 우선순위: 권한 없음 > 생성 중 > 0행 (§9.1) */
+    var M = V.CSV_MSG || {};
+    if (!st.scope || !st.scope.ok || st.scope.canExport !== true) return M.export_denied;
+    if (st.csv.busy) return M.busy;
+    if (!st.total) return M.no_rows;
+    return '';
+  }
+  function renderCsvBtn() {
+    var why = csvBlock(); $('#btnCsv').disabled = !!why; $('#btnCsvTip').title = why || '';
+  }
+  function csvSetLock(on) {
+    st.csv.busy = !!on;
+    var bd = $('#dlgCsv'), t = on ? (V.CSV_MSG || {}).busy : '';
+    if (on) bd.setAttribute('data-no-esc', ''); else bd.removeAttribute('data-no-esc');
+    $('#btnCsvX').disabled = !!on; $('#btnCsvCancel').disabled = !!on; $('#btnCsvXTip').title = t; $('#btnCsvCancelTip').title = t;
+    show('#csvBusy', !!on && (st.csv.total >= CSV_BUSY_MIN));
+    if (on) { $('#btnCsvOk').disabled = true; $('#btnCsvOkTip').title = t; }
+    else { $('#btnCsvOk').disabled = !st.csv.okReady; $('#btnCsvOkTip').title = st.csv.okReady ? '' : (st.csv.okWhy || ''); }
+    renderCsvBtn();
+  }
+  function csvSetErr(msg) { $('#csvErr').textContent = msg || ''; show('#csvErr', !!msg); }
+  function csvFilter() { var f = JSON.parse(JSON.stringify(st.filter || filterNow())); delete f.offset; delete f.limit; return f; }
+  function openCsv() {
+    if (csvBlock()) return false;
+    var f = csvFilter(), x = V.exportRows(f);
+    st.csv.filter = f; st.csv.total = x.ok ? x.total : (x.total || 0);
+    var lim = Number(V.CSV_ROW_LIMIT || 10000);
+    if (!x.ok && x.why !== 'too_many_rows') { MesUI.toast(csvMsg(x), 'warn', 2600); renderCsvBtn(); return false; }
+    /* 조건 요약 · 파일 이름 = 실제 조회에 쓰인 조건만 (EbrSignView.csvEffectiveFilter — 안 쓰인 값은 null) */
+    var ef = V.csvEffectiveFilter ? V.csvEffectiveFilter(x.ok ? x.applied : f) : {}, uid = st.scope.userId;
+    var ap = JSON.parse(JSON.stringify(x.ok ? x.applied : f));   /* 6개 밖 조건(서명자 등)은 그대로, 6개는 실제 적용 값으로 덮어씀 */
+    ['from', 'to', 'batchId', 'meaning', 'order'].forEach(function (k) { ap[k] = ef[k]; }); ap.result = ef.result == null ? 'all' : ef.result;
+    $('#csvRows').textContent = Number(st.csv.total).toLocaleString('en-US') + '행 (현재 조회 조건 전체 · 페이지와 무관)';
+    (function (el, parts) {   /* D4-8e: 인쇄 조건과 같은 함수 (표시 이름) · 항목은 줄바꿈 없이, ' | ' 에서만 줄바꿈 */
+      el.textContent = '';
+      parts.forEach(function (t, i) {
+        if (i) el.appendChild(document.createTextNode(' | '));
+        var sp = document.createElement('span'); sp.className = 'csv-ci'; sp.textContent = t; el.appendChild(sp);
+      });
+    })($('#csvCond'), condText(ap).split(' | '));
+    $('#csvFile').textContent = V.csvFileName ? V.csvFileName(ap, uid, US.nowIsoLocal ? US.nowIsoLocal() : new Date().toISOString()) : '';
+    $('#csvFile').title = '파일 이름의 시각은 내보내는 순간 기준으로 정해집니다';
+    $('#csvFmt').textContent = 'UTF-8(BOM) · CRLF · ' + (V.CSV_COLUMNS || []).length + '열 · 머리말 14줄';
+    st.csv.okReady = !!x.ok && x.total > 0 && x.total <= lim;
+    st.csv.okWhy = x.ok ? (x.total ? '' : csvMsg({ why: 'no_rows' })) : csvMsg(x);
+    csvSetErr(st.csv.okReady ? '' : st.csv.okWhy);
+    csvSetLock(false);
+    MesUI.openDialog('dlgCsv');
+    return true;
+  }
+  function saveBlob(r) {
+    var blob = new Blob([r.text], { type: r.mimeType || 'text/csv;charset=utf-8' }), url = URL.createObjectURL(blob);
+    var a = document.createElement('a'); a.href = url; a.download = r.fileName; a.style.display = 'none';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+  }
+  var CSV_ERR_FIXED = 'CSV 내보내기 중 오류가 발생했습니다. 다시 시도하세요.';
+  var CSV_SAVE_FIXED = 'CSV 파일을 저장하지 못했습니다. 다시 시도하세요.';
+  function runCsv() {
+    if (st.csv.busy || !st.csv.okReady) return null;
+    csvSetErr(''); csvSetLock(true);
+    var f = st.csv.filter;
+    /* 잠금 화면을 먼저 그린 뒤 생성 (exportCsv 는 동기 — 값 또는 Promise 모두 받음) */
+    return new Promise(function (res) { requestAnimationFrame(function () { setTimeout(res, 0); }); })
+      .then(function () { return V.exportCsv(f); })
+      .catch(function (e) { if (window.console) console.warn('CSV export error', e); return { ok: false, why: 'error', message: CSV_ERR_FIXED }; })
+      .then(function (r) {
+        csvSetLock(false);
+        var saved = false;
+        if (r && r.ok) { try { saveBlob(r); saved = true; } catch (e) { if (window.console) console.warn('CSV save error', e); } }
+        if (r && r.ok && !saved) { csvSetLock(false); csvSetErr(CSV_SAVE_FIXED); MesUI.alert(CSV_SAVE_FIXED, 'Error'); }   /* Blob 생성 · 저장 실패 — 고정 문구 · 잠금 해제 */
+        else if (r && r.ok) { MesUI.closeDialog('dlgCsv'); MesUI.toast(r.message || ('CSV ' + r.rowCount + '행을 내보냈습니다.'), 'ok', 3000); }
+        else if (r && r.why === 'audit_failed') { csvSetErr(csvMsg(r)); MesUI.alert(r.message || csvMsg(r), 'Error'); }   /* 차단성 — 토스트 쓰지 않음 */
+        else { st.csv.okReady = false; st.csv.okWhy = r && r.why === 'error' ? CSV_ERR_FIXED : csvMsg(r); csvSetLock(false); csvSetErr(st.csv.okWhy); }
+        renderCsvBtn();
+        return r;
+      });
+  }
+
   /* ---------- 이벤트 ---------- */
   function bind() {
     $('#btnSearch').addEventListener('click', function () { runQuery(true); });
@@ -960,6 +1077,8 @@
       else if (e.target.closest('#btnUlBack')) setBand(false);
     });
     $('#btnPrint').addEventListener('click', function () { doPrint(buildPrintList); });
+    $('#btnCsv').addEventListener('click', openCsv);
+    $('#btnCsvOk').addEventListener('click', runCsv);
     $('#btnSdPrint').addEventListener('click', function () { doPrint(buildPrintDetail); });
     $('#btnSdBatch').addEventListener('click', function () {
       var r = st.detail && st.detail.row; if (!r || !r.batchId) return;
@@ -1005,7 +1124,7 @@
   }
   window.EbrSignHistoryUi = {
     state: function () { return JSON.parse(JSON.stringify({ scope: st.scope, page: st.page, order: st.order, total: st.total, legacy: st.legacy, sel: st.sel, filter: st.filter, band: st.band, lineId: st.lineId, rows: st.rows.map(function (r) { return r.rowId; }) })); },
-    runQuery: runQuery, openDetail: openDetail, buildPrintList: buildPrintList, buildPrintDetail: buildPrintDetail, filterNow: filterNow
+    runQuery: runQuery, openDetail: openDetail, openCsv: openCsv, runCsv: runCsv, csvState: function () { return JSON.parse(JSON.stringify(st.csv)); }, buildPrintList: buildPrintList, buildPrintDetail: buildPrintDetail, filterNow: filterNow
   };
   if (window.P0Ui) P0Ui.ready(boot); else if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

@@ -31,7 +31,7 @@
     step_value: '단계 실행 값', batch_review: '배치 기록 검토', rbe_exception: 'RBE 예외 검토', audit_trail: '감사추적 검토',
     release: '출하 승인', briefing: '변경점 브리핑', mbr_approval: 'MBR 승인', material_qc: '자재 QC 판정',
     downtime_review: '다운타임 검토', change_impact: '변경 영향 검토', control_eval: '통제 강화 평가', integrity_ack: '복원 탐지 확인',
-    tree_route: '트리 경로 승인', deviation_close: '일탈 종결' };
+    tree_route: '트리 경로 승인', deviation_close: '일탈 종결', correction: '정정' };
   /* 고아 서명 판정 대상 (실행 · 출하 서명) — 가리키는 기록(실행 · 출하 · MBR 서명 · LOT 판정)이 없으면 고아 */
   var ORPHAN_RECORD_TYPES = ['step_value', 'batch_review', 'rbe_exception', 'audit_trail', 'release', 'briefing', 'mbr_approval', 'material_qc'];
   var ORPHAN_LABEL = '실행 기록 없음(데모 초기화)';
@@ -56,7 +56,11 @@
     function storage() { return opts.storage || global.localStorage; }
     function readJson(k, dflt) { try { var s = storage(); var raw = s ? s.getItem(k) : null; if (raw == null) return dflt; var v = JSON.parse(raw); return v == null ? dflt : v; } catch (e) { return dflt; } }
     function readArr(k) { var v = readJson(k, []); return Array.isArray(v) ? v : (v && Array.isArray(v.items) ? v.items : []); }
-    function issuedList() { return readArr(K.ISSUED); }
+    /* D1-7e: 내보내기 동안만 서명 레코드 · 칭량 기록을 1회 읽어 재사용 (행마다 저장소 전체 JSON.parse 방지). 평소 조회는 기존대로 */
+    var bulk = null;
+    function sigGet(id) { return bulk ? (bulk.sigs[id] || null) : U().ESign.get(id); }
+    function dispenseList() { return bulk ? bulk.dispense : readArr(K.DISPENSE); }
+    function issuedList() { return bulk ? bulk.issued : readArr(K.ISSUED); }
     function issuedRec(batchId) { var id = String(batchId || ''); return issuedList().filter(function (b) { return b && String(b.batchId) === id; })[0] || null; }
 
     /* ---- D1-4 권한 범위 */
@@ -93,7 +97,7 @@
       return base;
     }
     function decorate(r0) {
-      var r = clone(r0), sig = r.source === 'esign' && U() ? U().ESign.get(r.signatureId) : null;
+      var r = clone(r0), sig = r.source === 'esign' && U() ? sigGet(r.signatureId) : null;
       r.estimated = Array.isArray(r.estimated) ? r.estimated.slice() : [];
       if (r.source === 'audit' && !r.recordType) { r.r4 = true; if (r.estimated.indexOf('recordType') < 0) r.estimated.push('recordType'); }   /* R4 */
       var mm = MEANING[r.meaning] || null;
@@ -129,7 +133,7 @@
         var b = issuedRec(sig.batchId);
         c = { processTreeId: sig.processTreeId, ver: sig.ver, contentHash: sig.contentHash, batchId: sig.batchId, size: b ? b.size : null };
       } else {
-        var d = readArr(K.DISPENSE).filter(function (x) { return x && ((sig.recId && x.recId === sig.recId) || (!sig.recId && sig.dispenseId && x.dispenseId === sig.dispenseId)); })[0] || {};
+        var d = dispenseList().filter(function (x) { return x && ((sig.recId && x.recId === sig.recId) || (!sig.recId && sig.dispenseId && x.dispenseId === sig.dispenseId)); })[0] || {};
         var pf = d.performed || {};
         c = { batchId: sig.batchId || d.batchId, lineId: sig.lineId || d.lineId, materialId: d.materialId, lotNo: d.lotNo, dispenseId: sig.dispenseId || d.dispenseId,
               net: d.net, uom: d.uom, judge: d.judge, performerName: pf.name, performerId: pf.userId, voidReason: d.voidReason };
@@ -351,13 +355,236 @@
       return { ok: true, total: rows.length, rows: rows, label: ORPHAN_LABEL };
     }
 
+    /* ---- DC-08 서명 CSV 내보내기 (D1-7a ~ D1-7d, DOM 없음 · 파일 저장은 화면)
+       exportRows(filter, o?) → { ok:true, total, columns, columnsKo, rows:[[27값]], applied, scope, unlinkedRefCount }
+                              | { ok:false, why:'no_current_user'|'unknown_user'|'locked'|'inactive'|'no_role'|'scope_none'|'no_helper'|'not_current_user'|'export_denied'|'too_many_rows', message, total?, limit? }
+       toCsv(rows, meta) → { text(BOM 포함), rowCount, guarded }
+       exportCsv(filter, o?) → { ok:true, text, fileName, mimeType, rowCount, guarded, fileHash, bytes, columns, auditId, exportedAt, message }
+                             | { ok:false, why(위 값 + 'no_rows'|'audit_failed'), message, alertType? } — 감사 실패면 파일 없음(fail-closed)
+       권한: 매번 viewScope 재판정(scopeOrFail) + canExport(QP · QA). 내보내는 사람 = 현재 사용자 (o.userId 가 다르면 거부) */
+    var CSV_COLUMNS = ['row_id', 'source', 'result', 'result_ko', 'signed_at', 'meaning', 'meaning_ko', 'meaning_en', 'signer_id', 'signer_name', 'signer_role',
+      'record_type', 'record_type_ko', 'batch_id', 'order_no', 'target_ref', 'sign_rule', 'reason', 'statement', 'statement_source', 'signature_id', 'signature_hash',
+      'verify_state', 'status', 'link', 'estimated', 'screen'];
+    var CSV_COLUMNS_KO = ['행 ID', '원천', '결과 코드', '결과', '일시', '의미 코드', '의미', '의미(영문)', '서명자 ID', '서명자 이름', '서명 역할',
+      '대상 유형 코드', '대상 유형', '배치 ID', '오더', '대상', '규칙', '사유', '서명 문장', '문장 출처', '서명 ID', '서명 해시', '검증', '상태', '연결', '추정 필드', '화면'];
+    var CSV_ROW_LIMIT = 10000;
+    var CSV_EXPORT_ACT = 'ESIGN_EXPORT';
+    var CSV_SCREEN = 's-ebr-esign-history-ui';
+    var CSV_MSG = {
+      export_denied: 'CSV 내보내기는 QP · QA만 할 수 있습니다', no_rows: '내보낼 행이 없습니다', busy: 'CSV를 만드는 중입니다',
+      not_current_user: '현재 사용자만 내보낼 수 있습니다', audit_failed: '내보내기 감사 기록에 실패해 파일을 만들지 않았습니다.', no_helper: '서명 헬퍼가 없어 내보낼 수 없습니다'
+    };
+    function tooManyMessage(n) { return '10,000행을 넘습니다 (' + Number(n).toLocaleString('en-US') + '행) — 조건을 좁히세요'; }
+    function csvTime(v, est) {
+      var s = v == null ? '' : String(v);
+      if (!s || /[+-]\d{2}:\d{2}$/.test(s)) return s;
+      var d = new Date(s); if (isNaN(d.getTime())) return s;
+      if (est.indexOf('at') < 0) est.push('at');
+      return U().nowIsoLocal(d);
+    }
+    /* D1-7d 연결 열 — 무효 기록(voidOf) · 정정(ebr.correction.v1 읽기 전용). 형식 키=값; (확정 D-7, void_reason 맨 끝) */
+    function correctionIndex() {
+      var perf = {}, ver = {};
+      readArr('ebr.correction.v1').forEach(function (c) {
+        if (!c || !c.correctionId) return;
+        if (c.performed && c.performed.signatureId) perf[c.performed.signatureId] = c;
+        if (c.verified && c.verified.signatureId) ver[c.verified.signatureId] = c;
+      });
+      return { perf: perf, ver: ver };
+    }
+    function linkOf(sid, vrec, ci) {
+      var parts = [];
+      if (vrec) {
+        parts.push('void=' + vrec.voidId);
+        if (vrec.correctionId) { parts.push('correction=' + vrec.correctionId); if (vrec.viaSignatureId) parts.push('via=' + vrec.viaSignatureId); }
+        else parts.push('void_at=' + (vrec.at || ''), 'void_by=' + (vrec.by || ''), 'void_reason=' + (vrec.reason || ''));
+      }
+      var cp = ci.perf[sid], cv = ci.ver[sid];
+      if (cp) parts.unshift('correction=' + cp.correctionId + ';role=perform;orig=' + (cp.origSignatureIds || []).join(','));
+      if (cv) parts.unshift('correction=' + cv.correctionId + ';role=verify;voided=' + (cv.voidIds || []).join(','));
+      return parts.join(';');
+    }
+    /* D1-7e 묶음 검증 — 행마다 voidState(감사 전체 읽기)를 다시 계산하지 않도록 1회 계산 결과를 재사용 (헬퍼 validity 와 같은 판정) */
+    function bulkValidity(u) {
+      var vs = u.ESign.voidState();
+      return function (sig) {
+        if (!sig) return { state: 'missing', mismatches: ['no_signature'], voidRecord: null };
+        var mm = [], body = clone(sig); delete body.signatureHash;
+        if (sig.status !== 'valid') { body.status = 'valid'; delete body.voidId; delete body.invalidation; }
+        if (u.sha256Hex(u.stableStringify(body)) !== sig.signatureHash) mm.push('signatureHash');
+        var e = vs.bySig[sig.signatureId];
+        if (!vs.intact) mm.push('void_store_integrity');
+        if (e) { mm = mm.concat(e.mismatches); if (sig.status === 'valid') mm.push('valid_while_voided'); if (e.record && sig.voidId && sig.voidId !== e.record.voidId) mm.push('void_ref_mismatch'); }
+        else if (sig.status !== 'valid') mm.push('invalid_without_void');
+        return { state: mm.length ? 'tampered' : (e ? 'void' : 'valid'), mismatches: mm, voidRecord: e && e.record ? clone(e.record) : null };
+      };
+    }
+    /* verifyRow 와 같은 판정, 무효 대조는 묶음 결과 사용 */
+    function verifyWith(r, sig, vd, u) {
+      if (r.source !== 'esign') return 'n/a';
+      if (!sig) return 'unverifiable';
+      var mm = vd.mismatches.slice();
+      if (sig.recordType === 'batch_issue') {
+        var b = issuedRec(sig.batchId);
+        if (!b) return mm.length ? 'mismatch' : 'unverifiable';
+        if (u.computeSnapshotHash(b.snapshot) !== sig.snapshotHash) mm.push('snapshotHash');
+        ['batchId', 'contentHash', 'processTreeId'].forEach(function (k) { if (String(b[k]) !== String(sig[k])) mm.push(k); });
+        if (String(b.manifestId || b.mf || '') !== String(sig.manifestId || '')) mm.push('manifestId');
+        var cp = b.issueSignature || null;
+        if (cp) { if (cp.signatureId !== sig.signatureId) mm.push('copy.signatureId'); if (cp.signatureHash !== sig.signatureHash) mm.push('copy.signatureHash'); }
+      }
+      return mm.length ? 'mismatch' : 'match';
+    }
+    function csvRow(r, ctx) {
+      var u = ctx.u, sig = r.source === 'esign' ? (ctx.sigs[r.signatureId] || null) : null, est = (r.estimated || []).slice();
+      var at = csvTime(r.at, est), batch = r.batchId || '';
+      if (!batch && r.batchHint) { batch = r.batchHint; if (est.indexOf('batchId') < 0) est.push('batchId'); }
+      var tg = [], addT = function (v) { if (v && tg.indexOf(String(v)) < 0) tg.push(String(v)); };
+      addT(r.targetRef); addT(r.lineId); addT(r.dispenseId);
+      var reason = r.why ? (r.whyLabel && r.whyLabel !== r.why ? r.whyLabel + ' (' + r.why + ')' : r.why) : '';
+      var vd = r.source === 'esign' ? ctx.validity(sig) : null;
+      return [r.rowId, r.source, r.result, r.resultLabel, at, r.meaning, r.meaningText, r.meaningTextEn, r.signerId, r.signerDisplayName,
+        r.source === 'esign' ? r.signerRole : '', r.recordType, r.recordTypeLabel, batch, r.orderNo, tg.join(' · '),
+        r.signRuleId ? r.signRuleId + (r.signRuleVer != null && r.signRuleVer !== '' ? ' v' + r.signRuleVer : '') : '', reason,
+        r.statement, r.statementSource, r.signatureId, sig ? sig.signatureHash : '', ctx.verify(r, sig, vd), vd ? vd.state : '',
+        r.source === 'esign' ? linkOf(r.signatureId, vd && vd.voidRecord, ctx.ci) : '', est.join(';'), r.screen
+      ].map(function (v) { return v == null ? '' : String(v); });
+    }
+    function exportScope(o) {
+      var u = U(); if (!u || !u.ESign || !u.Audit) return { ok: false, why: 'no_helper', message: CSV_MSG.no_helper };
+      var sc = scopeOrFail(o);
+      if (!sc.ok) return { ok: false, why: sc.why, message: sc.message, scope: sc };
+      var cur = readJson('ebmr.currentUser.v1', null);
+      if (!cur || normId(cur.userId) !== normId(sc.userId)) return { ok: false, why: 'not_current_user', message: CSV_MSG.not_current_user, scope: sc };
+      if (sc.canExport !== true) return { ok: false, why: 'export_denied', message: CSV_MSG.export_denied, scope: sc };
+      return sc;
+    }
+    function exportRows(filter, o) {
+      var sc = exportScope(o); if (!sc.ok) return sc;
+      var u = U(), f = clone(filter || {}) || {}; delete f.offset; delete f.limit;
+      var cnt = query(Object.assign(clone(f), { limit: 1 }), { userId: sc.userId, scope: sc });   /* 상한 검사 먼저 (행 꾸밈 없이 개수만) */
+      if (!cnt.ok) return { ok: false, why: cnt.why, message: cnt.message };
+      if (cnt.total > CSV_ROW_LIMIT) return { ok: false, why: 'too_many_rows', total: cnt.total, limit: CSV_ROW_LIMIT, message: tooManyMessage(cnt.total) };
+      var sigs = {}; readArr(K.ESIGN).forEach(function (s) { if (s && s.signatureId && !sigs[s.signatureId]) sigs[s.signatureId] = s; });
+      var q, rows;
+      if (!opts.csvNoBulk) bulk = { sigs: sigs, dispense: readArr(K.DISPENSE), issued: readArr(K.ISSUED) };
+      try {
+        q = query(f, { userId: sc.userId, scope: sc });
+        if (!q.ok) return { ok: false, why: q.why, message: q.message };
+        var ctx = { u: u, sigs: sigs, ci: correctionIndex(), validity: opts.csvNoBulk ? function (s) { return u.ESign.validity(s); } : bulkValidity(u),
+                    verify: opts.csvNoBulk ? function (r) { return verifyRow(r).state; } : function (r, s, vd) { return verifyWith(r, s, vd, u); } };
+        rows = q.rows.map(function (r) { return csvRow(r, ctx); });
+      } finally { bulk = null; }
+      return { ok: true, total: q.total, columns: CSV_COLUMNS.slice(), columnsKo: CSV_COLUMNS_KO.slice(), rows: rows,
+               applied: clone(q.applied), scope: sc, unlinkedRefCount: linkStatus({ batchId: q.applied.batchId }).unlinked.length };
+    }
+    /* D1-7b 직렬화 — UTF-8 BOM · CRLF · 모든 값 따옴표(D-4) · 수식 주입 방지(D-11) · # 머리말 14줄(D-9) */
+    var GUARD_RE = /^[=+\-@\t\r]/;
+    function hdrVal(v) { return String(v == null ? '' : v).replace(/[\r\n]+/g, ' '); }
+    function condVal(v) { if (v == null || v === '' || (Array.isArray(v) && !v.length)) return '(전체)'; return Array.isArray(v) ? v.join(';') : String(v); }
+    /* 머리말 · 파일 이름 · 감사 요약용 '실제로 조회에 쓰인 조건' — 조회가 무시하는 값(해석 안 되는 날짜, 모르는 결과 · 의미 코드, asc 밖 정렬)은 적지 않는다 */
+    function okTime(v) { if (v == null || v === '') return null; var str = String(v); if (/^\d{4}-\d{2}-\d{2}$/.test(str)) str += 'T00:00:00+09:00'; return isNaN(Date.parse(str)) ? null : String(v); }
+    function effectiveFilter(applied) {
+      var a = applied || {}, list = function (v, ok) { if (v == null || v === '') return null; return (Array.isArray(v) ? v : [v]).map(String).filter(ok); };
+      var res = list(a.result === 'all' ? RESULTS : a.result, function (x) { return RESULTS.indexOf(x) >= 0; });
+      return { from: okTime(a.from), to: okTime(a.to), batchId: a.batchId == null || a.batchId === '' ? null : String(a.batchId),
+               result: res, meaning: list(a.meaning, function (x) { return Object.prototype.hasOwnProperty.call(MEANING, x); }), order: a.order === 'asc' ? 'asc' : 'desc' };
+    }
+    function toCsv(rows, meta) {
+      var m = meta || {}, f = m.filter || {}, guarded = 0, list = Array.isArray(rows) ? rows : [];
+      var cell = function (v) { var s = v == null ? '' : String(v); if (GUARD_RE.test(s)) { s = "'" + s; cell.hit = true; } return '"' + s.replace(/"/g, '""') + '"'; };
+      /* 머리말 값도 본문과 같은 주입 방지 · 따옴표 (줄 수 고정 위해 값 안 줄바꿈은 공백으로). 머리말 적중은 guarded(행 수)에 넣지 않음 */
+      var hv = function (v) { var s = hdrVal(v); if (GUARD_RE.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
+      var ef = effectiveFilter(f), kv = function (k, v) { return '# ' + k + ',' + hv(v); };
+      var head = ['# eBR 서명 내역 (S-42) CSV 내보내기', kv('exported_at', m.exportedAt), kv('exported_by', hdrVal(m.exportedBy) + ' (' + hdrVal(m.role) + ')'),
+        kv('scope', m.scope), kv('filter.from', condVal(ef.from)), kv('filter.to', condVal(ef.to)), kv('filter.batchId', condVal(ef.batchId)),
+        kv('filter.result', condVal(ef.result)), kv('filter.meaning', condVal(ef.meaning)), kv('filter.order', ef.order),
+        kv('row_count', list.length), kv('csv_injection_guard', 'prefix_apostrophe'), kv('unlinked_ref_count', m.unlinkedRefCount || 0), '# columns_ko,' + CSV_COLUMNS_KO.map(hv).join(',')];
+      var body = [CSV_COLUMNS.join(',')];
+      list.forEach(function (r) { cell.hit = false; body.push(r.map(cell).join(',')); if (cell.hit) guarded++; });
+      return { text: '\uFEFF' + head.concat(body).join('\r\n') + '\r\n', rowCount: list.length, guarded: guarded };
+    }
+    /* T-1: 파일 해시는 표준 SHA-256 (FIPS 180-4) 을 UTF-8 바이트(BOM 포함)에 적용 — 외부 도구(sha256sum 등)와 같은 값.
+       헬퍼 sha256Hex 는 상수 1개가 표준과 달라(K[26]) 외부 도구 값과 다르므로 파일 해시에는 쓰지 않는다 (서명 · 내용 해시는 헬퍼 그대로) */
+    function utf8Bytes(s) {
+      var out = [];
+      for (var i = 0; i < s.length; i++) {
+        var c = s.charCodeAt(i);
+        if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) { var c2 = s.charCodeAt(i + 1); if (c2 >= 0xdc00 && c2 <= 0xdfff) { c = 0x10000 + ((c - 0xd800) << 10) + (c2 - 0xdc00); i++; } }
+        if (c >= 0xd800 && c <= 0xdfff) c = 0xfffd;   /* 짝 없는 대리 문자 → U+FFFD (TextEncoder 와 같음) */
+        if (c < 0x80) out.push(c);
+        else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+        else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+        else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 0x3f), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+      }
+      return out;
+    }
+    var SHA_K = (function () {
+      var k = [], n = 2;
+      while (k.length < 64) {
+        var pr = true; for (var d = 2; d * d <= n; d++) if (n % d === 0) { pr = false; break; }
+        if (pr) { var x = Math.pow(n, 1 / 3); k.push(Math.floor((x - Math.floor(x)) * 4294967296) >>> 0); }
+        n++;
+      }
+      return k;
+    })();
+    function fileSha256(bytes) {
+      var H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+      var b = bytes.slice(), l = bytes.length, hi = Math.floor(l / 0x20000000), lo = (l << 3) >>> 0, w = new Array(64);
+      var rotr = function (n, x) { return (x >>> n) | (x << (32 - n)); };
+      b.push(0x80); while (b.length % 64 !== 56) b.push(0);
+      b.push((hi >>> 24) & 255, (hi >>> 16) & 255, (hi >>> 8) & 255, hi & 255, (lo >>> 24) & 255, (lo >>> 16) & 255, (lo >>> 8) & 255, lo & 255);
+      for (var i = 0; i < b.length; i += 64) {
+        for (var j = 0; j < 16; j++) w[j] = ((b[i + j * 4] << 24) | (b[i + j * 4 + 1] << 16) | (b[i + j * 4 + 2] << 8) | b[i + j * 4 + 3]) >>> 0;
+        for (j = 16; j < 64; j++) {
+          var s0 = rotr(7, w[j - 15]) ^ rotr(18, w[j - 15]) ^ (w[j - 15] >>> 3), s1 = rotr(17, w[j - 2]) ^ rotr(19, w[j - 2]) ^ (w[j - 2] >>> 10);
+          w[j] = (w[j - 16] + s0 + w[j - 7] + s1) >>> 0;
+        }
+        var a = H[0], bb = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+        for (j = 0; j < 64; j++) {
+          var t1 = (h + (rotr(6, e) ^ rotr(11, e) ^ rotr(25, e)) + ((e & f) ^ (~e & g)) + SHA_K[j] + w[j]) >>> 0;
+          var t2 = ((rotr(2, a) ^ rotr(13, a) ^ rotr(22, a)) + ((a & bb) ^ (a & c) ^ (bb & c))) >>> 0;
+          h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = bb; bb = a; a = (t1 + t2) >>> 0;
+        }
+        H[0] = (H[0] + a) >>> 0; H[1] = (H[1] + bb) >>> 0; H[2] = (H[2] + c) >>> 0; H[3] = (H[3] + d) >>> 0;
+        H[4] = (H[4] + e) >>> 0; H[5] = (H[5] + f) >>> 0; H[6] = (H[6] + g) >>> 0; H[7] = (H[7] + h) >>> 0;
+      }
+      return H.map(function (x) { var t = x.toString(16); while (t.length < 8) t = '0' + t; return t; }).join('');
+    }
+    function fileNameOf(applied, userId, at) {
+      var a = applied || {}, d = function (v) { return v ? String(v).slice(0, 10).replace(/-/g, '') : ''; };
+      var range = a.from || a.to ? (d(a.from) || 'open') + '-' + (d(a.to) || 'open') : 'all';
+      var ts = String(at || '').slice(0, 19).replace(/-/g, '').replace('T', '-').replace(/:/g, '');
+      return ['esign-history', a.batchId || 'ALL', range, ts, userId || ''].join('_').replace(/[^A-Za-z0-9._-]/g, '-') + '.csv';
+    }
+    /* D1-7c 해시 · 파일 이름 · 감사(ESIGN_EXPORT, 공개 Audit.append) — 감사 성공 후에만 text 반환 */
+    function exportCsv(filter, o) {
+      var x = exportRows(filter, o); if (!x.ok) return x;
+      if (!x.total) return { ok: false, why: 'no_rows', message: CSV_MSG.no_rows };
+      var u = U(), sc = x.scope, at = u.nowIsoLocal(), ef = effectiveFilter(x.applied), fileName = fileNameOf(ef, sc.userId, at);
+      var c = toCsv(x.rows, { exportedAt: at, exportedBy: sc.userId, role: sc.role, scope: sc.scope, filter: x.applied, unlinkedRefCount: x.unlinkedRefCount });
+      var fb = utf8Bytes(c.text), hash = fileSha256(fb), bytes = fb.length, ap = x.applied;
+      var range = ef.from || ef.to ? (ef.from || '') + '~' + (ef.to || '') : '';
+      var ent = { act: CSV_EXPORT_ACT, uid: sc.userId, tgt: 'S-42', val: ['CSV ' + c.rowCount + '행', ef.batchId || '', range].filter(Boolean).join(' · '), why: '', at: at,
+                  before: null, after: { format: 'csv', rowCount: c.rowCount, fileName: fileName, fileHash: hash, bytes: bytes, columns: CSV_COLUMNS.length },
+                  detail: { filter: clone(ap), scope: sc.scope, role: sc.role, guarded: c.guarded, truncated: false }, screen: CSV_SCREEN };
+      if (ap.batchId) ent.batchId = ap.batchId;
+      var rec = null;
+      try { rec = u.Audit.append(ent); } catch (e) { rec = null; }
+      if (!rec || !rec.auditId || rec.act !== CSV_EXPORT_ACT) return { ok: false, why: 'audit_failed', message: CSV_MSG.audit_failed, alertType: 'Error' };
+      return { ok: true, text: c.text, fileName: fileName, mimeType: 'text/csv;charset=utf-8', rowCount: c.rowCount, guarded: c.guarded, fileHash: hash, bytes: bytes,
+               columns: CSV_COLUMNS.length, auditId: rec.auditId, exportedAt: at, message: 'CSV ' + c.rowCount + '행을 내보냈습니다.' };
+    }
+
     return {
       VERSION: 1, KEYS: clone(K), RESULTS: RESULTS.slice(), DEFAULT_RESULTS: DEFAULT_RESULTS.slice(), RESULT_LABEL: clone(RESULT_LABEL),
       MEANING: clone(MEANING), WHY_LABEL: clone(WHY_LABEL), RECORD_TYPE_LABEL: clone(RECORD_TYPE_LABEL), UNKNOWN_RECORD_TYPE: UNKNOWN_RECORD_TYPE,
       ORPHAN_RECORD_TYPES: ORPHAN_RECORD_TYPES.slice(), ORPHAN_LABEL: ORPHAN_LABEL, signatureRefs: signatureRefs, isOrphan: isOrphan, orphans: orphans,
       UNLINKED_LABEL: UNLINKED_LABEL, UNLINKED_MESSAGE: UNLINKED_MESSAGE, UNLINKED_SCREENS: clone(UNLINKED_SCREENS), SCOPE_BY_ROLE: clone(SCOPE_BY_ROLE),
       viewScope: viewScope, query: query, get: get, timeline: timeline, verify: verify, batchSummary: batchSummary, linkStatus: linkStatus, batches: batches,
-      whyLabel: whyLabel, create: create
+      whyLabel: whyLabel, create: create,
+      CSV_COLUMNS: CSV_COLUMNS.slice(), CSV_COLUMNS_KO: CSV_COLUMNS_KO.slice(), CSV_ROW_LIMIT: CSV_ROW_LIMIT, CSV_EXPORT_ACT: CSV_EXPORT_ACT, CSV_MSG: clone(CSV_MSG),
+      exportRows: exportRows, toCsv: toCsv, exportCsv: exportCsv, csvEffectiveFilter: function (a) { return effectiveFilter(a); }, fileSha256: function (text) { return fileSha256(utf8Bytes(String(text == null ? '' : text))); }, csvFileName: fileNameOf, csvTooManyMessage: tooManyMessage
     };
   }
 
