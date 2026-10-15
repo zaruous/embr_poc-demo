@@ -26,50 +26,50 @@
   .lnk:hover { color: var(--c-primary-active); }
 
   /* 게이트 상태 셀: 차단 / 통과 / N/A */
-  .gate-st { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .gate-st { display: inline-flex; align-items: center; gap: var(--split-gutter); white-space: nowrap; }
   .gate-st.block { color: var(--c-error); font-weight: bold; }
   .gate-st.pass .dot { background: var(--c-ok); }
   .gate-st.na { color: var(--c-text-disabled); }
   .gate-st.na .dot { background: var(--c-border-03); }
   #grdGate tbody tr.blocked td { background: rgba(249, 213, 209, 0.45); }   /* var(--bc-faulty) 연하게 */
-  #grdGate tbody tr.linked td:first-child { box-shadow: inset 4px 0 0 var(--c-primary); }
+  #grdGate tbody tr.linked td:first-child { box-shadow: inset var(--badge-gap) 0 0 var(--c-primary); }
   #grdGate tbody tr.linked td { background: var(--c-row-editing); }
   #grdGate tbody tr.linked.blocked td { background: rgba(249, 213, 209, 0.7); }
 
   /* 하단 안내 스트립(차단 사유 + 대체 경로, P-52) */
-  .gate-notice { flex: 0 0 30px; height: 30px; display: flex; align-items: center; gap: 8px; padding: 0 12px; font-size: 12px; border-top: 1px solid var(--c-border-03); background: var(--bc-gray-light); }
+  .gate-notice { flex: 0 0 var(--grid-row-h); height: var(--grid-row-h); display: flex; align-items: center; gap: var(--title-gap); padding: 0 var(--fs-grid); font-size: var(--fs-grid); border-top: 1px solid var(--c-border-03); background: var(--bc-gray-light); }
   .gate-notice.block { background: var(--bc-faulty); border-color: var(--c-error); }
   .gate-notice.ok { background: var(--bc-good); border-color: var(--c-ok); }
   .gate-notice.info { background: var(--bc-plan); border-color: var(--c-info); }
-  .gate-notice .btn.inner { height: 22px; min-height: 22px; min-width: 0; padding: 0 10px; font-size: 12px; }
+  .gate-notice .btn.inner { height: var(--fs-title); min-height: var(--fs-title); min-width: 0; padding: 0 10px; font-size: var(--fs-grid); }
   .gate-notice .sep { color: var(--c-border-03); }
 
   /* disabled 버튼은 pointer-events:none → 툴팁은 래퍼에 둔다 */
   .tip { display: inline-flex; }
 
   /* 폼 값 셀 안의 복합 표시 */
-  .form-grid > .field > .text { display: inline-flex; align-items: center; gap: 6px; }
+  .form-grid > .field > .text { display: inline-flex; align-items: center; gap: var(--split-gutter); }
 
   /* 화면 밖 데모 바: 셸 우하단 패딩 모서리에 접힌 버튼 → 클릭 시 패널 */
-  .demo-fab { position: fixed; right: 2px; bottom: 0; width: 26px; height: 18px; border: 1px solid var(--c-text-sub); border-radius: 3px 3px 0 0; background: var(--c-text); color: var(--c-bg); font: bold 9px/16px 'Malgun Gothic', sans-serif; text-align: center; cursor: pointer; z-index: 900; opacity: .85; }
+  .demo-fab { position: fixed; right: var(--paging-gap); bottom: 0; width: 26px; height: 18px; border: 1px solid var(--c-text-sub); border-radius: 3px 3px 0 0; background: var(--c-text); color: var(--c-bg); font: bold 9px/var(--check-size) 'Malgun Gothic', sans-serif; text-align: center; cursor: pointer; z-index: 900; opacity: .85; }
   .demo-fab:hover { opacity: 1; }
-  .demo-panel { position: fixed; right: 12px; bottom: 24px; z-index: 900; display: none; flex-direction: column; gap: 8px; padding: 10px 14px; background: rgba(40, 40, 40, 0.94); color: var(--c-bg); border-radius: 4px; box-shadow: 0 6px 12px rgba(0,0,0,.3); font: 12px 'Malgun Gothic', sans-serif; letter-spacing: -0.03em; }
+  .demo-panel { position: fixed; right: var(--fs-grid); bottom: var(--ctrl-h-form); z-index: 900; display: none; flex-direction: column; gap: var(--title-gap); padding: 10px 14px; background: rgba(40, 40, 40, 0.94); color: var(--c-bg); border-radius: var(--badge-gap); box-shadow: 0 var(--split-gutter) var(--fs-grid) rgba(0,0,0,.3); font: var(--fs-grid) 'Malgun Gothic', sans-serif; letter-spacing: -0.03em; }
   .demo-panel.open { display: flex; }
   .demo-panel .dp-title { font-weight: bold; color: var(--c-warn); }
-  .demo-panel label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+  .demo-panel label { display: inline-flex; align-items: center; gap: var(--split-gutter); cursor: pointer; white-space: nowrap; }
   .demo-panel input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: var(--c-warn); }
-  .demo-panel button { font: 12px 'Malgun Gothic', sans-serif; padding: 2px 10px; border: 1px solid var(--c-text-disabled); background: var(--c-text-sub); color: var(--c-bg); border-radius: 2px; cursor: pointer; }
+  .demo-panel button { font: var(--fs-grid) 'Malgun Gothic', sans-serif; padding: var(--paging-gap) 10px; border: 1px solid var(--c-text-disabled); background: var(--c-text-sub); color: var(--c-bg); border-radius: var(--radius); cursor: pointer; }
   .demo-panel button:hover { background: var(--c-text-sub); }
 
   /* primary dual-pane (RBE 예외 | 서명 상태) — flex + gutter; dialog .split untouched */
 
   .flow-strip {
-    flex: 0 0 36px; display: flex; align-items: center; gap: 0; padding: 0 4px;
+    flex: 0 0 var(--form-row-h); display: flex; align-items: center; gap: 0; padding: 0 var(--badge-gap);
     border: 1px solid var(--c-border-03); background: var(--bc-gray-light);
   }
   .flow-strip .fl {
-    display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 14px;
-    font-size: 12px; color: var(--c-text-sub); border-radius: 2px; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: var(--split-gutter); height: var(--ctrl-h); padding: 0 14px;
+    font-size: var(--fs-grid); color: var(--c-text-sub); border-radius: var(--radius); white-space: nowrap;
     text-decoration: none;
   }
   .flow-strip .fl .n {
@@ -81,19 +81,19 @@
   .flow-strip .fl.active { color: var(--c-primary); font-weight: bold; background: var(--c-bg); box-shadow: inset 0 -2px 0 var(--c-primary); }
   .flow-strip .fl.active .n { background: var(--c-primary); color: var(--c-bg); }
   .flow-strip .fl.wait .n { background: var(--bc-gray); color: var(--c-text-disabled); }
-  .flow-strip .arrow { color: var(--c-border-03); padding: 0 4px; font-size: 14px; }
-  .flow-strip .hint { margin-left: auto; font-size: 11px; color: var(--c-text-disabled); padding-right: 8px; }
+  .flow-strip .arrow { color: var(--c-border-03); padding: 0 var(--badge-gap); font-size: 14px; }
+  .flow-strip .hint { margin-left: auto; font-size: 11px; color: var(--c-text-disabled); padding-right: var(--title-gap); }
   .snap-banner {
-    display: flex; align-items: flex-start; gap: 8px; min-height: 32px; padding: 8px 12px;
-    border: 1px solid var(--c-border-04); border-radius: var(--radius); font-size: 12px;
-    background: var(--bc-plan); margin: 0 0 8px;
+    display: flex; align-items: flex-start; gap: var(--title-gap); min-height: 32px; padding: var(--title-gap) var(--fs-grid);
+    border: 1px solid var(--c-border-04); border-radius: var(--radius); font-size: var(--fs-grid);
+    background: var(--bc-plan); margin: 0 0 var(--title-gap);
   }
   .snap-banner.bc-alam { background: var(--bc-alam); border-color: var(--c-error); }
   .snap-banner.bc-good { background: var(--bc-good); }
   .snap-banner.bc-gray { background: var(--bc-gray-light); }
   .snap-banner.hidden { display: none; }
   .snap-banner .mono { font-family: Consolas, 'Courier New', monospace; }
-  .next-cta { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+  .next-cta { display: inline-flex; align-items: center; gap: var(--title-gap); margin-left: auto; }
 
   #gateSplit.rs-split {
     display: flex; flex-direction: row; gap: 0;
@@ -101,14 +101,14 @@
     grid-template-columns: unset;
   }
   #gateSplit > .grid-block.rs-pane {
-    min-height: 0; min-width: 160px; display: flex; flex-direction: column; overflow: hidden;
+    min-height: 0; min-width: var(--col-w-160); display: flex; flex-direction: column; overflow: hidden;
   }
   #paneGateRbe { flex: 0 0 840px; width: 840px; }
-  #paneGateSig { flex: 1 1 auto; min-width: 200px; }
+  #paneGateSig { flex: 1 1 auto; min-width: var(--col-w-200); }
 
   /* ---- resizable split gutters (rs-*) — do not collide with mesui .split ---- */
   .rs-gutter {
-    flex: 0 0 6px; width: 6px; min-width: 6px; cursor: col-resize;
+    flex: 0 0 var(--split-gutter); width: var(--split-gutter); min-width: var(--split-gutter); cursor: col-resize;
     background: var(--c-bg-light); border: none; padding: 0; margin: 0;
     align-self: stretch; position: relative;
   }
