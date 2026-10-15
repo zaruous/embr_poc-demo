@@ -1025,6 +1025,9 @@
   }
   var CSV_ERR_FIXED = 'CSV 내보내기 중 오류가 발생했습니다. 다시 시도하세요.';
   var CSV_SAVE_FIXED = 'CSV 파일을 저장하지 못했습니다. 다시 시도하세요.';
+  /* console.warn 용 예외 이름 허용 목록 — 밖(사용자 정의 · 비밀값 형태)은 'Error'. message/stack 은 남기지 않음 */
+  var CSV_ERR_NAMES = ['Error', 'TypeError', 'RangeError', 'DOMException', 'SyntaxError', 'ReferenceError', 'URIError', 'EvalError', 'AggregateError'];
+  function csvErrName(e) { var n = e && typeof e.name === 'string' ? e.name : ''; return CSV_ERR_NAMES.indexOf(n) >= 0 ? n : 'Error'; }
   function runCsv() {
     if (st.csv.busy || !st.csv.okReady) return null;
     csvSetErr(''); csvSetLock(true);
@@ -1032,11 +1035,11 @@
     /* 잠금 화면을 먼저 그린 뒤 생성 (exportCsv 는 동기 — 값 또는 Promise 모두 받음) */
     return new Promise(function (res) { requestAnimationFrame(function () { setTimeout(res, 0); }); })
       .then(function () { return V.exportCsv(f); })
-      .catch(function (e) { if (window.console) console.warn(((e && e.name) || 'Error') + ' CSV_EXPORT_FAIL'); return { ok: false, why: 'error', message: CSV_ERR_FIXED }; })
+      .catch(function (e) { if (window.console) console.warn(csvErrName(e) + ' CSV_EXPORT_FAIL'); return { ok: false, why: 'error', message: CSV_ERR_FIXED }; })
       .then(function (r) {
         csvSetLock(false);
         var saved = false;
-        if (r && r.ok) { try { saveBlob(r); saved = true; } catch (e) { if (window.console) console.warn(((e && e.name) || 'Error') + ' CSV_SAVE_FAIL'); } }
+        if (r && r.ok) { try { saveBlob(r); saved = true; } catch (e) { if (window.console) console.warn(csvErrName(e) + ' CSV_SAVE_FAIL'); } }
         if (r && r.ok && !saved) { csvSetLock(false); csvSetErr(CSV_SAVE_FIXED); MesUI.alert(CSV_SAVE_FIXED, 'Error'); }   /* Blob 생성 · 저장 실패 — 고정 문구 · 잠금 해제 */
         else if (r && r.ok) { MesUI.closeDialog('dlgCsv'); MesUI.toast(r.message || ('CSV ' + r.rowCount + '행을 내보냈습니다.'), 'ok', 3000); }
         else if (r && r.why === 'audit_failed') { csvSetErr(csvMsg(r)); MesUI.alert(r.message || csvMsg(r), 'Error'); }   /* 차단성 — 토스트 쓰지 않음 */
