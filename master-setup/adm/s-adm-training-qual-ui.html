@@ -6,7 +6,7 @@
   구조         : S-41 사용자 · 역할(s-adm-user-role-ui.html)과 같은 셸 · 공통 사용자 선택기 블록(P0Ui)
   권한         : QA 역할만 편집(부여 · 회수 · 이수 등록 · 요구 매핑). 그 밖 역할은 조회만 (Q1)
   저장         : 화면은 저장소를 직접 읽지 않음 — window.EbrQual(assets/ebr-qual-store.js) 경유.
-                 EbrQual 미로드 시 화면 안 데모 데이터(메모리, 저장 없음)로 레이아웃만 시연 → TQApi 구역 TODO 참고.
+                 EbrQual 미로드 시 화면 안 데모 데이터(메모리, 저장 없음)로 레이아웃만 시연.
 -->
 <html lang="ko">
 <head>
@@ -428,7 +428,6 @@
  *   recordTraining({courseId,userIds,completedAt,method,result,trainerId,note,actorId,screen}) → {ok,trIds}
  *   listRequirements() · saveRequirement({target,qualIds,mode,reason,actorId,screen}) · gateTargets()(제안)
  *   listQualDefs() · listCourses() · listSopVersions(sopId) (제안, J9)
- * TODO(store 연동): EbrQual 시그니처 확정 시 아래 함수 본문만 맞춘다. EbrQual 이 없으면 DEMO(메모리) 로 레이아웃만 시연 — 판정 · 날짜 계산은 DEMO 고정값.
  */
 var TQApi = (function () {
   'use strict';

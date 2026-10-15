@@ -28,11 +28,11 @@
   .lnk.disabled { color: var(--c-text-disabled); cursor: default; pointer-events: none; }
 
   .flow-strip {
-    flex: 0 0 var(--form-row-h); display: flex; align-items: center; gap: 0; padding: 0 var(--badge-gap);
+    flex: 0 0 36px; display: flex; align-items: center; gap: 0; padding: 0 4px;
     border: 1px solid var(--c-border-03); background: var(--bc-gray-light);
   }
   .flow-strip .fl {
-    display: inline-flex; align-items: center; gap: var(--split-gutter); height: var(--ctrl-h); padding: 0 14px;
+    display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 14px;
     font-size: var(--fs-grid); color: var(--c-text-sub); border-radius: var(--radius); white-space: nowrap;
   }
   .flow-strip .fl .n {
@@ -44,28 +44,28 @@
   .flow-strip .fl.active { color: var(--c-primary); font-weight: bold; background: var(--c-bg); box-shadow: inset 0 -2px 0 var(--c-primary); }
   .flow-strip .fl.active .n { background: var(--c-primary); color: var(--c-bg); }
   .flow-strip .fl.wait .n { background: var(--bc-gray); color: var(--c-text-disabled); }
-  .flow-strip .arrow { color: var(--c-border-03); padding: 0 var(--badge-gap); font-size: 14px; }
-  .flow-strip .hint { margin-left: auto; font-size: 11px; color: var(--c-text-disabled); padding-right: var(--title-gap); }
+  .flow-strip .arrow { color: var(--c-border-03); padding: 0 4px; font-size: 14px; }
+  .flow-strip .hint { margin-left: auto; font-size: 11px; color: var(--c-text-disabled); padding-right: 8px; }
 
   /* .il-banner(인터록 배너 1줄) · 등급 칩 → ./ilr-ui.css (토큰화, 생산 · 포장 · S-23 · S-48 공통) */
 
   .phase-board { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; }
   .phase-board .up-block { border-bottom: 1px solid var(--c-border-03); }
   .phase-board .up-head {
-    display: flex; align-items: center; gap: var(--title-gap); height: var(--ctrl-h); padding: 0 10px;
+    display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px;
     background: var(--bc-gray-light); font-size: var(--fs-grid); font-weight: bold; color: var(--c-text-sub);
   }
   .phase-board .up-head .up-id { color: var(--c-primary); }
   .phase-board .step { cursor: pointer; }
-  .phase-board .step.indent { padding-left: var(--ctrl-h); grid-template-columns: var(--ctrl-h) minmax(0, 1fr) auto; }
+  .phase-board .step.indent { padding-left: 28px; grid-template-columns: 28px minmax(0, 1fr) auto; }
   .phase-board .step .eq-tag {
-    display: inline-flex; align-items: center; height: var(--check-size); padding: 0 5px; margin-left: var(--split-gutter);
+    display: inline-flex; align-items: center; height: 16px; padding: 0 5px; margin-left: 6px;
     border-radius: var(--radius); font-size: 10px; font-weight: bold; background: var(--bc-plan); color: var(--c-info);
   }
-  .phase-board .step.selected { outline: var(--paging-gap) solid var(--c-primary); outline-offset: -2px; }
+  .phase-board .step.selected { outline: 2px solid var(--c-primary); outline-offset: -2px; }
   .phase-board .step.locked-skip { opacity: .85; }
   /* 트리 준수 (PT-01) — 상태 기호 · 배지 (UI 문서 §2). 판정은 EbrTreeExec.rowState 결과만 */
-  .phase-board .step .tsym { display: inline-block; width: var(--fs-grid); margin-right: var(--title-gap); }
+  .phase-board .step .tsym { display: inline-block; width: 12px; margin-right: var(--title-gap); }
   .phase-board .step.ts-locked .name, .phase-board .step.ts-super .name { color: var(--c-text-disabled); }
   .phase-board .step.ts-skip { background: var(--bc-gray-light); }
   .phase-board .step.ts-term { background: var(--bc-faulty); }
@@ -100,8 +100,8 @@
   #dlgTreeBlock .blkmsg { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   .elig-row {
-    display: grid; grid-template-columns: var(--label-w) 1fr 90px 90px 90px; gap: 0;
-    align-items: center; min-height: var(--form-row-h); padding: 0 10px;
+    display: grid; grid-template-columns: 110px 1fr 90px 90px 90px; gap: 0;
+    align-items: center; min-height: 36px; padding: 0 10px;
     border-top: 1px solid var(--c-border-05); font-size: var(--fs-grid);
   }
   .elig-row:first-child { border-top: none; }
@@ -109,7 +109,7 @@
   .elig-row.fail { background: rgba(249, 213, 209, 0.45); }
   .elig-row.warn { background: rgba(255, 238, 218, 0.55); }
   .elig-sum {
-    display: flex; align-items: center; gap: var(--title-gap); min-height: 32px; padding: 0 10px;
+    display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 10px;
     font-size: var(--fs-grid); border-top: 1px solid var(--c-border-03); background: var(--bc-gray-light);
   }
 
@@ -122,16 +122,16 @@
   .wl-row .wl-id { font-family: var(--font-mono); font-weight: bold; color: var(--c-primary); }
   .wl-row .wl-mat { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .wl-row.done { background: rgba(220, 245, 230, 0.45); }
-  .wl-row .num { text-align: right; font-variant-numeric: tabular-nums; padding-right: var(--split-gutter); }
+  .wl-row .num { text-align: right; font-variant-numeric: tabular-nums; padding-right: 6px; }
   .wl-sum {
-    display: flex; align-items: center; gap: var(--title-gap); min-height: var(--grid-row-h); padding: 0 10px;
+    display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 10px;
     font-size: var(--fs-grid); border-top: 1px solid var(--c-border-03); background: var(--bc-gray-light);
   }
 
-  .sign-cards { display: flex; gap: var(--title-gap); padding: var(--title-gap) 10px; flex: 0 0 auto; flex-wrap: wrap; }
+  .sign-cards { display: flex; gap: 8px; padding: 8px 10px; flex: 0 0 auto; flex-wrap: wrap; }
   .sign-card {
     flex: 1 1 var(--col-w-140); min-width: var(--col-w-140); border: 1px solid var(--c-border-04); border-radius: var(--radius);
-    padding: var(--title-gap) 10px; background: var(--c-board-normal); display: flex; flex-direction: column; gap: var(--badge-gap);
+    padding: 8px 10px; background: var(--c-board-normal); display: flex; flex-direction: column; gap: 4px;
   }
   .sign-card .sc-title { font-size: var(--fs-grid); font-weight: bold; }
   .sign-card .sc-meta { font-size: 11px; color: var(--c-text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: var(--badge-gap); }
@@ -149,27 +149,27 @@
   .hash { font-family: Consolas, 'Courier New', monospace; font-size: 11px; }
 
   .demo-fab {
-    position: fixed; right: var(--paging-gap); bottom: 0; width: 26px; height: 18px;
+    position: fixed; right: 2px; bottom: 0; width: 26px; height: 18px;
     border: 1px solid var(--c-text-sub); border-radius: 3px 3px 0 0; background: var(--c-text); color: var(--c-bg);
-    font: bold 9px/var(--check-size) 'Malgun Gothic', sans-serif; text-align: center; cursor: pointer; z-index: 900; opacity: .85;
+    font: bold 9px/16px 'Malgun Gothic', sans-serif; text-align: center; cursor: pointer; z-index: 900; opacity: .85;
   }
   .demo-fab:hover { opacity: 1; }
   .demo-panel {
-    position: fixed; right: var(--fs-grid); bottom: var(--ctrl-h-form); z-index: 900; display: none; flex-direction: column; gap: var(--title-gap);
-    padding: 10px 14px; background: rgba(40, 40, 40, 0.94); color: var(--c-bg); border-radius: var(--badge-gap);
-    box-shadow: 0 var(--split-gutter) var(--fs-grid) rgba(0,0,0,.3); font: var(--fs-grid) 'Malgun Gothic', sans-serif; letter-spacing: -0.03em;
+    position: fixed; right: 12px; bottom: 24px; z-index: 900; display: none; flex-direction: column; gap: 8px;
+    padding: 10px 14px; background: rgba(40, 40, 40, 0.94); color: var(--c-bg); border-radius: 4px;
+    box-shadow: 0 6px 12px rgba(0,0,0,.3); font: var(--fs-grid) 'Malgun Gothic', sans-serif; letter-spacing: -0.03em;
     max-width: 320px;
   }
   .demo-panel.open { display: flex; }
   .demo-panel .dp-title { font-weight: bold; color: var(--c-warn); }
-  .demo-panel label { display: inline-flex; align-items: center; gap: var(--split-gutter); cursor: pointer; white-space: nowrap; }
+  .demo-panel label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
   .demo-panel input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: var(--c-warn); }
   .demo-panel button {
-    font: var(--fs-grid) 'Malgun Gothic', sans-serif; padding: var(--paging-gap) 10px; border: 1px solid var(--c-text-disabled);
+    font: var(--fs-grid) 'Malgun Gothic', sans-serif; padding: 2px 10px; border: 1px solid var(--c-text-disabled);
     background: var(--c-text-sub); color: var(--c-bg); border-radius: var(--radius); cursor: pointer;
   }
   .demo-panel button:hover { background: var(--c-text-sub); }
-  .demo-panel .dp-row { display: flex; flex-wrap: wrap; gap: var(--split-gutter); align-items: center; }
+  .demo-panel .dp-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .demo-panel button.cur { background: var(--c-primary); border-color: var(--c-primary); }   /* W7 현재 프리셋 = primary 모양 */
 
   .shell-body > .split.main-split {
@@ -196,7 +196,7 @@
   body.is-resizing { cursor: col-resize; user-select: none; }
   body.is-resizing .rs-pane { pointer-events: none; }
 
-  .shell-body > .grid-block.log-block { flex: 0 0 var(--col-w-200); min-height: 0; }
+  .shell-body > .grid-block.log-block { flex: 0 0 200px; min-height: 0; }
   .kpi-board { min-height: 64px; }
 
   /* 뷰포트/iframe 맞춤: mesui .shell-scale — 1920×1080 비율 유지하며 축소 */
@@ -207,9 +207,9 @@
   }
 
   .snap-banner {
-    display: flex; align-items: flex-start; gap: var(--title-gap); min-height: 32px; padding: var(--title-gap) var(--fs-grid);
+    display: flex; align-items: flex-start; gap: 8px; min-height: 32px; padding: 8px 12px;
     border: 1px solid var(--c-border-04); border-radius: var(--radius); font-size: var(--fs-grid);
-    background: var(--bc-plan); margin: 0 0 var(--title-gap);
+    background: var(--bc-plan); margin: 0 0 8px;
   }
   .snap-banner.bc-alam { background: var(--bc-alam); border-color: var(--c-error); }
   .snap-banner.bc-good { background: var(--bc-good); }
@@ -234,13 +234,13 @@
   #dlgRecSign .auth-hint { display: flex; gap: var(--title-gap); min-width: 0; white-space: nowrap; }   /* PoC 안내 + 자격 요건 1줄 (새 사유 행 자리 확보) */
   #dlgRecSign .auth-hint > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   #dlgRecSign .auth-hint > #signPocNote { flex: 0 0 auto; }
-  .user-card { border: 1px solid var(--c-border-04); border-radius: var(--radius); padding: var(--title-gap) var(--fs-grid); display: flex; align-items: baseline; gap: var(--title-gap); background: var(--c-board-normal); flex-wrap: wrap; }
+  .user-card { border: 1px solid var(--c-border-04); border-radius: var(--radius); padding: var(--title-gap) 12px; display: flex; align-items: baseline; gap: var(--title-gap); background: var(--c-board-normal); flex-wrap: wrap; }
   .user-card .name { font-size: var(--fs-group); font-weight: bold; }
   .user-card .badges { display: inline-flex; align-items: center; gap: var(--badge-gap); flex-wrap: wrap; align-self: center; }
   .auth-panel .sign-rule, .auth-panel .qual-req, .auth-panel .one-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   #dlgRecSign .auth-panel { overflow: hidden; }
   #dlgRecSign .sign-err { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #dlgRecSign .sign-statement { flex: 0 0 var(--form-row-h); height: var(--form-row-h); display: flex; align-items: center; padding: 0 var(--fs-grid); border: 1px solid var(--c-border-05); background: var(--bc-gray-light); font-size: var(--fs-grid); min-width: 0; overflow: hidden; }
+  #dlgRecSign .sign-statement { flex: 0 0 var(--form-row-h); height: var(--form-row-h); display: flex; align-items: center; padding: 0 12px; border: 1px solid var(--c-border-05); background: var(--bc-gray-light); font-size: var(--fs-grid); min-width: 0; overflow: hidden; }
   #dlgRecSign .sign-statement > .stmt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.35; }
   #dlgRecSign .dialog-footer .sign-note { margin-right: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   /* 서명 슬롯 표시 (§2 색 대응표): signed = 의미 점 + ID · 시각, pending = .badge.muted, invalid = .badge.error, na = .badge */
@@ -248,7 +248,7 @@
   .sign-slot { display: inline-flex; align-items: center; gap: var(--badge-gap); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   /* ==== 현재 사용자 선택기 · 역할 배지 (공통 블록 — 배치 발행 · 칭량 화면과 같음) ==== */
   .title-bar > .user-switch { margin-left: auto; display: inline-flex; align-items: center; gap: var(--split-gutter); min-width: 0; white-space: nowrap; }
-  .title-bar > .user-switch + .breadcrumb { margin-left: var(--fs-grid); }
+  .title-bar > .user-switch + .breadcrumb { margin-left: 12px; }
   .title-bar > .user-switch .tip { display: inline-flex; }
   .title-bar > .user-switch select.input { height: var(--ctrl-h-form); }
   .user-switch .us-roles { display: inline-flex; align-items: center; gap: var(--badge-gap); min-width: 0; }
